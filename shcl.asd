@@ -6,4 +6,5 @@
   :depends-on ()
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
-               (:file "lexer" :depends-on ("packages" "utility"))))
+               (:file "lexer" :depends-on ("packages" "utility"))
+               (:file "main" :depends-on ("packages"))))

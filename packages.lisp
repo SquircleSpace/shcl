@@ -18,3 +18,7 @@
    #:while #:until #:for #:{ #:} #:! #:in
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
+
+(defpackage :shcl
+  (:use :common-lisp)
+  (:export #:main))

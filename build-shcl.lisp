@@ -3,4 +3,4 @@
 (let ((here (truename ".")))
   (push here asdf:*central-registry*))
 (asdf:load-system :shcl)
-(sb-ext:save-lisp-and-die "shcl" :toplevel (lambda ()) :executable t :save-runtime-options t :purify t)
+(sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t)
