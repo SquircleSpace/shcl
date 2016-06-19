@@ -2,7 +2,12 @@
 
 (defpackage :shcl.utility
   (:use :common-lisp)
-  (:export #:define-once-global))
+  (:export
+   #:define-once-global
+   ;; Iterators
+   #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
+   #:fork-lookahead-iterator #:vector-iterator #:list-iterator
+   #:make-iterator-lookahead))
 
 (defpackage :shcl.lexer
   (:use :common-lisp :shcl.utility)

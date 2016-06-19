@@ -272,7 +272,14 @@
   (find char '(#\space #\tab #\linefeed #\return)))
 
 (defun token-iterator (stream)
-  (lambda () (next-token stream)))
+  (let (hit-eof)
+    (make-iterator ()
+      (when hit-eof
+        (stop))
+      (let ((token (next-token stream)))
+        (when (typep token 'eof)
+          (setf hit-eof t))
+        (emit token)))))
 
 (defgeneric tokenize (source))
 
