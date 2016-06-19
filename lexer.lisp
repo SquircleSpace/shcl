@@ -175,11 +175,11 @@
 
 (defun read-backquote (stream)
   (declare (ignore stream))
-  (assert nil nil "Backquote is not implemented.  It sucks anyway.  Use $()"))
+  (error "Backquote is not implemented.  It sucks anyway.  Use $()"))
 
 (defun read-dollar-curly (stream)
   (declare (ignore stream))
-  (assert nil nil "${} is not implemented"))
+  (error "${} is not implemented"))
 
 (defun read-dollar-paren (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -216,7 +216,7 @@
                (setf next-char (peek-char nil stream nil :eof))))
       (assert (equal #\( next-char))
       (take)
-      (assert nil nil "$(()) is not implemented"))))
+      (error "$(()) is not implemented"))))
 
 (defun read-name (stream)
   (let ((next-char (peek-char nil stream nil :eof))
@@ -341,141 +341,142 @@
         ;; so we can assume that the current character is never quoted
         (loop
            (block again
-             ;; If the end of input is recognized, the current token
-             ;; shall be delimited. If there is no current token, the
-             ;; end-of-input indicator shall be returned as the token.
-             (when (eq :eof next-char)
-               (delimit
-                (when (equal 0 (length word))
-                  +eof+)))
+             (cond
+               ;; If the end of input is recognized, the current token
+               ;; shall be delimited. If there is no current token, the
+               ;; end-of-input indicator shall be returned as the token.
+               ((eq :eof next-char)
+                (delimit
+                 (when (equal 0 (length word))
+                   +eof+)))
 
-             ;; If the previous character was used as part of an
-             ;; operator and the current character is not quoted and
-             ;; can be used with the current characters to form an
-             ;; operator, it shall be used as part of that (operator)
-             ;; token.
-             (when (and (is-operator) (is-operator (extend?)))
-               (extend!)
-               (consume)
-               (again))
+               ;; If the previous character was used as part of an
+               ;; operator and the current character is not quoted and
+               ;; can be used with the current characters to form an
+               ;; operator, it shall be used as part of that (operator)
+               ;; token.
+               ((and (is-operator) (is-operator (extend?)))
+                (extend!)
+                (consume)
+                (again))
 
-             ;; If the previous character was used as part of an
-             ;; operator and the current character cannot be used with
-             ;; the current characters to form an operator, the
-             ;; operator containing the previous character shall be
-             ;; delimited.
-             (when (and (is-operator) (not (is-operator (extend?))))
-               (delimit))
+               ;; If the previous character was used as part of an
+               ;; operator and the current character cannot be used with
+               ;; the current characters to form an operator, the
+               ;; operator containing the previous character shall be
+               ;; delimited.
+               ((and (is-operator) (not (is-operator (extend?))))
+                (delimit))
 
-             ;; If the current character is backslash, single-quote,
-             ;; or double-quote ( '\', '", or ' )' and it is not
-             ;; quoted, it shall affect quoting for subsequent
-             ;; characters up to the end of the quoted text. The rules
-             ;; for quoting are as described in Quoting. During token
-             ;; recognition no substitutions shall be actually
-             ;; performed, and the result token shall contain exactly
-             ;; the characters that appear in the input (except for
-             ;; <newline> joining), unmodified, including any embedded
-             ;; or enclosing quotes or substitution operators, between
-             ;; the quote mark and the end of the quoted text. The
-             ;; token shall not be delimited by the end of the quoted
-             ;; field.
-             (when (equal next-char #\')
-               (setf contains-quotes t)
-               (extend-string! (read-single-quote stream))
-               (reassess-next-char)
-               (again))
-             (when (equal next-char #\Backslash)
-               (setf contains-quotes t)
-               (consume)
-               (unless (equal next-char #\Linefeed)
-                 (extend! #\Backslash)
-                 (extend!))
-               (consume)
-               (again))
-             (when (equal next-char #\")
-               (setf contains-quotes t)
-               (extend-string! (read-double-quote stream))
-               (reassess-next-char)
-               (again))
+               ;; If the current character is backslash, single-quote,
+               ;; or double-quote ( '\', '", or ' )' and it is not
+               ;; quoted, it shall affect quoting for subsequent
+               ;; characters up to the end of the quoted text. The rules
+               ;; for quoting are as described in Quoting. During token
+               ;; recognition no substitutions shall be actually
+               ;; performed, and the result token shall contain exactly
+               ;; the characters that appear in the input (except for
+               ;; <newline> joining), unmodified, including any embedded
+               ;; or enclosing quotes or substitution operators, between
+               ;; the quote mark and the end of the quoted text. The
+               ;; token shall not be delimited by the end of the quoted
+               ;; field.
+               ((equal next-char #\')
+                (setf contains-quotes t)
+                (extend-string! (read-single-quote stream))
+                (reassess-next-char)
+                (again))
+               ((equal next-char #\Backslash)
+                (setf contains-quotes t)
+                (consume)
+                (unless (equal next-char #\Linefeed)
+                  (extend! #\Backslash)
+                  (extend!))
+                (consume)
+                (again))
+               ((equal next-char #\")
+                (setf contains-quotes t)
+                (extend-string! (read-double-quote stream))
+                (reassess-next-char)
+                (again))
 
-             ;; If the current character is an unquoted '$' or '`',
-             ;; the shell shall identify the start of any candidates
-             ;; for parameter expansion ( Parameter Expansion),
-             ;; command substitution ( Command Substitution), or
-             ;; arithmetic expansion ( Arithmetic Expansion) from
-             ;; their introductory unquoted character sequences: '$'
-             ;; or "${", "$(" or '`', and "$((", respectively. The
-             ;; shell shall read sufficient input to determine the end
-             ;; of the unit to be expanded (as explained in the cited
-             ;; sections). While processing the characters, if
-             ;; instances of expansions or quoting are found nested
-             ;; within the substitution, the shell shall recursively
-             ;; process them in the manner specified for the construct
-             ;; that is found. The characters found from the beginning
-             ;; of the substitution to its end, allowing for any
-             ;; recursion necessary to recognize embedded constructs,
-             ;; shall be included unmodified in the result token,
-             ;; including any embedded or enclosing substitution
-             ;; operators or quotes. The token shall not be delimited
-             ;; by the end of the substitution.
-             (when (equal next-char #\$)
-               (extend-string! (read-dollar stream))
-               (reassess-next-char)
-               (again))
-             (when (equal next-char #\`)
-               (extend-string! (read-backquote stream))
-               (reassess-next-char)
-               (again))
+               ;; If the current character is an unquoted '$' or '`',
+               ;; the shell shall identify the start of any candidates
+               ;; for parameter expansion ( Parameter Expansion),
+               ;; command substitution ( Command Substitution), or
+               ;; arithmetic expansion ( Arithmetic Expansion) from
+               ;; their introductory unquoted character sequences: '$'
+               ;; or "${", "$(" or '`', and "$((", respectively. The
+               ;; shell shall read sufficient input to determine the end
+               ;; of the unit to be expanded (as explained in the cited
+               ;; sections). While processing the characters, if
+               ;; instances of expansions or quoting are found nested
+               ;; within the substitution, the shell shall recursively
+               ;; process them in the manner specified for the construct
+               ;; that is found. The characters found from the beginning
+               ;; of the substitution to its end, allowing for any
+               ;; recursion necessary to recognize embedded constructs,
+               ;; shall be included unmodified in the result token,
+               ;; including any embedded or enclosing substitution
+               ;; operators or quotes. The token shall not be delimited
+               ;; by the end of the substitution.
+               ((equal next-char #\$)
+                (extend-string! (read-dollar stream))
+                (reassess-next-char)
+                (again))
+               ((equal next-char #\`)
+                (extend-string! (read-backquote stream))
+                (reassess-next-char)
+                (again))
 
-             ;; If the current character is not quoted and can be used
-             ;; as the first character of a new operator, the current
-             ;; token (if any) shall be delimited. The current
-             ;; character shall be used as the beginning of the next
-             ;; (operator) token.
-             (when (operator-prefix-p (string next-char))
-               (unless (equal 0 (length word))
-                 (delimit))
-               (extend!)
-               (consume)
-               (again))
+               ;; If the current character is not quoted and can be used
+               ;; as the first character of a new operator, the current
+               ;; token (if any) shall be delimited. The current
+               ;; character shall be used as the beginning of the next
+               ;; (operator) token.
+               ((operator-prefix-p (string next-char))
+                (unless (equal 0 (length word))
+                  (delimit))
+                (extend!)
+                (consume)
+                (again))
 
-             ;; If the current character is an unquoted <newline>, the
-             ;; current token shall be delimited.
-             (when (equal #\linefeed next-char)
-               (unless (equal 0 (length word))
-                 (delimit))
-               (consume)
-               (delimit +newline+))
+               ;; If the current character is an unquoted <newline>, the
+               ;; current token shall be delimited.
+               ((equal #\linefeed next-char)
+                (unless (equal 0 (length word))
+                  (delimit))
+                (consume)
+                (delimit +newline+))
 
-             ;; If the current character is an unquoted <blank>, any
-             ;; token containing the previous character is delimited
-             ;; and the current character shall be discarded.
-             (when (blank-p next-char)
-               (unless (equal 0 (length word))
-                 (delimit))
-               (consume)
-               (again))
+               ;; If the current character is an unquoted <blank>, any
+               ;; token containing the previous character is delimited
+               ;; and the current character shall be discarded.
+               ((blank-p next-char)
+                (unless (equal 0 (length word))
+                  (delimit))
+                (consume)
+                (again))
 
-             ;; If the previous character was part of a word, the
-             ;; current character shall be appended to that word.
-             (when (not (equal 0 (length word)))
-               (extend!)
-               (consume)
-               (again))
+               ;; If the previous character was part of a word, the
+               ;; current character shall be appended to that word.
+               ((not (equal 0 (length word)))
+                (extend!)
+                (consume)
+                (again))
 
-             ;; If the current character is a '#', it and all
-             ;; subsequent characters up to, but excluding, the next
-             ;; <newline> shall be discarded as a comment. The
-             ;; <newline> that ends the line is not considered part of
-             ;; the comment.
-             (when (equal #\# next-char)
-               (read-comment stream)
-               (again))
+               ;; If the current character is a '#', it and all
+               ;; subsequent characters up to, but excluding, the next
+               ;; <newline> shall be discarded as a comment. The
+               ;; <newline> that ends the line is not considered part of
+               ;; the comment.
+               ((equal #\# next-char)
+                (read-comment stream)
+                (again))
 
-             ;; The current character is used as the start of a new
-             ;; word.
-             (when t
-               (extend!)
-               (consume)
-               (again))))))))
+               ;; The current character is used as the start of a new
+               ;; word.
+               (t
+                (extend!)
+                (consume)
+                (again)))))))))
