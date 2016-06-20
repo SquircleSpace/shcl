@@ -13,7 +13,7 @@
   (:use :common-lisp :shcl.utility)
   (:export
    ;; Base classes
-   #:token #:eof #:io-number #:literal-token
+   #:token #:a-word #:eof #:io-number #:literal-token
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
    #:lessgreat #:dlessdash #:clobber #:semi #:par #:pipe #:paren
@@ -23,6 +23,9 @@
    #:while #:until #:for #:{ #:} #:! #:in
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
+
+(defpackage :shcl.yacc-parser
+  (:use :common-lisp :yacc :shcl.lexer :shcl.utility))
 
 (defpackage :shcl
   (:use :common-lisp)

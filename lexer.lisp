@@ -59,7 +59,8 @@
       (semi . ";")
       (par . "&")
       (pipe . "|")
-      (paren . ")")
+      (lparen . "(")
+      (rparen . ")")
       (great . ">")
       (less . "<"))))
 
@@ -100,9 +101,9 @@
       (while . "while")
       (until . "until")
       (for . "for")
-      ({ . "{")
-      (} . "}")
-      (! . "!")
+      (lbrace . "{")
+      (rbrace . "}")
+      (bang . "!")
       (in . "in"))))
 
 (defmacro define-reserved-words ()
@@ -202,7 +203,7 @@
        (cond ((typep token 'eof)
               (eof-error ") expected"))
 
-             ((typep token 'paren)
+             ((typep token 'rparen)
               (return-from read-dollar-paren (get-output-stream-string out-stream))))
        (setf token (next-token echo-stream)))))
   (assert nil nil "This function doesn't return normally"))
