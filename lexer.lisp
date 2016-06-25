@@ -106,6 +106,9 @@
       (bang . "!")
       (in . "in"))))
 
+(defun make-reserved (string)
+  (make-instance (car (find string *reserved-words* :test #'equal :key #'cdr))))
+
 (defmacro define-reserved-words ()
   `(progn ,@(loop :for pair :across *reserved-words* :collect
                `(define-literal-token ,(car pair) ,(cdr pair)))))
@@ -273,14 +276,11 @@
   (find char '(#\space #\tab #\linefeed #\return)))
 
 (defun token-iterator (stream)
-  (let (hit-eof)
-    (make-iterator ()
-      (when hit-eof
+  (make-iterator ()
+    (let ((token (next-token stream)))
+      (when (typep token 'eof)
         (stop))
-      (let ((token (next-token stream)))
-        (when (typep token 'eof)
-          (setf hit-eof t))
-        (emit token)))))
+      (emit token))))
 
 (defgeneric tokenize (source))
 
@@ -299,7 +299,6 @@
     (loop :while (not (typep token 'eof)) :do
        (progn (vector-push-extend token result)
               (setf token (next-token stream))))
-    (vector-push-extend token result)
     result))
 
 (defun next-token (stream)
@@ -328,12 +327,15 @@
                        ((is-operator)
                         (make-operator word))
 
+                       ((reserved-p word)
+                        (make-reserved word))
+
                        ((and (not (find-if-not #'digit-char-p word))
                              (or (equal #\< next-char) (equal #\> next-char)))
                         (make-instance 'io-number :value word))
 
                        (t
-                        (make-instance 'token :value word))))))
+                        (make-instance 'a-word :value word))))))
 
       (macrolet ((again () '(return-from again)))
 
