@@ -10,7 +10,68 @@
 (defun list-to-lexer (list)
   (iterator-as-lexer (list-iterator list)))
 
-(define-parser *shell-parser*
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun take-while (predicate list)
+    (let (result)
+      (loop :while (and list (funcall predicate (car list)))
+         :do (progn
+               (push (car list) result)
+               (setf list (cdr list))))
+      (values (nreverse result) list)))
+
+  (defun maker (class-name values slot-names)
+    (let ((instance (make-instance class-name)))
+      (loop :for val :in values
+         :for name :in slot-names :do
+         (setf (slot-value instance name) val))
+      (setf (slot-value instance 'raw-matches) values)
+      instance))
+
+  (defun inject-function-form (class-name production-forms)
+    (let ((slot-names (make-hash-table))
+          (new-forms))
+      (labels ((handle-rule (rule)
+                 (unless (consp rule)
+                   (return-from handle-rule rule))
+
+                 (let ((slots (copy-seq rule)))
+                   (dolist (name slots)
+                     (setf (gethash name slot-names) t))
+                   `(,@rule (lambda (&rest values) (maker ',class-name values ',slots))))))
+        (setf new-forms
+              (loop :for rule :in production-forms :collect
+                 (handle-rule rule)))
+        (values new-forms (hash-table-keys slot-names))))))
+
+(defclass syntax-tree ()
+  ((raw-matches
+    :initform nil)))
+
+(defmethod print-object ((st syntax-tree) stream)
+  (format stream "~A" (cons (class-name (class-of st)) (slot-value st 'raw-matches))))
+
+(defmacro define-syntax-tree (grammar-name &body body)
+  (let (classes
+        new-grammar)
+    (labels ((option-form (form)
+               (and (consp form)
+                    (keywordp (car form)))))
+      (multiple-value-bind (options grammar) (take-while #'option-form body)
+        (dolist (nonterminal grammar)
+          (destructuring-bind (name &rest production) nonterminal
+            (multiple-value-bind (new-forms slot-names) (inject-function-form name production)
+              (let ((class-form
+                     `(defclass ,name (syntax-tree) (,@(mapcar #'list slot-names)))))
+                (push class-form classes))
+              (push `(,name ,@new-forms) new-grammar))))
+        (setf new-grammar (nreverse new-grammar))
+        `(progn
+           ,@classes
+           (define-parser ,grammar-name
+               ,@options
+             ,@new-grammar))))))
+
+(define-syntax-tree *shell-parser*
   (:start-symbol complete-command)
   (:terminals
    (token a-word assignment-word name newline io-number and-if
@@ -19,12 +80,16 @@
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
   ;; (:precedence)
 
-  (complete-command
-   (list separator)
-   (list))
+  (wordly-token
+   a-word assignment-word name if-word then else elif fi do-word done case
+   esac while until for in)
 
-  (list
-   (list separator-op and-or)
+  (complete-command
+   (command-list separator)
+   (command-list))
+
+  (command-list
+   (command-list separator-op and-or)
    (and-or))
 
   (and-or
@@ -74,19 +139,19 @@
    (for name-nt linebreak in-nt wordlist sequential-sep do-group))
 
   (name-nt
-   (name))
+   (name)) ;; Apply rule 5 (need not be reflected in the grammar)
 
   (in-nt
-   (in))
+   (in)) ;; Apply rule 6 (need not be reflected in the grammar)
 
   (wordlist
-   (wordlist a-word)
-   (a-word))
+   (wordlist wordly-word)
+   (wordly-word))
 
   (case-clause
-   (case-word a-word linebreak in-nt linebreak case-list esac)
-   (case-word a-word linebreak in-nt linebreak case-list-ns esac)
-   (case-word a-word linebreak in-nt linebreak esac))
+   (case-word wordly-word linebreak in-nt linebreak case-list esac)
+   (case-word wordly-word linebreak in-nt linebreak case-list-ns esac)
+   (case-word wordly-word linebreak in-nt linebreak esac))
 
   (case-list-ns
    (case-list case-item-ns)
@@ -109,8 +174,8 @@
    (lparen pattern rparen compound-list dsemi linebreak))
 
   (pattern
-   (a-word)
-   (pattern pipe a-word))
+   (wordly-word) ;; Apply rule 4 (must be reflected in grammar)
+   (pattern pipe wordly-word)) ;; Do not apply rule 4 (but /bin/sh seems to?)
 
   (if-clause
    (if-word compound-list then compound-list else-part fi)
@@ -130,17 +195,17 @@
    (fname lparen rparen linebreak function-body))
 
   (function-body
-   (compound-command)
-   (compound-command redirect-list))
+   (compound-command) ;; Apply rule 9 (need not be reflected in the grammar)
+   (compound-command redirect-list)) ;; Apply rule 9 (need not be reflected in the grammar)
 
   (fname
-   name)
+   name) ;; Apply rule 8 (must be reflected in the grammar)
 
   (brace-group
    (lbrace compound-command rbrace))
 
   (do-group
-   (do compound-list done))
+   (do compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
   (simple-command
    (cmd-prefix cmd-word cmd-suffix)
@@ -150,10 +215,10 @@
    (cmd-name))
 
   (cmd-name
-   (a-word))
+   (a-word)) ;; Apply rule 7a (might need to be reflected in the grammar)
 
   (cmd-word
-   (a-word))
+   (a-word)) ;; Apply rule 7b (might need to be reflected in the grammar)
 
   (cmd-prefix
    (io-redirect)
@@ -187,14 +252,14 @@
    (clobber filename))
 
   (filename
-   (a-word))
+   (wordly-word)) ;; Apply rule 2 (need not be reflected in grammar)
 
   (io-here
    (dless here-end)
    (dlessdash here-end))
 
   (here-end
-   (a-word))
+   (wordly-word)) ;; Apply rule 3 (need not be reflected in grammar)
 
   (newline-list
    (newline)
