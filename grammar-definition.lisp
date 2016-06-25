@@ -11,7 +11,7 @@
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
   ;; (:precedence)
 
-  (wordly-token
+  (wordly-word
    a-word assignment-word name if-word then else elif fi do-word done case
    esac while until for in)
 
@@ -160,8 +160,8 @@
   (cmd-suffix
    (io-redirect)
    (cmd-suffix io-redirect)
-   (a-word)
-   (cmd-suffix a-word))
+   (wordly-word)
+   (cmd-suffix wordly-word))
 
   (redirect-list
    (io-redirect)
