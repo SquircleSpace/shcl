@@ -136,7 +136,7 @@
    (lbrace compound-command rbrace))
 
   (do-group
-   (do compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
+   (do-word compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
   (simple-command
    (cmd-prefix cmd-word cmd-suffix)
