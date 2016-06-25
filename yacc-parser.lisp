@@ -41,11 +41,17 @@
         (setf new-forms
               (loop :for rule :in production-forms :collect
                  (handle-rule rule)))
-        (values new-forms (hash-table-keys slot-names))))))
+        (values new-forms (hash-table-keys slot-names)))))
+
+  (defun slot-definition (name)
+    `(,name
+      :initarg ,(intern (symbol-name name) :keyword)
+      :accessor ,name)))
 
 (defclass syntax-tree ()
   ((raw-matches
-    :initform nil)))
+    :initform nil
+    :accessor raw-matches)))
 
 (defmethod print-object ((st syntax-tree) stream)
   (format stream "~A" (cons (class-name (class-of st)) (slot-value st 'raw-matches))))
@@ -61,7 +67,7 @@
           (destructuring-bind (name &rest production) nonterminal
             (multiple-value-bind (new-forms slot-names) (inject-function-form name production)
               (let ((class-form
-                     `(defclass ,name (syntax-tree) (,@(mapcar #'list slot-names)))))
+                     `(defclass ,name (syntax-tree) (,@(mapcar #'slot-definition slot-names)))))
                 (push class-form classes))
               (push `(,name ,@new-forms) new-grammar))))
         (setf new-grammar (nreverse new-grammar))
@@ -74,3 +80,6 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (handler-bind ((warning #'muffle-warning))
     (load "grammar-definition.lisp")))
+
+(defun parse-stream (stream)
+  (parse-with-lexer (iterator-as-lexer (token-iterator stream)) *shell-parser*))
