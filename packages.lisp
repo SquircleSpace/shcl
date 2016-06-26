@@ -1,9 +1,7 @@
-(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
-
 (defpackage :shcl.utility
   (:use :common-lisp)
   (:export
-   #:define-once-global
+   #:define-once-global #:optimization-settings
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator
