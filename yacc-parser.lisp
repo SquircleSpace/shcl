@@ -83,3 +83,13 @@
 
 (defun parse-stream (stream)
   (parse-with-lexer (iterator-as-lexer (token-iterator stream)) *shell-parser*))
+
+(defun parse-string (string)
+  (parse-stream (make-string-input-stream string)))
+
+(defgeneric parse (source))
+(defmethod parse ((stream stream))
+  (parse-stream stream))
+
+(defmethod parse ((string string))
+  (parse-string string))

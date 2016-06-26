@@ -26,7 +26,7 @@
 
 (defpackage :shcl.yacc-parser
   (:use :common-lisp :yacc :alexandria :shcl.lexer :shcl.utility)
-  (:export #:parse-stream #:syntax-tree))
+  (:export #:parse-stream #:parse-string #:parse #:syntax-tree))
 
 (defpackage :shcl
   (:use :common-lisp)
