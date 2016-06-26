@@ -294,11 +294,9 @@
   (tokens-in-stream (make-string-input-stream string)))
 
 (defun tokens-in-stream (stream)
-  (let ((result (make-array 0 :adjustable t :fill-pointer t))
-        (token (next-token stream)))
-    (loop :while (not (typep token 'eof)) :do
-       (progn (vector-push-extend token result)
-              (setf token (next-token stream))))
+  (let ((result (make-array 0 :adjustable t :fill-pointer t)))
+    (do-iterator (value (token-iterator stream))
+      (vector-push-extend value result))
     result))
 
 (defun next-token (stream)
