@@ -61,6 +61,18 @@
 (defun next (iter)
   (funcall (iterate-function iter) iter))
 
+(defmacro do-iterator ((value-sym iter &key result) &body body)
+  (let ((iter-sym (gensym "ITER-SYM"))
+        (more-sym (gensym "MORE-SYM"))
+        (iter-fun (gensym "ITER-FUN")))
+    `(let* ((,iter-sym ,iter)
+            (,iter-fun (iterate-function ,iter-sym)))
+       (loop
+          (multiple-value-bind (,value-sym ,more-sym) (funcall ,iter-fun ,iter-sym)
+            (unless ,more-sym
+              (return ,result))
+            ,@body)))))
+
 (defclass lookahead-iterator ()
   ((compute
     :initform (cons t nil)
