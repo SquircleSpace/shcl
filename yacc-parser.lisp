@@ -1,5 +1,7 @@
 (in-package :shcl.yacc-parser)
 
+(optimization-settings)
+
 (defun iterator-as-lexer (iterator)
   (lambda ()
     (multiple-value-bind (value more) (next iterator)

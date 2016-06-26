@@ -1,6 +1,9 @@
 (in-package :shcl.utility)
 
-(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
+(defmacro optimization-settings ()
+  `(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0))))
+
+(optimization-settings)
 
 (defmacro define-once-global (name &body initform)
   (let ((value (gensym "VALUE"))
