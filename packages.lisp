@@ -5,7 +5,8 @@
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator
-   #:make-iterator-lookahead #:do-iterator))
+   #:make-iterator-lookahead #:do-iterator #:peek-lookahead-iterator
+   #:move-lookahead-to))
 
 (defpackage :shcl.lexer
   (:use :common-lisp :shcl.utility)
