@@ -137,6 +137,21 @@
   (declare (ignore iter))
   #'iterate-lookahead-iterator)
 
+(defun peek-lookahead-iterator (iter)
+  (iterate-lookahead-iterator (fork-lookahead-iterator iter)))
+
+(defun move-lookahead-to (iter-to-change model-iter)
+  (with-slots ((b-compute compute)
+               (b-buffer buffer))
+      iter-to-change
+    (with-slots ((a-compute compute)
+                 (a-buffer buffer))
+        model-iter
+      (unless (eq a-compute b-compute)
+        (error "These iterators aren't in the same family"))
+      (setf b-buffer a-buffer)))
+  (values))
+
 (defun vector-iterator (vector)
   (let ((index 0))
     (make-iterator ()

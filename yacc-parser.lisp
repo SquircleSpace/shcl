@@ -48,7 +48,14 @@
   (defun slot-definition (name)
     `(,name
       :initarg ,(intern (symbol-name name) :keyword)
-      :accessor ,name)))
+      :accessor ,name))
+
+  (defun grammar-option-form-p (form)
+    (and (consp form)
+         (keywordp (car form))))
+
+  (defun grammar-lookup-option (option-name options)
+    (second (find option-name options :key #'car :test #'eq))))
 
 (defclass syntax-tree ()
   ((raw-matches
@@ -61,23 +68,20 @@
 (defmacro define-syntax-tree (grammar-name &body body)
   (let (classes
         new-grammar)
-    (labels ((option-form (form)
-               (and (consp form)
-                    (keywordp (car form)))))
-      (multiple-value-bind (options grammar) (take-while #'option-form body)
-        (dolist (nonterminal grammar)
-          (destructuring-bind (name &rest production) nonterminal
-            (multiple-value-bind (new-forms slot-names) (inject-function-form name production)
-              (let ((class-form
-                     `(defclass ,name (syntax-tree) (,@(mapcar #'slot-definition slot-names)))))
-                (push class-form classes))
-              (push `(,name ,@new-forms) new-grammar))))
-        (setf new-grammar (nreverse new-grammar))
-        `(progn
-           ,@classes
-           (define-parser ,grammar-name
-             ,@options
-             ,@new-grammar))))))
+    (multiple-value-bind (options grammar) (take-while #'grammar-option-form-p body)
+      (dolist (nonterminal grammar)
+        (destructuring-bind (name &rest production) nonterminal
+          (multiple-value-bind (new-forms slot-names) (inject-function-form name production)
+            (let ((class-form
+                   `(defclass ,name (syntax-tree) (,@(mapcar #'slot-definition slot-names)))))
+              (push class-form classes))
+            (push `(,name ,@new-forms) new-grammar))))
+      (setf new-grammar (nreverse new-grammar))
+      `(progn
+         ,@classes
+         (define-grammar ,grammar-name
+           ,@options
+           ,@new-grammar)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (handler-bind ((warning #'muffle-warning))
@@ -95,3 +99,99 @@
 
 (defmethod parse ((string string))
   (parse-string string))
+
+(defgeneric parse-recursive (type iterator))
+
+(define-condition no-parse ()
+  ((message
+    :initarg :message
+    :type string
+    :initform "<No reason>"
+    :accessor no-parse-message))
+  (:report (lambda (c s) (format s "Parse error (~A)" (no-parse-message c)))))
+
+(defmacro no-parse (message &rest expected-tokens)
+  (declare (ignore expected-tokens))
+  `(signal 'no-parse :message ,message))
+
+(defmacro try-parse (((iter-sym iter-form) &key no-parse-form) &body body)
+  (let ((iter (gensym "ITER")))
+    `(let* ((,iter ,iter-form)
+            (,iter-sym (fork-lookahead-iterator ,iter-form)))
+       (handler-case (progn
+                       ,@body
+                       (move-lookahead-to ,iter ,iter-sym))
+         (no-parse ()
+           ,no-parse-form)))))
+
+(defmacro define-recursive-descent-parser (name &body body)
+  (let (result-forms)
+    (macrolet ((send (form) `(push ,form result-forms))
+               (send-to (place form) `(push ,form ,place)))
+      (multiple-value-bind (options nonterminals) (take-while #'grammar-option-form-p body)
+        (let ((start-symbol (grammar-lookup-option :start-symbol options))
+              (terminals (grammar-lookup-option :terminals options)))
+
+          (unless (and start-symbol terminals)
+            (error "Start symbol and terminals are required"))
+
+          ;; Easiest stuff first.  The root node
+          (send `(defmethod parse-recursive ((type (eql ',name)) (iter lookahead-iterator))
+                   (parse-recursive ',start-symbol iter)))
+
+          ;; Now parsers for the terminals
+          (dolist (term terminals)
+            (send `(defmethod parse-recursive ((type (eql ',term)) (iter lookahead-iterator))
+                     (unless (typep (peek-lookahead-iterator iter) ',term)
+                       (no-parse "Token mismatch" ',term))
+                     (next iter))))
+
+          ;; Now the nonterminals
+          (dolist (nonterm nonterminals)
+            (destructuring-bind (nonterm-name &rest productions) nonterm
+              (let (the-body
+                    hit-epsilon
+                    slots)
+                (dolist (production productions)
+                  (cond
+                    (hit-epsilon
+                     (error "Epsilon must be the last production"))
+
+                    ((eq nil production)
+                     (send-to the-body `(return-from parse-recursive))
+                     (setf hit-epsilon t))
+
+                    ((symbolp production)
+                     (send-to the-body
+                              `(try-parse ((iter iter))
+                                 (return-from parse-recursive (parse-recursive ',production iter)))))
+
+                    ((consp production)
+                     (labels ((slot-name (thing) (if (consp thing) (car thing) thing)))
+                       (dolist (thing production)
+                         (push (slot-name thing) slots)))
+                     (send-to the-body
+                              `(try-parse ((iter iter))
+                                 (let ((instance (make-instance ',nonterm-name))
+                                       matches)
+                                   (dolist (thing ',production)
+                                     (unless (consp thing)
+                                       (setf thing (cons thing thing)))
+                                     (let ((match (parse-recursive (cdr thing) iter)))
+                                       (setf (slot-value instance (car thing)) match)
+                                       (push match matches)))
+                                   (setf (slot-value instance 'raw-matches) (nreverse matches))
+                                   (return-from parse-recursive instance)))))))
+
+                (when slots
+                  (let ((unique-slots (make-hash-table)))
+                    (dolist (slot slots)
+                      (setf (gethash slot unique-slots) slot))
+                    (send `(defclass ,nonterm-name (syntax-tree)
+                             (,@(hash-table-keys unique-slots))))))
+
+                (send `(defmethod parse-recursive
+                           ((type (eql ',nonterm-name)) (iter lookahead-iterator))
+                         ,@(nreverse the-body)
+                         (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
+    `(progn ,@(nreverse result-forms))))
