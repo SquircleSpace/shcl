@@ -27,5 +27,5 @@
   (:export #:parse-stream #:parse-string #:parse #:syntax-tree))
 
 (defpackage :shcl
-  (:use :common-lisp)
+  (:use :common-lisp :shcl.utility)
   (:export #:main))
