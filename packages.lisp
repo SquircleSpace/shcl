@@ -1,7 +1,7 @@
 (defpackage :shcl.utility
   (:use :common-lisp)
   (:export
-   #:define-once-global #:optimization-settings
+   #:define-once-global #:required #:required-argument-missing #:optimization-settings
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator
