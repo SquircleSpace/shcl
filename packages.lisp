@@ -11,7 +11,7 @@
   (:use :common-lisp :shcl.utility)
   (:export
    ;; Base classes
-   #:token #:a-word #:eof #:io-number #:literal-token
+   #:token #:a-word #:eof #:io-number #:literal-token #:newline
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
    #:lessgreat #:dlessdash #:clobber #:semi #:par #:pipe #:paren
