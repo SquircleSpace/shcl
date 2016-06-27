@@ -17,6 +17,12 @@
            ,value)
          (define-symbol-macro ,name (,name))))))
 
+(define-condition required-argument-missing (error)
+  ())
+
+(defmacro required ()
+  `(error 'required-argument-missing))
+
 (defclass iterator ()
   ((compute
     :initarg :compute)))

@@ -4,7 +4,7 @@
 
 (defclass token ()
   ((value :type string
-          :initform (error "Required")
+          :initform (required)
           :accessor token-value
           :initarg :value)))
 (defmethod print-object ((token token) stream)
