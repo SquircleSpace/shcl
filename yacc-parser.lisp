@@ -55,7 +55,27 @@
          (keywordp (car form))))
 
   (defun grammar-lookup-option (option-name options)
-    (second (find option-name options :key #'car :test #'eq))))
+    (second (find option-name options :key #'car :test #'eq)))
+
+  (defun left-recursion-p (nonterminals)
+    (let ((graph (make-hash-table)))
+      (dolist (nonterm nonterminals)
+        (destructuring-bind (name &rest productions) nonterm
+          (dolist (production productions)
+            (push (if (consp production)
+                      (car production)
+                      production)
+                  (gethash name graph)))))
+      (labels ((examine (where &optional (stack (list where)))
+                 (let ((children (gethash where graph)))
+                   (dolist (child children)
+                     (when (member child stack)
+                       (return-from left-recursion-p (nreverse (cons child stack))))
+
+                     (examine child (cons child stack))))))
+        (dolist (sym (hash-table-keys graph))
+          (examine sym))
+        nil))))
 
 (defclass syntax-tree ()
   ((raw-matches
@@ -124,6 +144,18 @@
          (no-parse ()
            ,no-parse-form)))))
 
+(define-condition abort-parse (error)
+  ((message
+    :initarg :message
+    :type string
+    :initform "<No reason>"
+    :accessor parse-error-message))
+  (:report (lambda (c s) (format s "Parse error (~A)" (parse-error-message c)))))
+
+(defmacro abort-parse (message &rest expected-tokens)
+  (declare (ignore expected-tokens))
+  `(signal 'parse-error :message ,message))
+
 (defmacro define-recursive-descent-parser (name &body body)
   (let (result-forms)
     (macrolet ((send (form) `(push ,form result-forms))
@@ -134,6 +166,9 @@
 
           (unless (and start-symbol terminals)
             (error "Start symbol and terminals are required"))
+
+          (when (left-recursion-p nonterminals)
+            (error "Grammar has left recursion ~A" (left-recursion-p nonterminals)))
 
           ;; Easiest stuff first.  The root node
           (send `(defmethod parse-recursive ((type (eql ',name)) (iter lookahead-iterator))
@@ -167,21 +202,30 @@
                                  (return-from parse-recursive (parse-recursive ',production iter)))))
 
                     ((consp production)
-                     (labels ((slot-name (thing) (if (consp thing) (car thing) thing)))
+                     (labels ((slot-name (thing)
+                                (if (consp thing) (car thing) thing)))
                        (dolist (thing production)
-                         (push (slot-name thing) slots)))
+                         (unless (keywordp thing)
+                           (push (slot-name thing) slots))))
                      (send-to the-body
-                              `(try-parse ((iter iter))
-                                 (let ((instance (make-instance ',nonterm-name))
-                                       matches)
-                                   (dolist (thing ',production)
-                                     (unless (consp thing)
-                                       (setf thing (cons thing thing)))
-                                     (let ((match (parse-recursive (cdr thing) iter)))
-                                       (setf (slot-value instance (car thing)) match)
-                                       (push match matches)))
-                                   (setf (slot-value instance 'raw-matches) (nreverse matches))
-                                   (return-from parse-recursive instance)))))))
+                              `(let (strict)
+                                 (try-parse ((iter iter)
+                                             :no-parse-form (when strict
+                                                              (abort-parse "Oh no")))
+                                   (let ((instance (make-instance ',nonterm-name))
+                                         matches)
+                                     (dolist (thing ',production)
+                                       (block continue
+                                         (when (eq :strict thing)
+                                           (setf strict t)
+                                           (return-from continue))
+                                         (unless (consp thing)
+                                           (setf thing (cons thing thing)))
+                                         (let ((match (parse-recursive (cdr thing) iter)))
+                                           (setf (slot-value instance (car thing)) match)
+                                           (push match matches))))
+                                     (setf (slot-value instance 'raw-matches) (nreverse matches))
+                                     (return-from parse-recursive instance))))))))
 
                 (when slots
                   (let ((unique-slots (make-hash-table)))
