@@ -87,8 +87,11 @@
    (in)) ;; Apply rule 6 (need not be reflected in the grammar)
 
   (wordlist
-   (wordlist wordly-word)
-   (wordly-word))
+   (wordly-word wordlist-tail))
+
+  (wordlist-tail
+   (wordly-word wordlist-tail)
+   ())
 
   (case-clause
    (case-word wordly-word linebreak in-nt linebreak case-list esac)
