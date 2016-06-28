@@ -23,9 +23,12 @@
    (and-or))
 
   (and-or
-   (pipeline)
-   (and-or and-if linebreak pipeline)
-   (and-or or-if linebreak pipeline))
+   (pipeline and-or-tail))
+
+  (and-or-tail
+   (and-if linebreak pipeline and-or-tail)
+   (or-if linebreak pipeline and-or-tail)
+   ())
 
   (pipeline
    (pipe-sequence)
