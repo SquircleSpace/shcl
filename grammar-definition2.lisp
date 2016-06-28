@@ -19,8 +19,11 @@
    (command-list))
 
   (command-list
-   (command-list separator-op and-or)
-   (and-or))
+   (and-or command-list-tail))
+
+  (command-list-tail
+   (separator-op and-or command-list-tail)
+   ())
 
   (and-or
    (pipeline and-or-tail))
