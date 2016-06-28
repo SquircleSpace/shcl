@@ -204,8 +204,11 @@
    (wordly-word)) ;; Apply rule 3 (need not be reflected in grammar)
 
   (newline-list
-   (newline)
-   (newline-list newline))
+   (newline newline-list-tail))
+
+  (newline-list-tail
+   (newline newline-list-tail)
+   ())
 
   (linebreak
    (newline-list)
