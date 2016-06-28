@@ -2,14 +2,13 @@
 
 ;; To be loaded by yacc-parser.lisp
 
-(define-syntax-tree *shell-parser*
+(define-recursive-descent-parser shell
   (:start-symbol complete-command)
   (:terminals
    (token a-word assignment-word name newline io-number and-if
           or-if dsemi dless dgreat lessand greatand lessgreat dlessdash
           clobber if-word then else elif fi do-word done case esac while until
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
-  ;; (:precedence)
 
   (wordly-word
    a-word assignment-word name if-word then else elif fi do-word done case
