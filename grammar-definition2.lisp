@@ -172,10 +172,13 @@
    ())
 
   (cmd-suffix
-   (io-redirect)
-   (cmd-suffix io-redirect)
-   (wordly-word)
-   (cmd-suffix wordly-word))
+   (io-redirect cmd-suffix-tail)
+   (wordly-word cmd-suffix-tail))
+
+  (cmd-suffix-tail
+   (io-redirect cmd-suffix-tail)
+   (wordly-word cmd-suffix-tail)
+   ())
 
   (redirect-list
    (io-redirect redirect-list-tail))
