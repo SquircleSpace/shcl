@@ -113,8 +113,11 @@
    (lparen pattern rparen compound-list dsemi linebreak))
 
   (pattern
-   (wordly-word) ;; Apply rule 4 (must be reflected in grammar)
-   (pattern pipe wordly-word)) ;; Do not apply rule 4 (but /bin/sh seems to?)
+   (wordly-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
+
+  (pattern-tail
+   (pipe wordly-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
+   ())
 
   (if-clause
    (if-word compound-list then compound-list else-part fi)
