@@ -175,8 +175,11 @@
    (cmd-suffix wordly-word))
 
   (redirect-list
-   (io-redirect)
-   (redirect-list io-redirect))
+   (io-redirect redirect-list-tail))
+
+  (redirect-list-tail
+   (io-redirect redirect-list-tail)
+   ())
 
   (io-redirect
    (io-file)
