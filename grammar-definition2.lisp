@@ -35,8 +35,11 @@
    (bang pipe-sequence))
 
   (pipe-sequence
-   (command)
-   (pipe-sequence pipe linebreak command))
+   (command pipe-sequence-tail))
+
+  (pipe-sequence-tail
+   (pipe linebreak command pipe-sequence-tail)
+   ())
 
   (command
    (simple-command)
