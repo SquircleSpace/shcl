@@ -97,8 +97,11 @@
    (case-item-ns))
 
   (case-list
-   (case-list case-item)
-   (case-item))
+   (case-item case-list-tail))
+
+  (case-list-tail
+   (case-item case-item-tail)
+   ())
 
   (case-item-ns
    (pattern rparen linebreak)
