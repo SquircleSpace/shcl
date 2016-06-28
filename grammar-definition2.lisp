@@ -69,8 +69,11 @@
    (newline-list term separator))
 
   (term
-   (term separator and-or)
-   (and-or))
+   (and-or term-tail))
+
+  (term-tail
+   (separator and-or term-tail)
+   ())
 
   (for-clause
    (for name-nt linebreak do-group)
