@@ -157,10 +157,13 @@
    (a-word)) ;; Apply rule 7b (might need to be reflected in the grammar)
 
   (cmd-prefix
-   (io-redirect)
-   (cmd-prefix io-redirect)
-   (assignment-word)
-   (cmd-prefix assignment-word))
+   (io-redirect cmd-prefix-tail)
+   (assignment-word cmd-prefix-tail))
+
+  (cmd-prefix-tail
+   (io-redirect cmd-prefix-tail)
+   (assignment-word cmd-prefix-tail)
+   ())
 
   (cmd-suffix
    (io-redirect)
