@@ -8,4 +8,5 @@
                (:file "utility" :depends-on ("packages"))
                (:file "lexer" :depends-on ("packages" "utility"))
                (:file "yacc-parser" :depends-on ("packages" "utility" "lexer"))
+               (:file "rec-parser" :depends-on ("packages" "utility" "lexer"))
                (:file "main" :depends-on ("packages"))))
