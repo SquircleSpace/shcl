@@ -1,6 +1,6 @@
-(in-package :shcl.yacc-parser)
+(in-package :shcl.rec-parser)
 
-;; To be loaded by yacc-parser.lisp
+;; To be loaded by rec-parser.lisp
 (optimization-settings)
 
 (define-recursive-descent-parser shell
