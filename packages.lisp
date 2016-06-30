@@ -12,14 +12,15 @@
   (:use :common-lisp :shcl.utility)
   (:export
    ;; Base classes
-   #:token #:a-word #:eof #:io-number #:literal-token #:newline
+   #:token #:a-word #:eof #:io-number #:literal-token #:newline #:name
+   #:assignment-word
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
-   #:lessgreat #:dlessdash #:clobber #:semi #:par #:pipe #:paren
-   #:great #:less
+   #:lessgreat #:dlessdash #:clobber #:semi #:par #:pipe #:lparen
+   #:rparen #:great #:less
    ;; Reserved words
    #:if-word #:then #:else #:elif #:fi #:do-word #:done #:case-word #:esac
-   #:while #:until #:for #:{ #:} #:! #:in
+   #:while #:until #:for #:lbrace #:rbrace #:bang #:in
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
 

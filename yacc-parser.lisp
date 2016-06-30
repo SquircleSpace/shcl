@@ -135,14 +135,19 @@
   `(signal 'no-parse :message ,message))
 
 (defmacro try-parse (((iter-sym iter-form) &key no-parse-form) &body body)
-  (let ((iter (gensym "ITER")))
+  (let ((iter (gensym "ITER"))
+        (no-advance (gensym "NO-ADVANCE") ))
     `(let* ((,iter ,iter-form)
-            (,iter-sym (fork-lookahead-iterator ,iter-form)))
-       (handler-case (progn
-                       ,@body
-                       (move-lookahead-to ,iter ,iter-sym))
-         (no-parse ()
-           ,no-parse-form)))))
+            (,iter-sym (fork-lookahead-iterator ,iter-form))
+            ,no-advance)
+       (unwind-protect
+            (handler-case
+                (progn ,@body)
+              (no-parse ()
+                (setf ,no-advance t)
+                ,no-parse-form))
+         (unless ,no-advance
+           (move-lookahead-to ,iter ,iter-sym))))))
 
 (define-condition abort-parse (error)
   ((message
@@ -239,3 +244,16 @@
                          ,@(nreverse the-body)
                          (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
     `(progn ,@(nreverse result-forms))))
+
+(load "grammar-definition2.lisp")
+
+(defgeneric parse-rec (source))
+
+(defmethod parse-rec ((s string))
+  (parse-rec (make-string-input-stream s)))
+
+(defmethod parse-rec ((s stream))
+  (parse-rec (make-iterator-lookahead (token-iterator s))))
+
+(defmethod parse-rec ((iter lookahead-iterator))
+  (parse-recursive 'shell iter))
