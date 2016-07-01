@@ -171,7 +171,7 @@
                          (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
     `(progn ,@(nreverse result-forms))))
 
-(load "grammar-definition2.lisp")
+(load "shell-grammar.lisp")
 
 (defgeneric parse-shell (source))
 
