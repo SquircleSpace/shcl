@@ -85,7 +85,7 @@
 
 (defmacro abort-parse (message &rest expected-tokens)
   (declare (ignore expected-tokens))
-  `(signal 'parse-error :message ,message))
+  `(error 'abort-parse :message ,message))
 
 (defmacro define-parser (name &body body)
   (let (result-forms)
