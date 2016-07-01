@@ -3,10 +3,9 @@
   :version "0.0.1"
   :author "Brad Jensen <brad@bradjensen.net>"
   :licence "All rights reserved."
-  :depends-on ("yacc" "alexandria")
+  :depends-on ("alexandria")
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
                (:file "lexer" :depends-on ("packages" "utility"))
-               (:file "yacc-parser" :depends-on ("packages" "utility" "lexer"))
                (:file "rec-parser" :depends-on ("packages" "utility" "lexer"))
                (:file "main" :depends-on ("packages"))))
