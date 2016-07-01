@@ -3,7 +3,7 @@
 ;; To be loaded by rec-parser.lisp
 (optimization-settings)
 
-(define-recursive-descent-parser shell
+(define-parser shell
   (:start-symbol complete-command)
   (:terminals
    (token a-word assignment-word name newline io-number and-if

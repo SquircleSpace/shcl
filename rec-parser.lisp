@@ -46,7 +46,7 @@
 (defmethod print-object ((st syntax-tree) stream)
   (format stream "~A" (cons (class-name (class-of st)) (slot-value st 'raw-matches))))
 
-(defgeneric parse-recursive (type iterator))
+(defgeneric parse (type iterator))
 
 (define-condition no-parse ()
   ((message
@@ -87,7 +87,7 @@
   (declare (ignore expected-tokens))
   `(signal 'parse-error :message ,message))
 
-(defmacro define-recursive-descent-parser (name &body body)
+(defmacro define-parser (name &body body)
   (let (result-forms)
     (macrolet ((send (form) `(push ,form result-forms))
                (send-to (place form) `(push ,form ,place)))
@@ -102,12 +102,12 @@
             (error "Grammar has left recursion ~A" (left-recursion-p nonterminals)))
 
           ;; Easiest stuff first.  The root node
-          (send `(defmethod parse-recursive ((type (eql ',name)) (iter lookahead-iterator))
-                   (parse-recursive ',start-symbol iter)))
+          (send `(defmethod parse ((type (eql ',name)) (iter lookahead-iterator))
+                   (parse ',start-symbol iter)))
 
           ;; Now parsers for the terminals
           (dolist (term terminals)
-            (send `(defmethod parse-recursive ((type (eql ',term)) (iter lookahead-iterator))
+            (send `(defmethod parse ((type (eql ',term)) (iter lookahead-iterator))
                      (unless (typep (peek-lookahead-iterator iter) ',term)
                        (no-parse "Token mismatch" ',term))
                      (next iter))))
@@ -124,13 +124,13 @@
                      (error "Epsilon must be the last production"))
 
                     ((eq nil production)
-                     (send-to the-body `(return-from parse-recursive))
+                     (send-to the-body `(return-from parse))
                      (setf hit-epsilon t))
 
                     ((symbolp production)
                      (send-to the-body
                               `(try-parse ((iter iter))
-                                 (return-from parse-recursive (parse-recursive ',production iter)))))
+                                 (return-from parse (parse ',production iter)))))
 
                     ((consp production)
                      (labels ((slot-name (thing)
@@ -152,11 +152,11 @@
                                            (return-from continue))
                                          (unless (consp thing)
                                            (setf thing (cons thing thing)))
-                                         (let ((match (parse-recursive (cdr thing) iter)))
+                                         (let ((match (parse (cdr thing) iter)))
                                            (setf (slot-value instance (car thing)) match)
                                            (push match matches))))
                                      (setf (slot-value instance 'raw-matches) (nreverse matches))
-                                     (return-from parse-recursive instance))))))))
+                                     (return-from parse instance))))))))
 
                 (when slots
                   (let ((unique-slots (make-hash-table)))
@@ -165,7 +165,7 @@
                     (send `(defclass ,nonterm-name (syntax-tree)
                              (,@(hash-table-keys unique-slots))))))
 
-                (send `(defmethod parse-recursive
+                (send `(defmethod parse
                            ((type (eql ',nonterm-name)) (iter lookahead-iterator))
                          ,@(nreverse the-body)
                          (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
@@ -173,13 +173,13 @@
 
 (load "grammar-definition2.lisp")
 
-(defgeneric parse-rec (source))
+(defgeneric parse-shell (source))
 
-(defmethod parse-rec ((s string))
-  (parse-rec (make-string-input-stream s)))
+(defmethod parse-shell ((s string))
+  (parse (make-string-input-stream s)))
 
-(defmethod parse-rec ((s stream))
-  (parse-rec (make-iterator-lookahead (token-iterator s))))
+(defmethod parse-shell ((s stream))
+  (parse (make-iterator-lookahead (token-iterator s))))
 
-(defmethod parse-rec ((iter lookahead-iterator))
-  (parse-recursive 'shell iter))
+(defmethod parse-shell ((iter lookahead-iterator))
+  (parse 'shell iter))
