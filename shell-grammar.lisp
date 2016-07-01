@@ -35,8 +35,8 @@
    ())
 
   (pipeline
-   (pipe-sequence)
-   (bang pipe-sequence))
+   (bang pipe-sequence)
+   (pipe-sequence))
 
   (pipe-sequence
    (command pipe-sequence-tail))
@@ -46,10 +46,10 @@
    ())
 
   (command
-   (simple-command)
-   (compound-command)
    (compound-command redirect-list)
-   (function-definition))
+   (compound-command)
+   (function-definition)
+   (simple-command))
 
   (compound-command
    (brace-group)
@@ -64,10 +64,10 @@
    (lparen compound-list rparen))
 
   (compound-list
-   (term)
-   (newline-list term)
    (term separator)
-   (newline-list term separator))
+   (term)
+   (newline-list term separator)
+   (newline-list term))
 
   (term
    (and-or term-tail))
@@ -130,11 +130,12 @@
    ())
 
   (if-clause
-   (if-word compound-list then compound-list else-part fi)
-   (if-word compound-list then compound-list fi))
+   (if-word compound-list then compound-list fi)
+   (if-word compound-list then compound-list else-part fi))
 
   (else-part
-   (elif compound-list then else-part)
+   (elif compound-list then compound-list else-part)
+   (elif compound-list then compound-list)
    (else compound-list))
 
   (while-clause
@@ -147,8 +148,8 @@
    (fname lparen rparen linebreak function-body))
 
   (function-body
-   (compound-command) ;; Apply rule 9 (need not be reflected in the grammar)
-   (compound-command redirect-list)) ;; Apply rule 9 (need not be reflected in the grammar)
+   (compound-command redirect-list) ;; Apply rule 9 (need not be reflected in the grammar)
+   (compound-command)) ;; Apply rule 9 (need not be reflected in the grammar)
 
   (fname
    name) ;; Apply rule 8 (must be reflected in the grammar)
