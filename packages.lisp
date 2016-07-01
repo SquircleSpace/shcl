@@ -24,10 +24,6 @@
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
 
-(defpackage :shcl.yacc-parser
-  (:use :common-lisp :yacc :alexandria :shcl.lexer :shcl.utility)
-  (:export #:parse-stream #:parse-string #:parse #:syntax-tree))
-
 (defpackage :shcl.rec-parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility))
 
