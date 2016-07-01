@@ -7,5 +7,5 @@
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
                (:file "lexer" :depends-on ("packages" "utility"))
-               (:file "rec-parser" :depends-on ("packages" "utility" "lexer"))
+               (:file "parser" :depends-on ("packages" "utility" "lexer"))
                (:file "main" :depends-on ("packages"))))

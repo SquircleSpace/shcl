@@ -1,4 +1,4 @@
-(in-package :shcl.rec-parser)
+(in-package :shcl.parser)
 
 (optimization-settings)
 
@@ -176,10 +176,10 @@
 (defgeneric parse-shell (source))
 
 (defmethod parse-shell ((s string))
-  (parse (make-string-input-stream s)))
+  (parse-shell (make-string-input-stream s)))
 
 (defmethod parse-shell ((s stream))
-  (parse (make-iterator-lookahead (token-iterator s))))
+  (parse-shell (make-iterator-lookahead (token-iterator s))))
 
 (defmethod parse-shell ((iter lookahead-iterator))
   (parse 'shell iter))
