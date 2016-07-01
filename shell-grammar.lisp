@@ -1,4 +1,4 @@
-(in-package :shcl.rec-parser)
+(in-package :shcl.parser)
 
 ;; To be loaded by rec-parser.lisp
 (optimization-settings)

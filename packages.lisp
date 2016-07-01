@@ -24,7 +24,7 @@
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
 
-(defpackage :shcl.rec-parser
+(defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility))
 
 (defpackage :shcl
