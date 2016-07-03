@@ -106,6 +106,18 @@
               (return ,result))
             ,@body)))))
 
+(defun map-iterator (iter function)
+  (make-iterator ()
+    (multiple-value-bind (value more) (next iter)
+      (unless more
+        (stop))
+      (emit (funcall function value)))))
+
+(defun iterator-values (iter)
+  (let ((vector (make-array 0 :adjustable t :fill-pointer t)))
+    (do-iterator (value iter :result vector)
+      (vector-push-extend value vector))))
+
 (defclass lookahead-iterator ()
   ((compute
     :initform (cons t nil)
