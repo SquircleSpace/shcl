@@ -98,6 +98,7 @@
             (error "Grammar has left recursion ~A" (left-recursion-p nonterminals)))
 
           ;; Easiest stuff first.  The root node
+          (send `(defparameter ,name ',name))
           (send `(defmethod parse ((type (eql ',name)) (iter token-iterator))
                    (parse ',start-symbol iter)))
 
@@ -167,21 +168,11 @@
                          (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
     `(progn ,@(nreverse result-forms))))
 
-(load "shell-grammar.lisp")
+(defclass syntax-iterator (iterator)
+  ())
 
-(defun command-iterator (token-iterator)
-  (make-iterator ()
+(defun syntax-iterator (grammar token-iterator)
+  (make-iterator (:type 'syntax-iterator)
     (try-parse (iter token-iterator)
         (lambda (message) (error 'abort-parse :message message))
-      (parse 'shell iter))))
-
-(defgeneric parse-shell (source))
-
-(defmethod parse-shell ((s string))
-  (parse-shell (make-string-input-stream s)))
-
-(defmethod parse-shell ((s stream))
-  (parse-shell (token-iterator s)))
-
-(defmethod parse-shell ((iter token-iterator))
-  (next (command-iterator iter)))
+      (parse grammar iter))))

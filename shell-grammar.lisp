@@ -1,9 +1,8 @@
-(in-package :shcl.parser)
+(in-package :shcl.shell-grammar)
 
-;; To be loaded by rec-parser.lisp
 (optimization-settings)
 
-(define-parser shell
+(define-parser *shell-grammar*
   (:start-symbol complete-command)
   (:terminals
    (token a-word assignment-word name newline io-number and-if
@@ -245,3 +244,17 @@
   (sequential-sep
    (semi linebreak)
    (newline-list)))
+
+(defun command-iterator (token-iterator)
+  (syntax-iterator *shell-grammar* token-iterator))
+
+(defgeneric parse-shell (source))
+
+(defmethod parse-shell ((s string))
+  (parse-shell (make-string-input-stream s)))
+
+(defmethod parse-shell ((s stream))
+  (parse-shell (token-iterator s)))
+
+(defmethod parse-shell ((iter token-iterator))
+  (next (command-iterator iter)))
