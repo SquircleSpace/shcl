@@ -23,6 +23,33 @@
 (defmacro required ()
   `(error 'required-argument-missing))
 
+(defmacro try (exceptionable-form &body clauses)
+  (let ((no-problem (gensym "NO-PROBLEM"))
+        labels-forms
+        tag-label-alist)
+    (dolist (clause clauses)
+      (destructuring-bind (tag lambda-list &body body) clause
+        (let ((label (gensym (symbol-name tag))))
+          (push (cons tag label) tag-label-alist)
+          (push `(,label ,lambda-list ,@body) labels-forms))))
+    (setf labels-forms (nreverse labels-forms)
+          tag-label-alist (nreverse tag-label-alist))
+
+    (labels
+        ((catch-form (tag-alist)
+           (if (null tag-alist)
+               exceptionable-form
+               (let* ((head (car tag-alist))
+                      (rest (cdr tag-alist))
+                      (tag (car head))
+                      (label (cdr head)))
+                   `(multiple-value-call #',label
+                      (catch ',tag
+                        (return-from ,no-problem ,(catch-form rest))))))))
+      `(block ,no-problem
+         (labels (,@labels-forms)
+           ,(catch-form tag-label-alist))))))
+
 (defclass iterator ()
   ((compute
     :initarg :compute)))
