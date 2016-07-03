@@ -105,8 +105,12 @@
           ;; Now parsers for the terminals
           (dolist (term terminals)
             (send `(defmethod parse ((type (eql ',term)) (iter token-iterator))
-                     (unless (typep (peek-lookahead-iterator iter) ',term)
-                       (no-parse "Token mismatch" ',term))
+                     (multiple-value-bind (value more) (peek-lookahead-iterator iter)
+                       (unless more
+                         (no-parse "unexpected EOF"))
+                       (unless (typep value ',term)
+                         (no-parse "Token mismatch" ',term)))
+
                      (next iter))))
 
           ;; Now the nonterminals
@@ -115,6 +119,14 @@
               (let (the-body
                     hit-epsilon
                     slots)
+
+                (when (eq nonterm-name start-symbol)
+                  (send-to the-body
+                           `(multiple-value-bind (value more) (peek-lookahead-iterator iter)
+                              (declare (ignore value))
+                              (unless more
+                                (return-from parse 'eof-hit)))))
+
                 (dolist (production productions)
                   (cond
                     (hit-epsilon
@@ -175,4 +187,7 @@
   (make-iterator (:type 'syntax-iterator)
     (try-parse (iter token-iterator)
         (lambda (message) (error 'abort-parse :message message))
-      (parse grammar iter))))
+      (let ((value (parse grammar iter)))
+        (when (eq 'eof-hit value)
+          (stop))
+        (emit value)))))
