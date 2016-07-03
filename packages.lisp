@@ -26,7 +26,8 @@
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
 
 (defpackage :shcl.parser
-  (:use :common-lisp :alexandria :shcl.lexer :shcl.utility))
+  (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)
+  (:export #:command-iterator))
 
 (defpackage :shcl
   (:use :common-lisp :shcl.utility)

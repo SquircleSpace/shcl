@@ -98,12 +98,12 @@
             (error "Grammar has left recursion ~A" (left-recursion-p nonterminals)))
 
           ;; Easiest stuff first.  The root node
-          (send `(defmethod parse ((type (eql ',name)) (iter lookahead-iterator))
+          (send `(defmethod parse ((type (eql ',name)) (iter token-iterator))
                    (parse ',start-symbol iter)))
 
           ;; Now parsers for the terminals
           (dolist (term terminals)
-            (send `(defmethod parse ((type (eql ',term)) (iter lookahead-iterator))
+            (send `(defmethod parse ((type (eql ',term)) (iter token-iterator))
                      (unless (typep (peek-lookahead-iterator iter) ',term)
                        (no-parse "Token mismatch" ',term))
                      (next iter))))
@@ -162,12 +162,18 @@
                              (,@(hash-table-keys unique-slots))))))
 
                 (send `(defmethod parse
-                           ((type (eql ',nonterm-name)) (iter lookahead-iterator))
+                           ((type (eql ',nonterm-name)) (iter token-iterator))
                          ,@(nreverse the-body)
                          (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
     `(progn ,@(nreverse result-forms))))
 
 (load "shell-grammar.lisp")
+
+(defun command-iterator (token-iterator)
+  (make-iterator ()
+    (try-parse (iter token-iterator)
+        (lambda (message) (error 'abort-parse :message message))
+      (parse 'shell iter))))
 
 (defgeneric parse-shell (source))
 
@@ -175,8 +181,7 @@
   (parse-shell (make-string-input-stream s)))
 
 (defmethod parse-shell ((s stream))
-  (parse-shell (make-iterator-lookahead (token-iterator s))))
+  (parse-shell (token-iterator s)))
 
-(defmethod parse-shell ((iter lookahead-iterator))
-  (try-parse (iter iter) (lambda (message) (error 'abort-parse :message message))
-    (parse 'shell iter)))
+(defmethod parse-shell ((iter token-iterator))
+  (next (command-iterator iter)))

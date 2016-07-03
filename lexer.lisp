@@ -275,8 +275,11 @@
 (defun blank-p (char)
   (find char '(#\space #\tab #\linefeed #\return)))
 
+(defclass token-iterator (lookahead-iterator)
+  ())
+
 (defun token-iterator (stream)
-  (make-iterator ()
+  (make-iterator (:type 'token-iterator)
     (let ((token (next-token stream)))
       (when (typep token 'eof)
         (stop))
