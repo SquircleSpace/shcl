@@ -318,6 +318,8 @@
              (consume ()
                (read-char stream nil :eof)
                (reassess-next-char))
+             (consume-no-peek ()
+               (read-char stream nil :eof))
              (reassess-next-char ()
                (setf next-char (peek-char nil stream nil :eof)))
              (delimit (&optional value)
@@ -450,7 +452,7 @@
                ((equal #\linefeed next-char)
                 (unless (equal 0 (length word))
                   (delimit))
-                (consume)
+                (consume-no-peek)
                 (delimit +newline+))
 
                ;; If the current character is an unquoted <blank>, any
