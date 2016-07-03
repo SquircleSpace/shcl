@@ -2,5 +2,8 @@
 
 (let ((here (truename ".")))
   (push here asdf:*central-registry*))
-(asdf:load-system :shcl)
-(sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t)
+(handler-case
+    (progn
+      (asdf:load-system :shcl)
+      (sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t))
+  (error (c) (format *error-output* "Fatal error: ~A~%" c)))
