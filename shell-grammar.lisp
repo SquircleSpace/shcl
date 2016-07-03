@@ -15,7 +15,8 @@
    esac while until for in)
 
   (complete-command
-   (command-list separator)
+   (newline-list complete-command)
+   (command-list command-separator)
    (command-list))
 
   (command-list
@@ -240,6 +241,10 @@
   (separator
    (separator-op linebreak)
    (newline-list))
+
+  (command-separator
+   (separator-op)
+   ())
 
   (sequential-sep
    (semi linebreak)
