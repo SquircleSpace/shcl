@@ -2,6 +2,7 @@
   (:use :common-lisp)
   (:export
    #:define-once-global #:required #:required-argument-missing #:optimization-settings
+   #:try
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator

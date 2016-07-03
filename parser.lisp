@@ -48,30 +48,26 @@
 
 (defgeneric parse (type iterator))
 
-(define-condition no-parse ()
-  ((message
-    :initarg :message
-    :type string
-    :initform "<No reason>"
-    :accessor no-parse-message))
-  (:report (lambda (c s) (format s "Parse error (~A)" (no-parse-message c)))))
-
 (defmacro no-parse (message &rest expected-tokens)
   (declare (ignore expected-tokens))
-  `(signal 'no-parse :message ,message))
+  `(throw 'no-parse-tag ,message))
 
-(defmacro try-parse (((iter-sym iter-form) &key no-parse-form) &body body)
+(defmacro try-parse ((iter-sym iter-form) no-parse-function &body body)
   (let ((iter (gensym "ITER"))
-        (no-advance (gensym "NO-ADVANCE") ))
+        (no-advance (gensym "NO-ADVANCE"))
+        (no-parse (gensym "NO-PARSE"))
+        (message (gensym "MESSAGE")))
     `(let* ((,iter ,iter-form)
             (,iter-sym (fork-lookahead-iterator ,iter-form))
+            (,no-parse ,no-parse-function)
             ,no-advance)
        (unwind-protect
-            (handler-case
+            (try
                 (progn ,@body)
-              (no-parse ()
+              (no-parse-tag (,message)
                 (setf ,no-advance t)
-                ,no-parse-form))
+                (when ,no-parse
+                  (funcall ,no-parse ,message))))
          (unless ,no-advance
            (move-lookahead-to ,iter ,iter-sym))))))
 
@@ -129,7 +125,7 @@
 
                     ((symbolp production)
                      (send-to the-body
-                              `(try-parse ((iter iter))
+                              `(try-parse (iter iter) nil
                                  (return-from parse (parse ',production iter)))))
 
                     ((consp production)
@@ -140,9 +136,9 @@
                            (push (slot-name thing) slots))))
                      (send-to the-body
                               `(let (strict)
-                                 (try-parse ((iter iter)
-                                             :no-parse-form (when strict
-                                                              (abort-parse "Oh no")))
+                                 (try-parse (iter iter) (lambda (message)
+                                                          (when strict
+                                                            (abort-parse message)))
                                    (let ((instance (make-instance ',nonterm-name))
                                          matches)
                                      (dolist (thing ',production)
@@ -182,4 +178,5 @@
   (parse-shell (make-iterator-lookahead (token-iterator s))))
 
 (defmethod parse-shell ((iter lookahead-iterator))
-  (parse 'shell iter))
+  (try-parse (iter iter) (lambda (message) (error 'abort-parse :message message))
+    (parse 'shell iter)))
