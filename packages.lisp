@@ -27,6 +27,10 @@
 
 (defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)
+  (:export #:define-parser #:syntax-iterator))
+
+(defpackage :shcl.shell-grammar
+  (:use :common-lisp :shcl.parser :shcl.lexer :shcl.utility)
   (:export #:command-iterator))
 
 (defpackage :shcl
