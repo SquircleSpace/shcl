@@ -106,8 +106,8 @@
               (return ,result))
             ,@body)))))
 
-(defun map-iterator (iter function)
-  (make-iterator ()
+(defun map-iterator (iter function &key type)
+  (make-iterator (:type type)
     (multiple-value-bind (value more) (next iter)
       (unless more
         (stop))
