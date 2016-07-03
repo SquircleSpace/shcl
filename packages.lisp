@@ -34,5 +34,5 @@
   (:export #:command-iterator))
 
 (defpackage :shcl
-  (:use :common-lisp :shcl.utility)
+  (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility)
   (:export #:main))

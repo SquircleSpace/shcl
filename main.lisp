@@ -3,4 +3,6 @@
 (optimization-settings)
 
 (defun main ()
-  (format *standard-output* "shcl>~%"))
+  (let ((command-iterator (command-iterator (token-iterator *standard-input*))))
+    (do-iterator (tree command-iterator)
+      (format *standard-output* "~A~%" tree))))
