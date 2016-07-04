@@ -125,7 +125,7 @@
                            `(multiple-value-bind (value more) (peek-lookahead-iterator iter)
                               (declare (ignore value))
                               (unless more
-                                (return-from parse 'eof-hit)))))
+                                (return-from parse nil)))))
 
                 (dolist (production productions)
                   (cond
@@ -188,7 +188,7 @@
     (try-parse (iter token-iterator)
         (lambda (message) (error 'abort-parse :message message))
       (let ((value (parse grammar iter)))
-        (when (eq 'eof-hit value)
+        (when (eq nil value)
           (stop))
         (emit value)))))
 
