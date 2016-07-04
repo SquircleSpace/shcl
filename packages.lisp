@@ -23,7 +23,8 @@
    #:if-word #:then #:else #:elif #:fi #:do-word #:done #:case-word #:esac
    #:while #:until #:for #:lbrace #:rbrace #:bang #:in
    ;; Functions
-   #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
+   #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream
+   #:token-value))
 
 (defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)
@@ -47,6 +48,10 @@
    #:separator-op #:separator #:command-separator #:sequential-sep
    #:wordly-word))
 
+(defpackage :shcl.evaluate
+  (:use :common-lisp :alexandria :shcl.utility :shcl.shell-grammar :shcl.lexer)
+  (:export #:evaluate))
+
 (defpackage :shcl
-  (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility)
+  (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility :shcl.evaluate)
   (:export #:main))
