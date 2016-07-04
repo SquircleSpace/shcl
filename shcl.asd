@@ -8,5 +8,6 @@
                (:file "utility" :depends-on ("packages"))
                (:file "lexer" :depends-on ("packages" "utility"))
                (:file "parser" :depends-on ("packages" "utility" "lexer"))
-               (:file "main" :depends-on ("packages"))))
                (:file "shell-grammar" :depends-on ("packages" "utility" "parser" "lexer"))
+               (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer"))
+               (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "utility"))))

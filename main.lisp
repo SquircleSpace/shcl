@@ -32,4 +32,5 @@
          (tokens (debug-token-iterator stream))
          (commands (command-iterator tokens)))
     (do-iterator (tree commands)
-      (format *standard-output* "TREE: ~A~%" tree))))
+      (format *standard-output* "TREE: ~A~%" tree)
+      (evaluate tree))))
