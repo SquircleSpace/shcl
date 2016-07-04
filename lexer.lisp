@@ -28,6 +28,29 @@
 (define-simple-token name)
 (define-simple-token io-number)
 
+(defun name-p (word)
+  (labels ((first-okay (char)
+             (or (alpha-char-p char)
+                 (equal #\_ char)))
+           (rest-okay (char)
+             (or (first-okay char)
+                 (digit-char-p char))))
+    (loop :for index :below (length word) :do
+       (unless (funcall (if (equal 0 index) #'first-okay #'rest-okay)
+                        (aref word index))
+         (return-from name-p nil)))
+    t))
+
+(defun assignment-p (word)
+  (let ((position (loop :for index :below (length word) :do
+                     (when (equal (aref word index) #\=)
+                       (return index)))))
+    (unless position
+      (return-from assignment-p nil))
+
+    (let ((name (make-array position :element-type 'character :displaced-to word)))
+      (name-p name))))
+
 (defparameter *print-literals-by-name* t)
 (defclass literal-token (token)
   ())
@@ -336,6 +359,9 @@
                        ((and (not (find-if-not #'digit-char-p word))
                              (or (equal #\< next-char) (equal #\> next-char)))
                         (make-instance 'io-number :value word))
+
+                       ((assignment-p word)
+                        (make-instance 'assignment-word :value word))
 
                        (t
                         (make-instance 'a-word :value word))))))
