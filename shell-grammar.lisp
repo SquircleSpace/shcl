@@ -17,7 +17,7 @@
   (complete-command
    (newline-list complete-command)
    (command-list command-separator)
-   (command-list))
+   command-list)
 
   (command-list
    (and-or command-list-tail))
@@ -36,7 +36,7 @@
 
   (pipeline
    (bang pipe-sequence)
-   (pipe-sequence))
+   pipe-sequence)
 
   (pipe-sequence
    (command pipe-sequence-tail))
@@ -47,25 +47,25 @@
 
   (command
    (compound-command redirect-list)
-   (compound-command)
-   (function-definition)
-   (simple-command))
+   compound-command
+   function-definition
+   simple-command)
 
   (compound-command
-   (brace-group)
-   (subshell)
-   (for-clause)
-   (case-clause)
-   (if-clause)
-   (while-clause)
-   (until-clause))
+   brace-group
+   subshell
+   for-clause
+   case-clause
+   if-clause
+   while-clause
+   until-clause)
 
   (subshell
    (lparen compound-list rparen))
 
   (compound-list
    (term separator)
-   (term)
+   term
    (newline-list term separator)
    (newline-list term))
 
@@ -199,9 +199,9 @@
    ())
 
   (io-redirect
-   (io-file)
+   io-file
    (io-number io-file)
-   (io-here)
+   io-here
    (io-number io-here))
 
   (io-file
@@ -235,16 +235,15 @@
    ())
 
   (separator-op
-   (par)
-   (semi))
+   par
+   semi)
 
   (separator
    (separator-op linebreak)
    (newline-list))
 
   (command-separator
-   (separator-op)
-   ())
+   separator-op)
 
   (sequential-sep
    (semi linebreak)
