@@ -191,3 +191,17 @@
         (when (eq 'eof-hit value)
           (stop))
         (emit value)))))
+
+(defparameter *depth* nil)
+
+(defmethod parse :around (type iterator)
+  (unless *depth*
+    (return-from parse (call-next-method)))
+
+  (let ((*depth* (+ 1 *depth*)))
+    (format *error-output* "~A" (make-string (* 2 *depth*) :initial-element #\Space))
+    (format *error-output* "~A~%" type)
+    (let ((result (call-next-method)))
+      (format *error-output* "~A" (make-string (* 2 *depth*) :initial-element #\-))
+      (format *error-output* "Good ~A ~A~%" type result)
+      result)))
