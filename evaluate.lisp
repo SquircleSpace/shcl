@@ -9,6 +9,12 @@
     :accessor not-implemented-message
     :type string)))
 
+(defun separator-par-p (separator)
+  (check-type separator separator)
+  (with-slots (separator-op) separator
+    (when (slot-boundp separator 'separator-op)
+      (typep separator-op 'par))))
+
 (defparameter *fd-bindings*
   (let ((table (make-hash-table)))
     (setf (gethash 0 table) 0
@@ -123,7 +129,7 @@
 
          (evaluate command-list))))))
 
-(defmethod evaluate ((sy command-list))
+(defun evaluate-command-list (sy)
   (with-slots (and-or command-list-tail) sy
     (let ((no-wait (and command-list-tail
                         (typep (slot-value command-list-tail 'separator-op) 'par))))
@@ -134,27 +140,67 @@
       (when command-list-tail
         (evaluate command-list-tail)))))
 
-(defmethod evaluate ((sy and-or))
+(defmethod evaluate ((sy command-list))
+  (evaluate-command-list sy))
+(defmethod evaluate ((sy command-list-tail))
+  (evaluate-command-list sy))
+
+(defun evaluate-and-or (sy)
   (with-slots (pipeline and-or-tail) sy
     (evaluate pipeline)
     (when and-or-tail
-      (evaluate and-or-tail))))
+      (error 'not-implemented :message "&& and || are not implemented"))))
+
+(defmethod evaluate ((sy and-or))
+  (evaluate-and-or sy))
+(defmethod evaluate ((sy and-or-tail))
+  (evaluate-and-or sy))
 
 (defmethod evaluate ((sy pipeline))
   (with-slots (bang pipe-sequence) sy
     (error 'not-implemented :message "! not implemented")))
 
-(defmethod evaluate ((sy pipe-sequence))
+(defun evaluate-pipe-sequence (sy)
   (with-slots (command pipe-sequence-tail) sy
     (when pipe-sequence-tail
       (error 'not-implemented :message "| not implemented"))
     (evaluate command)))
+
+(defmethod evaluate ((sy pipe-sequence))
+  (evaluate-pipe-sequence sy))
+(defmethod evaluate ((sy pipe-sequence-tail))
+  (evaluate-pipe-sequence sy))
 
 (defmethod evaluate ((sy command))
   (with-slots (compound-command redirect-list) sy
     (shadow-fd-bindings
       (handle-redirect redirect-list)
       (evaluate compound-command))))
+
+(defmethod evaluate ((sy subshell))
+  (error 'not-implemented :message "Subshells not implemented"))
+
+(defmethod evaluate ((sy compound-list))
+  (with-slots (newline-list term separator) sy
+    (when (and (slot-boundp sy 'separator)
+               (separator-par-p separator))
+      (error 'not-implemented :message "& not implemented"))
+
+    (evaluate term)))
+
+(defun evaluate-term (sy)
+  (with-slots (and-or term-tail) sy
+    (when (and term-tail
+               (separator-par-p (slot-value term-tail 'separator)))
+      (error 'not-implemented :message "& not implemented"))
+
+    (evaluate and-or)
+    (evaluate term-tail)))
+
+(defmethod evaluate ((sy term))
+  (evaluate-term sy))
+(defmethod evaluate ((sy term-tail))
+  (evaluate-term sy))
 
 (defun cmd-prefix-parts (prefix)
   (with-slots (io-redirect assignment-word cmd-prefix-tail) prefix
