@@ -10,10 +10,6 @@
           clobber if-word then else elif fi do-word done case-word esac while until
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
 
-  (wordly-word
-   a-word assignment-word name if-word then else elif fi do-word done case-word
-   esac while until for in)
-
   (complete-command
    (newline-list complete-command)
    (command-list command-separator)
@@ -88,16 +84,16 @@
    (in)) ;; Apply rule 6 (need not be reflected in the grammar)
 
   (wordlist
-   (wordly-word wordlist-tail))
+   (a-word wordlist-tail))
 
   (wordlist-tail
-   (wordly-word wordlist-tail)
+   (a-word wordlist-tail)
    ())
 
   (case-clause
-   (case-word wordly-word linebreak in-nt linebreak case-list esac)
-   (case-word wordly-word linebreak in-nt linebreak case-list-ns esac)
-   (case-word wordly-word linebreak in-nt linebreak esac))
+   (case-word a-word linebreak in-nt linebreak case-list esac)
+   (case-word a-word linebreak in-nt linebreak case-list-ns esac)
+   (case-word a-word linebreak in-nt linebreak esac))
 
   (case-list-ns
    (case-list case-item-ns)
@@ -123,10 +119,10 @@
    (lparen pattern rparen compound-list dsemi linebreak))
 
   (pattern
-   (wordly-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
+   (a-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
 
   (pattern-tail
-   (pipe wordly-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
+   (pipe a-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
    ())
 
   (if-clause
@@ -155,7 +151,7 @@
    name) ;; Apply rule 8 (must be reflected in the grammar)
 
   (brace-group
-   (lbrace compound-command rbrace))
+   (lbrace :strict compound-list rbrace))
 
   (do-group
    (do-word compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
@@ -184,11 +180,11 @@
 
   (cmd-suffix
    (io-redirect cmd-suffix-tail)
-   (wordly-word cmd-suffix-tail))
+   (a-word cmd-suffix-tail))
 
   (cmd-suffix-tail
    (io-redirect cmd-suffix-tail)
-   (wordly-word cmd-suffix-tail)
+   (a-word cmd-suffix-tail)
    ())
 
   (redirect-list
@@ -214,15 +210,14 @@
    (clobber filename))
 
   (filename
-   (wordly-word)) ;; Apply rule 2 (need not be reflected in grammar)
+   (a-word)) ;; Apply rule 2 (need not be reflected in grammar)
 
   (io-here
    (dless here-end)
    (dlessdash here-end))
 
   (here-end
-   (wordly-word)) ;; Apply rule 3 (need not be reflected in grammar)
-
+   (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
   (newline-list
    (newline newline-list-tail))
 
@@ -248,6 +243,11 @@
   (sequential-sep
    (semi linebreak)
    (newline-list)))
+
+(defmethod parse :around ((type (eql 'cmd-name)) iter)
+  (when (typep (peek-lookahead-iterator iter) 'reserved-word)
+    (no-parse "Reserved words aren't allowed here" 'a-word))
+  (call-next-method))
 
 (defun command-iterator (token-iterator)
   (syntax-iterator *shell-grammar* token-iterator))

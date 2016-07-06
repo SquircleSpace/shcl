@@ -14,7 +14,7 @@
   (:export
    ;; Base classes
    #:token #:a-word #:eof #:io-number #:literal-token #:newline #:name
-   #:assignment-word
+   #:assignment-word #:reserved-word
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
    #:lessgreat #:dlessdash #:clobber #:semi #:par #:pipe #:lparen
@@ -28,7 +28,7 @@
 
 (defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)
-  (:export #:define-parser #:syntax-iterator))
+  (:export #:define-parser #:syntax-iterator #:parse #:no-parse))
 
 (defpackage :shcl.shell-grammar
   (:use :common-lisp :shcl.parser :shcl.lexer :shcl.utility)

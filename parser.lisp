@@ -50,13 +50,13 @@
 
 (defmacro no-parse (message &rest expected-tokens)
   (declare (ignore expected-tokens))
-  `(throw 'no-parse-tag ,message))
+  `(throw 'no-parse-tag (list ,message (list ,@expected-tokens))))
 
 (defmacro try-parse ((iter-sym iter-form) no-parse-function &body body)
   (let ((iter (gensym "ITER"))
         (no-advance (gensym "NO-ADVANCE"))
         (no-parse (gensym "NO-PARSE"))
-        (message (gensym "MESSAGE")))
+        (info (gensym "INFO")))
     `(let* ((,iter ,iter-form)
             (,iter-sym (fork-lookahead-iterator ,iter-form))
             (,no-parse ,no-parse-function)
@@ -64,10 +64,10 @@
        (unwind-protect
             (try
                 (progn ,@body)
-              (no-parse-tag (,message)
+              (no-parse-tag (,info)
                 (setf ,no-advance t)
                 (when ,no-parse
-                  (funcall ,no-parse ,message))))
+                  (apply ,no-parse ,info))))
          (unless ,no-advance
            (move-lookahead-to ,iter ,iter-sym))))))
 
@@ -76,12 +76,21 @@
     :initarg :message
     :type string
     :initform "<No reason>"
-    :accessor parse-error-message))
-  (:report (lambda (c s) (format s "Parse error (~A)" (parse-error-message c)))))
+    :accessor parse-error-message)
+   (expected
+    :initarg :expected-tokens
+    :type list
+    :initform nil
+    :accessor parse-error-expected-tokens))
+  (:report (lambda (c s)
+             (format s "Parse error (~A)"
+                     (parse-error-message c))
+             (let ((expected (parse-error-expected-tokens c)))
+               (when expected
+                 (format s ", expected tokens ~A" expected))))))
 
 (defmacro abort-parse (message &rest expected-tokens)
-  (declare (ignore expected-tokens))
-  `(error 'abort-parse :message ,message))
+  `(error 'abort-parse :message ,message :expected-tokens (list ,@expected-tokens)))
 
 (defmacro define-parser (name &body body)
   (let (result-forms)
@@ -107,7 +116,7 @@
             (send `(defmethod parse ((type (eql ',term)) (iter token-iterator))
                      (multiple-value-bind (value more) (peek-lookahead-iterator iter)
                        (unless more
-                         (no-parse "unexpected EOF"))
+                         (no-parse "unexpected EOF" ',term))
                        (unless (typep value ',term)
                          (no-parse "Token mismatch" ',term)))
 
@@ -149,9 +158,9 @@
                            (push (slot-name thing) slots))))
                      (send-to the-body
                               `(let (strict)
-                                 (try-parse (iter iter) (lambda (message)
+                                 (try-parse (iter iter) (lambda (message expected)
                                                           (when strict
-                                                            (abort-parse message)))
+                                                            (abort-parse message expected)))
                                    (let ((instance (make-instance ',nonterm-name))
                                          matches)
                                      (dolist (thing ',production)
@@ -186,7 +195,7 @@
 (defun syntax-iterator (grammar token-iterator)
   (make-iterator (:type 'syntax-iterator)
     (try-parse (iter token-iterator)
-        (lambda (message) (error 'abort-parse :message message))
+        (lambda (message expected) (error 'abort-parse :message message :expected-tokens expected))
       (let ((value (parse grammar iter)))
         (when (eq nil value)
           (stop))

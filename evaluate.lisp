@@ -57,7 +57,7 @@
 (defmethod handle-redirect ((r io-file) &optional fd-override)
   (labels
       ((to-int (filename)
-         (let* ((fd-word (slot-value 'wordly-word filename))
+         (let* ((fd-word (slot-value 'a-word filename))
                 (fd-string (token-value fd-word))
                 (fd (parse-integer fd-string)))
            fd))
@@ -217,7 +217,7 @@
       (values assignments redirects))))
 
 (defun cmd-suffix-parts (suffix)
-  (with-slots (io-redirect wordly-word cmd-suffix-tail) suffix
+  (with-slots (io-redirect a-word cmd-suffix-tail) suffix
     (multiple-value-bind (arguments redirects)
         (when cmd-suffix-tail
           (cmd-suffix-parts cmd-suffix-tail))
@@ -225,8 +225,8 @@
       (when (slot-boundp suffix 'io-redirect)
         (push io-redirect redirects))
 
-      (when (slot-boundp suffix 'wordly-word)
-        (push wordly-word arguments))
+      (when (slot-boundp suffix 'a-word)
+        (push a-word arguments))
 
       (values arguments redirects))))
 
