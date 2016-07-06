@@ -19,13 +19,13 @@
 (defun plusify (symbol)
   (intern (concatenate 'string "+" (symbol-name symbol) "+")))
 
-(defmacro define-simple-token (name)
-  `(defclass ,name (token)
+(defmacro define-simple-token (name &optional superclasses)
+  `(defclass ,name (,@superclasses token)
      ()))
 
 (define-simple-token a-word)
-(define-simple-token assignment-word)
-(define-simple-token name)
+(define-simple-token assignment-word (a-word))
+(define-simple-token name (a-word))
 (define-simple-token io-number)
 
 (defun name-p (word)
@@ -59,9 +59,9 @@
       (format stream "#<~A>" (class-name (class-of literal-token)))
       (format stream "#<LITERAL-TOKEN ~W>" (token-value literal-token))))
 
-(defmacro define-literal-token (name string)
+(defmacro define-literal-token (name string &optional superclasses)
   `(progn
-     (defclass ,name (literal-token)
+     (defclass ,name (,@superclasses literal-token)
        ((value :initform ,string)))))
 
 (define-literal-token newline (string #\linefeed))
@@ -132,9 +132,12 @@
 (defun make-reserved (string)
   (make-instance (car (find string *reserved-words* :test #'equal :key #'cdr))))
 
+(defclass reserved-word (a-word)
+  ())
+
 (defmacro define-reserved-words ()
   `(progn ,@(loop :for pair :across *reserved-words* :collect
-               `(define-literal-token ,(car pair) ,(cdr pair)))))
+               `(define-literal-token ,(car pair) ,(cdr pair) (reserved-word)))))
 (define-reserved-words)
 
 (defun reserved-p (word)
@@ -359,6 +362,9 @@
                        ((and (not (find-if-not #'digit-char-p word))
                              (or (equal #\< next-char) (equal #\> next-char)))
                         (make-instance 'io-number :value word))
+
+                       ((name-p word)
+                        (make-instance 'name :value word))
 
                        ((assignment-p word)
                         (make-instance 'assignment-word :value word))
