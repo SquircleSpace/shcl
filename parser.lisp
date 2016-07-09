@@ -49,7 +49,6 @@
 (defgeneric parse (type iterator))
 
 (defmacro no-parse (message &rest expected-tokens)
-  (declare (ignore expected-tokens))
   `(throw 'no-parse-tag (list ,message (list ,@expected-tokens))))
 
 (defmacro try-parse ((iter-sym iter-form) no-parse-function &body body)
@@ -152,7 +151,7 @@
 
                     ((consp production)
                      (labels ((slot-name (thing)
-                                (if (consp thing) (car thing) thing)))
+                                (if (consp thing) (first thing) thing)))
                        (dolist (thing production)
                          (unless (keywordp thing)
                            (push (slot-name thing) slots))))
@@ -169,9 +168,9 @@
                                            (setf strict t)
                                            (return-from continue))
                                          (unless (consp thing)
-                                           (setf thing (cons thing thing)))
-                                         (let ((match (parse (cdr thing) iter)))
-                                           (setf (slot-value instance (car thing)) match)
+                                           (setf thing (list thing thing)))
+                                         (let ((match (parse (second thing) iter)))
+                                           (setf (slot-value instance (first thing)) match)
                                            (push match matches))))
                                      (setf (slot-value instance 'raw-matches) (nreverse matches))
                                      (return-from parse instance))))))))
