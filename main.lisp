@@ -27,12 +27,36 @@
                   x)
                 :type 'token-iterator))
 
-(defun main ()
-  (let* ((stream (debug-char-stream *standard-input*))
+(defun restartable-command-iterator (raw-stream)
+  (let* ((stream (debug-char-stream raw-stream))
          (tokens (debug-token-iterator stream))
          (commands (command-iterator tokens)))
+    (labels
+        ((reset-token-iterator ()
+           (loop :while (listen raw-stream) :do (read-char raw-stream))
+           (setf stream (debug-char-stream raw-stream)
+                 tokens (debug-token-iterator stream)
+                 commands (command-iterator tokens))))
+      (if (interactive-stream-p raw-stream)
+          (make-iterator ()
+            (tagbody
+             start
+               (restart-case
+                   (multiple-value-bind (value more) (next commands)
+                     (if more
+                         (emit value)
+                         (stop)))
+                 (ignore ()
+                   (reset-token-iterator)
+                   (go start)))))
+          commands))))
+
+(defun main ()
+  (let* ((commands (restartable-command-iterator *standard-input*)))
     (restart-case
         (do-iterator (tree commands)
           (format *standard-output* "TREE: ~A~%" tree)
-          (evaluate tree))
+          (restart-case
+              (evaluate tree)
+            (skip ())))
       (die () (sb-ext:exit :code 1)))))
