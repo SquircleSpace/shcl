@@ -5,12 +5,13 @@
 (defparameter *umask*
   (logior sb-posix:s-irusr sb-posix:s-iwusr sb-posix:s-irgrp sb-posix:s-iroth))
 
-(define-condition not-implemented ()
+(define-condition not-implemented (warning error)
   ((message
     :initarg :message
     :initform ""
     :accessor not-implemented-message
-    :type string)))
+    :type string))
+  (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c)))))
 
 (defclass fd-wrapper ()
   ((fd
