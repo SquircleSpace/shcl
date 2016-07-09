@@ -2,6 +2,9 @@
 
 (optimization-settings)
 
+(defparameter *umask*
+  (logior sb-posix:s-irusr sb-posix:s-iwusr sb-posix:s-irgrp sb-posix:s-iroth))
+
 (define-condition not-implemented ()
   ((message
     :initarg :message
@@ -112,13 +115,13 @@
   (logior sb-posix:o-rdonly))
 (defmethod open-args-for-redirect ((r great))
   (declare (ignore r))
-  (logior sb-posix:o-creat sb-posix:o-trunc sb-posix:o-wronly))
+  (logior sb-posix:o-wronly sb-posix:o-creat sb-posix:o-trunc))
 (defmethod open-args-for-redirect ((r dgreat))
   (declare (ignore r))
-  (logior sb-posix:o-creat sb-posix:o-append sb-posix:o-wronly))
+  (logior sb-posix:o-wronly sb-posix:o-creat sb-posix:o-append))
 (defmethod open-args-for-redirect ((r lessgreat))
   (declare (ignore r))
-  (logior sb-posix:o-creat))
+  (logior sb-posix:o-rdwr sb-posix:o-creat))
 
 (defgeneric fd-from-description (description))
 (defmethod fd-from-description ((fd integer))
@@ -126,7 +129,8 @@
 (defmethod fd-from-description ((io-file io-file))
   (with-slots (redirect filename) io-file
     (let ((fd (sb-posix:open (coerce (token-value filename) 'simple-string)
-                             (open-args-for-redirect redirect))))
+                             (open-args-for-redirect redirect)
+                             *umask*)))
       (format *error-output* "OPEN ~A = ~A~%" fd filename)
       (values fd t))))
 
