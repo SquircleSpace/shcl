@@ -46,10 +46,16 @@
    #:redirect-list #:redirect-list-tail #:io-redirect #:io-file #:filename
    #:io-here #:here-end #:newline-list #:newline-list-tail #:linebreak
    #:separator-op #:separator #:command-separator #:sequential-sep
-   #:wordly-word))
+   #:wordly-word #:redirect))
+
+(defpackage :shcl.fork-exec
+  (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar)
+  (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
+  (:export #:fork-exec))
 
 (defpackage :shcl.evaluate
-  (:use :common-lisp :alexandria :shcl.utility :shcl.shell-grammar :shcl.lexer)
+  (:use :common-lisp :trivial-garbage :alexandria :shcl.utility
+        :shcl.shell-grammar :shcl.lexer :shcl.fork-exec)
   (:export #:evaluate))
 
 (defpackage :shcl

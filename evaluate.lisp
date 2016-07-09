@@ -2,12 +2,91 @@
 
 (optimization-settings)
 
-(define-condition not-implemented (error)
+(define-condition not-implemented ()
   ((message
     :initarg :message
     :initform ""
     :accessor not-implemented-message
     :type string)))
+
+(defclass fd-wrapper ()
+  ((fd
+    :initarg :fd
+    :initform (required)
+    :type (or null fixnum)
+    :accessor fd)))
+
+(defclass pipe-fd (fd-wrapper)
+  ((pipe
+    :initarg :pipe
+    :initform (required)
+    :type communication-pipe)))
+
+(defmethod shared-initialize :around ((instance fd-wrapper) slots &key)
+  (declare (ignore slots))
+  (let ((result (call-next-method))
+        (fd (slot-value instance 'fd)))
+    (cancel-finalization instance)
+    (finalize instance
+              (lambda ()
+                (warn 'not-implemented :message "Pipes aren't implemented")
+                (warn "Closing fd due to gc")
+                (format *error-output* "GCCLOSE ~A~%" fd)))
+    result))
+
+(defclass communication-pipe ()
+  ((read-end
+    :initform nil
+    :type (or null pipe-fd)
+    :accessor read-end)
+   (write-end
+    :initform nil
+    :type (or null pipe-fd)
+    :accessor write-end)))
+
+(defmethod shared-initialize :around ((pipe communication-pipe) slots &key)
+  (let ((result (call-next-method)))
+    (close-pipe pipe)
+    (with-slots (read-end write-end) pipe
+      (warn 'not-implemented :message "Pipes aren't implemented")
+      (setf read-end (make-instance 'pipe-fd :pipe pipe :fd 123)
+            write-end (make-instance 'pipe-fd :pipe pipe :fd 456)))
+    result))
+
+(defun close-pipe (pipe)
+  (with-slots (read-end write-end) pipe
+    (when read-end
+      (with-slots (fd) read-end
+        (when fd
+          (warn 'not-implemented :message "Pipes aren't implemented")
+          (format *error-output* "CLOSE ~A~%" fd)
+          (setf fd nil)
+          (cancel-finalization read-end)
+          (setf read-end nil))))
+    (when write-end
+      (with-slots (fd) write-end
+        (when fd
+          (warn 'not-implemented :message "Pipes aren't implemented")
+          (format *error-output* "CLOSE ~A~%" fd)
+          (setf fd nil)
+          (cancel-finalization read-end)
+          (setf write-end nil))))))
+
+(defmacro with-pipe ((variable-name) &body body)
+  `(let ((,variable-name (make-instance 'communication-pipe)))
+     (unwind-protect
+          (progn ,@body)
+       (close-pipe ,variable-name))))
+
+(defclass eval-thunk ()
+  ())
+
+(defclass process (eval-thunk)
+  ((exit-code)
+   (pid)))
+
+(defclass pipeline-process (eval-thunk)
+  ((processes)))
 
 (defun separator-par-p (separator)
   (check-type separator separator)
@@ -15,22 +94,50 @@
     (when (slot-boundp separator 'separator-op)
       (typep separator-op 'par))))
 
-(defparameter *fd-bindings*
-  (let ((table (make-hash-table)))
-    (setf (gethash 0 table) 0
-          (gethash 1 table) 1
-          (gethash 2 table) 2)
-    table))
+(defparameter *fd-bindings* (make-hash-table))
+
+(defparameter *fds-to-close* nil)
 
 (defmacro shadow-fd-bindings (&body body)
-  `(let ((*fd-bindings* (copy-hash-table *fd-bindings*)))
-     ,@body))
+  (let ((fd (gensym "FD")))
+    `(let ((*fd-bindings* (copy-hash-table *fd-bindings*))
+           *fds-to-close*)
+       (unwind-protect (progn ,@body)
+         (dolist (,fd *fds-to-close*)
+           (sb-posix:close ,fd))))))
+
+(defgeneric open-args-for-redirect (redirect))
+(defmethod open-args-for-redirect ((r less))
+  (declare (ignore r))
+  (logior sb-posix:o-rdonly))
+(defmethod open-args-for-redirect ((r great))
+  (declare (ignore r))
+  (logior sb-posix:o-creat sb-posix:o-trunc sb-posix:o-wronly))
+(defmethod open-args-for-redirect ((r dgreat))
+  (declare (ignore r))
+  (logior sb-posix:o-creat sb-posix:o-append sb-posix:o-wronly))
+(defmethod open-args-for-redirect ((r lessgreat))
+  (declare (ignore r))
+  (logior sb-posix:o-creat))
+
+(defgeneric fd-from-description (description))
+(defmethod fd-from-description ((fd integer))
+  (values fd nil))
+(defmethod fd-from-description ((io-file io-file))
+  (with-slots (redirect filename) io-file
+    (let ((fd (sb-posix:open (coerce (token-value filename) 'simple-string)
+                             (open-args-for-redirect redirect))))
+      (format *error-output* "OPEN ~A = ~A~%" fd filename)
+      (values fd t))))
 
 (defun bind-fd (fd description)
-  (setf (gethash fd *fd-bindings*) description))
+  (multiple-value-bind (from-fd needs-close) (fd-from-description description)
+    (setf (gethash fd *fd-bindings*) from-fd)
+    (when needs-close
+      (push from-fd *fds-to-close*))))
 
 (defun get-fd (fd)
-  (gethash fd *fd-bindings*))
+  (gethash fd *fd-bindings* fd))
 
 (defgeneric handle-redirect (redirect &optional fd-override))
 
@@ -57,32 +164,30 @@
 (defmethod handle-redirect ((r io-file) &optional fd-override)
   (labels
       ((to-int (filename)
-         (let* ((fd-word (slot-value 'a-word filename))
-                (fd-string (token-value fd-word))
-                (fd (parse-integer fd-string)))
-           fd))
+         (let* ((fd-string (token-value filename)))
+           (parse-integer fd-string)))
        (fd (default) (or fd-override default)))
-    (with-slots (filename) r
-      (cond
-        ((slot-boundp r 'less)
+    (with-slots (redirect filename) r
+      (etypecase redirect
+        (less
          (bind-fd (fd 0) r))
 
-        ((slot-boundp r 'lessand)
-         (bind-fd (fd 0) (get-fd (to-int r))))
+        (lessand
+         (bind-fd (fd 0) (get-fd (to-int filename))))
 
-        ((slot-boundp r 'great)
+        (great
          (bind-fd (fd 1) r))
 
-        ((slot-boundp r 'greatand)
-         (bind-fd (fd 1) (get-fd (to-int r))))
+        (greatand
+         (bind-fd (fd 1) (get-fd (to-int filename))))
 
-        ((slot-boundp r 'dgreat)
+        (dgreat
          (bind-fd (fd 1) r))
 
-        ((slot-boundp r 'lessgreat)
+        (lessgreat
          (bind-fd (fd 0) r))
 
-        ((slot-boundp r 'clobber)
+        (clobber
          (bind-fd (fd 1) r))))))
 
 (defmethod handle-redirect ((r io-here) &optional fd-override)
@@ -160,11 +265,24 @@
   (with-slots (bang pipe-sequence) sy
     (error 'not-implemented :message "! not implemented")))
 
+(defconstant +pipe-read-fd+ 0)
+(defconstant +pipe-write-fd+ 1)
+
 (defun evaluate-pipe-sequence (sy)
   (with-slots (command pipe-sequence-tail) sy
-    (when pipe-sequence-tail
-      (error 'not-implemented :message "| not implemented"))
-    (evaluate command)))
+    (cond
+      (pipe-sequence-tail
+       (with-pipe (pipe)
+         (with-accessors ((read-end read-end) (write-end write-end)) pipe
+           (shadow-fd-bindings
+             (bind-fd +pipe-read-fd+ write-end)
+             (evaluate command))
+           (shadow-fd-bindings
+             (bind-fd +pipe-write-fd+ read-end)
+             (evaluate pipe-sequence-tail)))))
+
+      (t
+       (evaluate command)))))
 
 (defmethod evaluate ((sy pipe-sequence))
   (evaluate-pipe-sequence sy))
@@ -263,4 +381,5 @@
       (format *standard-output* "EXEC: ~A ~A ~A~%" assignments arguments redirects)
       (shadow-fd-bindings
         (dolist (r redirects)
-          (handle-redirect r))))))
+          (handle-redirect r))
+        (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings*)))))

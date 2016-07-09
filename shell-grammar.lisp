@@ -164,10 +164,10 @@
    (cmd-name))
 
   (cmd-name
-   (a-word)) ;; Apply rule 7a (might need to be reflected in the grammar)
+   a-word) ;; Apply rule 7a (might need to be reflected in the grammar)
 
   (cmd-word
-   (a-word)) ;; Apply rule 7b (might need to be reflected in the grammar)
+   a-word) ;; Apply rule 7b (might need to be reflected in the grammar)
 
   (cmd-prefix
    (io-redirect cmd-prefix-tail)
@@ -201,16 +201,16 @@
    (io-number io-here))
 
   (io-file
-   (less filename)
-   (lessand filename)
-   (great filename)
-   (greatand filename)
-   (dgreat filename)
-   (lessgreat filename)
-   (clobber filename))
+   ((redirect less) filename)
+   ((redirect lessand) filename)
+   ((redirect great) filename)
+   ((redirect greatand) filename)
+   ((redirect dgreat) filename)
+   ((redirect lessgreat) filename)
+   ((redirect clobber) filename))
 
   (filename
-   (a-word)) ;; Apply rule 2 (need not be reflected in grammar)
+   a-word) ;; Apply rule 2 (need not be reflected in grammar)
 
   (io-here
    (dless here-end)

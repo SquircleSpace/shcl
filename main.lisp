@@ -31,6 +31,8 @@
   (let* ((stream (debug-char-stream *standard-input*))
          (tokens (debug-token-iterator stream))
          (commands (command-iterator tokens)))
-    (do-iterator (tree commands)
-      (format *standard-output* "TREE: ~A~%" tree)
-      (evaluate tree))))
+    (restart-case
+        (do-iterator (tree commands)
+          (format *standard-output* "TREE: ~A~%" tree)
+          (evaluate tree))
+      (die () (sb-ext:exit :code 1)))))
