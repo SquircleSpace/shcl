@@ -88,7 +88,14 @@
 
 (defclass process (eval-thunk)
   ((exit-code)
-   (pid)))
+   (pid
+    :initarg :pid
+    :accessor process-pid
+    :type integer
+    :initform (required))))
+
+(defun process-from-pid (pid)
+  (make-instance 'process :pid pid))
 
 (defclass pipeline-process (eval-thunk)
   ((processes)))
@@ -417,4 +424,5 @@
       (shadow-fd-bindings
         (dolist (r redirects)
           (handle-redirect r))
-        (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings* :managed-fds *managed-fds*)))))
+        (let ((pid (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings* :managed-fds *managed-fds*)))
+          (process-from-pid pid))))))
