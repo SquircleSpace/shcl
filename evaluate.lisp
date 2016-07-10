@@ -30,13 +30,23 @@
   (declare (ignore slots))
   (let ((result (call-next-method))
         (fd (slot-value instance 'fd)))
+    (fd-is-managed fd)
     (cancel-finalization instance)
     (finalize instance
               (lambda ()
-                (warn 'not-implemented :message "Pipes aren't implemented")
-                (warn "Closing fd due to gc")
-                (format *error-output* "GCCLOSE ~A~%" fd)))
+                (format *error-output* "GCCLOSE ~A~%" fd)
+                (forget-managed-fd fd)
+                (sb-posix:close fd)))
     result))
+
+(defun close-fd (the-fd)
+  (with-slots (fd) the-fd
+    (when fd
+      (format *error-output* "CLOSE ~A~%" fd)
+      (forget-managed-fd fd)
+      (sb-posix:close fd)
+      (setf fd nil)
+      (cancel-finalization the-fd))))
 
 (defclass communication-pipe ()
   ((read-end
@@ -52,29 +62,20 @@
   (let ((result (call-next-method)))
     (close-pipe pipe)
     (with-slots (read-end write-end) pipe
-      (warn 'not-implemented :message "Pipes aren't implemented")
-      (setf read-end (make-instance 'pipe-fd :pipe pipe :fd 123)
-            write-end (make-instance 'pipe-fd :pipe pipe :fd 456)))
+      (multiple-value-bind (fd-read-end fd-write-end) (sb-posix:pipe)
+        (format *error-output* "PIPE ~A -> ~A~%" fd-write-end fd-read-end)
+        (setf read-end (make-instance 'pipe-fd :pipe pipe :fd fd-read-end)
+              write-end (make-instance 'pipe-fd :pipe pipe :fd fd-write-end))))
     result))
 
 (defun close-pipe (pipe)
   (with-slots (read-end write-end) pipe
     (when read-end
-      (with-slots (fd) read-end
-        (when fd
-          (warn 'not-implemented :message "Pipes aren't implemented")
-          (format *error-output* "CLOSE ~A~%" fd)
-          (setf fd nil)
-          (cancel-finalization read-end)
-          (setf read-end nil))))
+      (close-fd read-end)
+      (setf read-end nil))
     (when write-end
-      (with-slots (fd) write-end
-        (when fd
-          (warn 'not-implemented :message "Pipes aren't implemented")
-          (format *error-output* "CLOSE ~A~%" fd)
-          (setf fd nil)
-          (cancel-finalization read-end)
-          (setf write-end nil))))))
+      (close-fd write-end)
+      (setf write-end nil))))
 
 (defmacro with-pipe ((variable-name) &body body)
   `(let ((,variable-name (make-instance 'communication-pipe)))
@@ -100,14 +101,23 @@
 
 (defparameter *fd-bindings* (make-hash-table))
 
-(defparameter *fds-to-close* nil)
+(defparameter *fds-to-close-for-shadow* nil)
+
+(defparameter *managed-fds* (make-hash-table))
+(defun fd-is-managed (fd)
+  (setf (gethash fd *managed-fds*) t))
+(defun forget-managed-fd (fd)
+  (remhash fd *managed-fds*))
+(defun managed-fds ()
+  (hash-table-keys *managed-fds*))
 
 (defmacro shadow-fd-bindings (&body body)
   (let ((fd (gensym "FD")))
     `(let ((*fd-bindings* (copy-hash-table *fd-bindings*))
-           *fds-to-close*)
+           *fds-to-close-for-shadow*)
        (unwind-protect (progn ,@body)
-         (dolist (,fd *fds-to-close*)
+         (dolist (,fd *fds-to-close-for-shadow*)
+           (forget-managed-fd ,fd)
            (sb-posix:close ,fd))))))
 
 (defgeneric open-args-for-redirect (redirect))
@@ -133,13 +143,16 @@
                              (open-args-for-redirect redirect)
                              *umask*)))
       (format *error-output* "OPEN ~A = ~A~%" fd filename)
+      (fd-is-managed fd)
       (values fd t))))
+(defmethod fd-from-description ((fd fd-wrapper))
+  (values (slot-value fd 'fd) nil))
 
 (defun bind-fd (fd description)
   (multiple-value-bind (from-fd needs-close) (fd-from-description description)
     (setf (gethash fd *fd-bindings*) from-fd)
     (when needs-close
-      (push from-fd *fds-to-close*))))
+      (push from-fd *fds-to-close-for-shadow*))))
 
 (defun get-fd (fd)
   (gethash fd *fd-bindings* fd))
@@ -280,10 +293,10 @@
        (with-pipe (pipe)
          (with-accessors ((read-end read-end) (write-end write-end)) pipe
            (shadow-fd-bindings
-             (bind-fd +pipe-read-fd+ write-end)
+             (bind-fd +pipe-write-fd+ write-end)
              (evaluate command))
            (shadow-fd-bindings
-             (bind-fd +pipe-write-fd+ read-end)
+             (bind-fd +pipe-read-fd+ read-end)
              (evaluate pipe-sequence-tail)))))
 
       (t
@@ -387,4 +400,4 @@
       (shadow-fd-bindings
         (dolist (r redirects)
           (handle-redirect r))
-        (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings*)))))
+        (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings* :managed-fds *managed-fds*)))))

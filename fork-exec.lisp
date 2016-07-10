@@ -1,5 +1,7 @@
 (in-package :shcl.fork-exec)
 
+(defparameter *pid* nil)
+
 (defmacro fork-and-die (&body body)
   (let ((result (gensym "RESULT")))
     `(let ((,result (sb-posix:fork)))
@@ -34,7 +36,9 @@
                (return-from continue))
 
              (unless (gethash value fds-to-remap)
-               (setf (gethash value fds-to-remap) (sb-posix:dup key)))
+               (let ((new-home (sb-posix:dup value)))
+                 (format *error-output* "~A DUP ~A -> ~A" *pid* key new-home))
+               (setf (gethash value fds-to-remap) new-home))
 
              (setf (gethash key map) (gethash value fds-to-remap))))))
 
@@ -50,7 +54,7 @@
            (numbers (map 'vector #'extract-fd paths)))
       numbers)))
 
-(defun take-fd-map (map)
+(defun take-fd-map (map managed-fds)
   (let ((fds-to-close (make-array 0 :adjustable t :fill-pointer t)))
     (with-hash-table-iterator (iter map)
       (loop
@@ -60,12 +64,13 @@
                (return))
 
              (sb-posix:dup2 value key)
-             (format *error-output* "dup2 ~A overwrites ~A~%" value key)
+             (format *error-output* "~A DUP2 ~A -> ~A~%" *pid* value key)
              (vector-push-extend value fds-to-close)))))
 
+    (setf fds-to-close (concatenate 'vector (hash-table-keys managed-fds) fds-to-close))
     (setf fds-to-close (delete-duplicates fds-to-close))
     (loop :for fd :across fds-to-close :do
-       (format *error-output* "Closing ~A~%" fd)
+       (format *error-output* "~A CLOSE ~A~%" *pid* fd)
        (sb-posix:close fd))))
 
 (defcfun (%execvp "execvp") :int
@@ -80,9 +85,10 @@
     (setf (mem-aref c-argv :string (length argv)) (null-pointer))
     (%execvp file c-argv)))
 
-(defun fork-exec (command &key fd-map)
+(defun fork-exec (command &key fd-map managed-fds)
   (fork-and-die
-    (format *error-output* "Fork~%")
+    (setf *pid* (sb-posix:getpid))
+    (format *error-output* "FORK ~A~%" *pid*)
     (setf fd-map (clean-fd-map fd-map))
-    (take-fd-map fd-map)
+    (take-fd-map fd-map managed-fds)
     (execvp (aref command 0) command)))
