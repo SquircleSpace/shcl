@@ -33,7 +33,7 @@
          (commands (command-iterator tokens)))
     (labels
         ((reset-token-iterator ()
-           (loop :while (listen raw-stream) :do (read-char raw-stream))
+           (loop :while (read-char-no-hang raw-stream nil nil))
            (setf stream (debug-char-stream raw-stream)
                  tokens (debug-token-iterator stream)
                  commands (command-iterator tokens))))
