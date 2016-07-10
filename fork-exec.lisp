@@ -83,8 +83,11 @@
 
 (defun fork-exec (command &key fd-map managed-fds)
   (fork-and-die
-    (setf *pid* (sb-posix:getpid))
-    (format *error-output* "FORK ~A~%" *pid*)
-    (setf fd-map (clean-fd-map fd-map))
-    (take-fd-map fd-map managed-fds)
-    (execvp (aref command 0) command)))
+   (handler-case
+       (progn
+         (setf *pid* (sb-posix:getpid))
+         (format *error-output* "FORK ~A~%" *pid*)
+         (setf fd-map (clean-fd-map fd-map))
+         (take-fd-map fd-map managed-fds)
+         (execvp (aref command 0) command))
+     (error (c) (format *error-output* "~A~%" c)))))
