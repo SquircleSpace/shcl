@@ -17,6 +17,10 @@
          (t
           ,result)))))
 
+(defun print-fd-map (map stream)
+  (let ((alist (sort (hash-table-alist map) #'< :key #'car)))
+    (format stream "~A MAP: ~A~%" *pid* alist)))
+
 (defun clean-fd-map (map)
   ;; First, we are going to move all the fd -> fd mappings to unused
   ;; fds
@@ -87,7 +91,9 @@
        (progn
          (setf *pid* (sb-posix:getpid))
          (format *error-output* "FORK ~A~%" *pid*)
+         (print-fd-map fd-map *error-output*)
          (setf fd-map (clean-fd-map fd-map))
+         (print-fd-map fd-map *error-output*)
          (take-fd-map fd-map managed-fds)
          (execvp (aref command 0) command))
      (error (c) (format *error-output* "~A~%" c)))))
