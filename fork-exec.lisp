@@ -37,8 +37,8 @@
 
              (unless (gethash value fds-to-remap)
                (let ((new-home (sb-posix:dup value)))
-                 (format *error-output* "~A DUP ~A -> ~A" *pid* key new-home))
-               (setf (gethash value fds-to-remap) new-home))
+                 (format *error-output* "~A DUP ~A -> ~A~%" *pid* key new-home)
+                 (setf (gethash value fds-to-remap) new-home)))
 
              (setf (gethash key map) (gethash value fds-to-remap))))))
 
@@ -55,23 +55,19 @@
       numbers)))
 
 (defun take-fd-map (map managed-fds)
-  (let ((fds-to-close (make-array 0 :adjustable t :fill-pointer t)))
-    (with-hash-table-iterator (iter map)
-      (loop
-         (block continue
-           (multiple-value-bind (valid key value) (iter)
-             (unless valid
-               (return))
+  (with-hash-table-iterator (iter map)
+    (loop
+       (block continue
+         (multiple-value-bind (valid key value) (iter)
+           (unless valid
+             (return))
 
-             (sb-posix:dup2 value key)
-             (format *error-output* "~A DUP2 ~A -> ~A~%" *pid* value key)
-             (vector-push-extend value fds-to-close)))))
+           (format *error-output* "~A DUP2 ~A -> ~A~%" *pid* value key)
+           (sb-posix:dup2 value key)))))
 
-    (setf fds-to-close (concatenate 'vector (hash-table-keys managed-fds) fds-to-close))
-    (setf fds-to-close (delete-duplicates fds-to-close))
-    (loop :for fd :across fds-to-close :do
-       (format *error-output* "~A CLOSE ~A~%" *pid* fd)
-       (sb-posix:close fd))))
+  (loop :for fd :in (hash-table-keys managed-fds) :do
+     (format *error-output* "~A CLOSE ~A~%" *pid* fd)
+     (sb-posix:close fd)))
 
 (defcfun (%execvp "execvp") :int
   (file :string)

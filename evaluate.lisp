@@ -154,8 +154,25 @@
     (when needs-close
       (push from-fd *fds-to-close-for-shadow*))))
 
+(define-condition invalid-fd (error)
+  ((fd
+    :type integer
+    :initarg :fd
+    :accessor invalid-fd-fd
+    :initform (required)))
+  (:report (lambda (c s) (format s "Redirect from invalid fd: ~A~%" (invalid-fd-fd c)))))
+
 (defun get-fd (fd)
-  (gethash fd *fd-bindings* fd))
+  (when (gethash fd *managed-fds*)
+    (error 'invalid-fd :fd fd))
+  (let ((mapped-fd (gethash fd *fd-bindings*)))
+    (when mapped-fd
+      (return-from get-fd mapped-fd))
+
+    (handler-case (sb-posix:fcntl fd sb-posix:f-getfd)
+      (sb-posix:syscall-error ()
+        (error 'invalid-fd :fd fd)))
+    fd))
 
 (defgeneric handle-redirect (redirect &optional fd-override))
 
