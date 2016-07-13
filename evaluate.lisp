@@ -426,3 +426,22 @@
           (handle-redirect r))
         (let ((pid (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings* :managed-fds *managed-fds*)))
           (process-from-pid pid))))))
+
+(define-condition not-a-thunk (warning)
+  ((actual-type
+    :initarg :actual-type
+    :accessor not-a-thunk-actual-type
+    :initform (required)
+    :type symbol)
+   (eval-target
+    :initarg :eval-target
+    :accessor not-a-thunk-eval-target
+    :initform (required)))
+  (:report (lambda (c s) (format s "~A is not an EVAL-THUNK.  Given ~A~%"
+                                 (not-a-thunk-actual-type c) (not-a-thunk-eval-target c)))))
+
+(defmethod evaluate :around (sy)
+  (let ((result (call-next-method)))
+    (unless (typep result 'eval-thunk)
+      (warn 'not-a-thunk :actual-type (class-name (class-of result)) :eval-target sy))
+    result))
