@@ -1,53 +1,5 @@
 (in-package :shcl.fork-exec)
 
-(defparameter *pid* nil)
-
-(defmacro fork-and-die (&body body)
-  (let ((result (gensym "RESULT")))
-    `(let ((,result (sb-posix:fork)))
-       (cond
-         ((equal ,result 0)
-          (unwind-protect
-               (progn ,@body)
-            (sb-ext:exit)))
-
-         ((< ,result 0)
-          (error "Impossible.  SBCL should already catch this"))
-
-         (t
-          ,result)))))
-
-(defun print-fd-map (map stream)
-  (let ((alist (sort (hash-table-alist map) #'< :key #'car)))
-    (format stream "~A MAP: ~A~%" *pid* alist)))
-
-(defun clean-fd-map (map)
-  ;; First, we are going to move all the fd -> fd mappings to unused
-  ;; fds
-  (let ((fds-to-remap (make-hash-table))
-        (map-copy (copy-hash-table map)))
-    (with-hash-table-iterator (iter map-copy)
-      (loop
-         (block continue
-           (multiple-value-bind (valid key value) (iter)
-             (unless valid
-               (return))
-
-             (unless (typep value 'integer)
-               (return-from continue))
-
-             (unless (gethash value map-copy)
-               (return-from continue))
-
-             (unless (gethash value fds-to-remap)
-               (let ((new-home (sb-posix:dup value)))
-                 (format *error-output* "~A DUP ~A -> ~A~%" *pid* key new-home)
-                 (setf (gethash value fds-to-remap) new-home)))
-
-             (setf (gethash key map) (gethash value fds-to-remap))))))
-
-    map-copy))
-
 (defun determine-open-fds ()
   (labels
       ((extract-fd (path)
@@ -58,42 +10,48 @@
            (numbers (map 'vector #'extract-fd paths)))
       numbers)))
 
-(defun take-fd-map (map managed-fds)
-  (with-hash-table-iterator (iter map)
-    (loop
-       (block continue
-         (multiple-value-bind (valid key value) (iter)
-           (unless valid
-             (return))
+(defun take-fd-map (alist managed-fd-list file-actions)
+  (format *error-output* "FETAKE ~A~%" alist)
 
-           (format *error-output* "~A DUP2 ~A -> ~A~%" *pid* value key)
-           (sb-posix:dup2 value key)))))
+  (let ((managed-fds (make-hash-table))
+        (fd-table (make-hash-table))
+        (already-set-fds (make-hash-table)))
+    (dolist (fd managed-fd-list)
+      (setf (gethash fd managed-fds) t))
 
-  (loop :for fd :in (hash-table-keys managed-fds) :do
-     (format *error-output* "~A CLOSE ~A~%" *pid* fd)
-     (sb-posix:close fd)))
+    (dolist (pair alist)
+      (destructuring-bind (target-fd . value-fd) pair
+        (setf (gethash target-fd fd-table) (gethash value-fd fd-table value-fd))))
 
-(defcfun (%execvp "execvp") :int
-  (file :string)
-  (argv (:pointer :string)))
+    (format *error-output* "FEMAP ~A~%" (hash-table-alist fd-table))
 
-(defun execvp (file argv)
-  (with-foreign-object
-      (c-argv :string (+ 1 (length argv)))
-    (loop :for index :below (length argv) :do
-       (setf (mem-aref c-argv :string index) (aref argv index)))
-    (setf (mem-aref c-argv :string (length argv)) (null-pointer))
-    (%execvp file c-argv)))
+    (dolist (pair alist)
+      (block continue
+        (destructuring-bind (target-fd . value-fd) pair
+          (when (gethash target-fd already-set-fds)
+            (return-from continue))
+          (setf (gethash target-fd already-set-fds) t)
+          (setf value-fd (gethash target-fd fd-table))
 
-(defun fork-exec (command &key fd-map managed-fds)
-  (fork-and-die
-   (handler-case
-       (progn
-         (setf *pid* (sb-posix:getpid))
-         (format *error-output* "FORK ~A~%" *pid*)
-         (print-fd-map fd-map *error-output*)
-         (setf fd-map (clean-fd-map fd-map))
-         (print-fd-map fd-map *error-output*)
-         (take-fd-map fd-map managed-fds)
-         (execvp (aref command 0) command))
-     (error (c) (format *error-output* "~A~%" c)))))
+          (remhash target-fd managed-fds)
+          (format *error-output* "FEDUP2 ~A -> ~A (~A = ~A)~%" value-fd target-fd target-fd value-fd)
+          (posix-spawn-file-actions-adddup2 file-actions value-fd target-fd))))
+
+    (loop :for fd :in (hash-table-keys managed-fds) :do
+       (format *error-output* "FECLOSE ~A~%" fd)
+       (posix-spawn-file-actions-addclose file-actions fd))))
+
+(defun run (command &key fd-alist managed-fds)
+  (with-posix-spawn-file-actions (file-actions)
+    (take-fd-map fd-alist managed-fds file-actions)
+    (with-posix-spawnattr (attr)
+      (with-foreign-object (pid 'pid-t)
+        (with-foreign-object
+            (c-argv :string (+ 1 (length command)))
+          (loop :for index :below (length command) :do
+             (setf (mem-aref c-argv :string index) (aref command index)))
+          (setf (mem-aref c-argv :string (length command)) (null-pointer))
+
+          (let ((envp (null-pointer)))
+            (posix-spawnp pid (aref command 0) file-actions attr c-argv envp)
+            (return-from run (mem-ref pid 'pid-t))))))))
