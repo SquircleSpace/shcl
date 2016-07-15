@@ -48,10 +48,25 @@
    #:separator-op #:separator #:command-separator #:sequential-sep
    #:wordly-word #:redirect))
 
+(defpackage :shcl.posix-types
+  (:export
+   #:size-t #:ssize-t #:pid-t #:posix-spawn-file-actions-t #:posix-spawnattr-t
+   #:errno #:mode-t))
+
+(defpackage :shcl.posix
+  (:use :common-lisp :cffi :trivial-garbage :shcl.posix-types :shcl.utility)
+  (:export
+   #:posix-spawn-file-actions-init #:posix-spawn-file-actions-destroy
+   #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
+   #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
+   #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
+   #:with-posix-spawnattr))
+
 (defpackage :shcl.fork-exec
-  (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar)
+  (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar
+        :shcl.posix-types :shcl.posix)
   (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
-  (:export #:fork-exec))
+  (:export #:run))
 
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :shcl.utility
