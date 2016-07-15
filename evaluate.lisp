@@ -13,75 +13,33 @@
     :type string))
   (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c)))))
 
-(defclass fd-wrapper ()
-  ((fd
-    :initarg :fd
-    :initform (required)
-    :type (or null fixnum)
-    :accessor fd)))
+(defparameter *fd-bindings* nil)
+(defparameter *fds-in-scope* nil)
+(defparameter *autoclosed-fds* nil)
 
-(defclass pipe-fd (fd-wrapper)
-  ((pipe
-    :initarg :pipe
-    :initform (required)
-    :type communication-pipe)))
+(defun autoclose-fd (fd)
+  (push fd *autoclosed-fds*)
+  (push fd *fds-in-scope*))
+(defun autoclosed-fds ()
+  *autoclosed-fds*)
 
-(defmethod shared-initialize :around ((instance fd-wrapper) slots &key)
-  (declare (ignore slots))
-  (let ((result (call-next-method))
-        (fd (slot-value instance 'fd)))
-    (fd-is-managed fd)
-    (cancel-finalization instance)
-    (finalize instance
-              (lambda ()
-                (format *error-output* "GCCLOSE ~A~%" fd)
-                (forget-managed-fd fd)
-                (sb-posix:close fd)))
-    result))
+(defmacro with-fd-scope (() &body body)
+  (let ((fd (gensym "FD")))
+    `(let ((*fd-bindings* *fd-bindings*)
+           (*autoclosed-fds* *autoclosed-fds*)
+           *fds-in-scope*)
+       (unwind-protect (progn ,@body)
+         (dolist (,fd *fds-in-scope*)
+           (format *error-output* "CLOSE ~A~%" ,fd)
+           (sb-posix:close ,fd))))))
 
-(defun close-fd (the-fd)
-  (with-slots (fd) the-fd
-    (when fd
-      (format *error-output* "CLOSE ~A~%" fd)
-      (forget-managed-fd fd)
-      (sb-posix:close fd)
-      (setf fd nil)
-      (cancel-finalization the-fd))))
-
-(defclass communication-pipe ()
-  ((read-end
-    :initform nil
-    :type (or null pipe-fd)
-    :accessor read-end)
-   (write-end
-    :initform nil
-    :type (or null pipe-fd)
-    :accessor write-end)))
-
-(defmethod shared-initialize :around ((pipe communication-pipe) slots &key)
-  (let ((result (call-next-method)))
-    (close-pipe pipe)
-    (with-slots (read-end write-end) pipe
-      (multiple-value-bind (fd-read-end fd-write-end) (sb-posix:pipe)
-        (format *error-output* "PIPE ~A -> ~A~%" fd-write-end fd-read-end)
-        (setf read-end (make-instance 'pipe-fd :pipe pipe :fd fd-read-end)
-              write-end (make-instance 'pipe-fd :pipe pipe :fd fd-write-end))))
-    result))
-
-(defun close-pipe (pipe)
-  (with-slots (read-end write-end) pipe
-    (when read-end
-      (close-fd read-end)
-      (setf read-end nil))
-    (when write-end
-      (close-fd write-end)
-      (setf write-end nil))))
-
-(defmacro with-pipe ((variable-name) &body body)
-  `(let ((,variable-name (make-instance 'communication-pipe)))
-     (unwind-protect
-          (progn ,@body)
-       (close-pipe ,variable-name))))
+(defmacro with-pipe ((read-end write-end) &body body)
+  `(with-fd-scope ()
+     (multiple-value-bind (,read-end ,write-end) (sb-posix:pipe)
+       (format *error-output* "PIPE ~A -> ~A~%" write-end read-end)
+       (autoclose-fd ,read-end)
+       (autoclose-fd ,write-end)
+       ,@body)))
 
 (defclass eval-thunk ()
   ())
@@ -97,35 +55,18 @@
 (defun process-from-pid (pid)
   (make-instance 'process :pid pid))
 
-(defclass pipeline-process (eval-thunk)
-  ((processes)))
+(defclass pipeline-thunk (eval-thunk)
+  ((processes
+    :initarg :processes
+    :initform (required)
+    :accessor pipeline-thunk-processes
+    :type vector)))
 
 (defun separator-par-p (separator)
   (check-type separator separator)
   (with-slots (separator-op) separator
     (when (slot-boundp separator 'separator-op)
       (typep separator-op 'par))))
-
-(defparameter *fd-bindings* (make-hash-table))
-
-(defparameter *fds-to-close-for-shadow* nil)
-
-(defparameter *managed-fds* (make-hash-table))
-(defun fd-is-managed (fd)
-  (setf (gethash fd *managed-fds*) t))
-(defun forget-managed-fd (fd)
-  (remhash fd *managed-fds*))
-(defun managed-fds ()
-  (hash-table-keys *managed-fds*))
-
-(defmacro shadow-fd-bindings (&body body)
-  (let ((fd (gensym "FD")))
-    `(let ((*fd-bindings* (copy-hash-table *fd-bindings*))
-           *fds-to-close-for-shadow*)
-       (unwind-protect (progn ,@body)
-         (dolist (,fd *fds-to-close-for-shadow*)
-           (forget-managed-fd ,fd)
-           (sb-posix:close ,fd))))))
 
 (defgeneric open-args-for-redirect (redirect))
 (defmethod open-args-for-redirect ((r less))
@@ -150,16 +91,15 @@
                              (open-args-for-redirect redirect)
                              *umask*)))
       (format *error-output* "OPEN ~A = ~A~%" fd filename)
-      (fd-is-managed fd)
       (values fd t))))
-(defmethod fd-from-description ((fd fd-wrapper))
-  (values (slot-value fd 'fd) nil))
+(defmethod fd-from-description ((fd integer))
+  (values fd nil))
 
 (defun bind-fd (fd description)
   (multiple-value-bind (from-fd needs-close) (fd-from-description description)
-    (setf (gethash fd *fd-bindings*) from-fd)
+    (push (cons fd from-fd) *fd-bindings*)
     (when needs-close
-      (push from-fd *fds-to-close-for-shadow*))))
+      (autoclose-fd from-fd))))
 
 (define-condition invalid-fd (error)
   ((fd
@@ -170,16 +110,15 @@
   (:report (lambda (c s) (format s "Redirect from invalid fd: ~A~%" (invalid-fd-fd c)))))
 
 (defun get-fd (fd)
-  (when (gethash fd *managed-fds*)
+  (let ((binding (assoc fd *fd-bindings*)))
+    (when binding
+      (return-from get-fd (cdr binding))))
+  (when (find fd (autoclosed-fds))
     (error 'invalid-fd :fd fd))
-  (let ((mapped-fd (gethash fd *fd-bindings*)))
-    (when mapped-fd
-      (return-from get-fd mapped-fd))
-
-    (handler-case (sb-posix:fcntl fd sb-posix:f-getfd)
-      (sb-posix:syscall-error ()
-        (error 'invalid-fd :fd fd)))
-    fd))
+  (handler-case (sb-posix:fcntl fd sb-posix:f-getfd)
+    (sb-posix:syscall-error ()
+      (error 'invalid-fd :fd fd)))
+  fd)
 
 (defgeneric handle-redirect (redirect &optional fd-override))
 
@@ -310,30 +249,34 @@
 (defconstant +pipe-read-fd+ 0)
 (defconstant +pipe-write-fd+ 1)
 
-(defun evaluate-pipe-sequence (sy)
+(defun evaluate-pipe-sequence (sy pipeline-vector)
   (with-slots (command pipe-sequence-tail) sy
     (cond
       (pipe-sequence-tail
-       (with-pipe (pipe)
-         (with-accessors ((read-end read-end) (write-end write-end)) pipe
-           (shadow-fd-bindings
-             (bind-fd +pipe-write-fd+ write-end)
-             (evaluate command))
-           (shadow-fd-bindings
-             (bind-fd +pipe-read-fd+ read-end)
-             (evaluate pipe-sequence-tail)))))
+       (with-pipe (read-end write-end)
+         (with-fd-scope ()
+           (bind-fd +pipe-write-fd+ write-end)
+           (vector-push-extend (evaluate command) pipeline-vector))
+         (with-fd-scope ()
+           (bind-fd +pipe-read-fd+ read-end)
+           (evaluate-pipe-sequence pipe-sequence-tail pipeline-vector))))
 
       (t
-       (evaluate command)))))
+       (vector-push-extend (evaluate command) pipeline-vector)))))
 
 (defmethod evaluate ((sy pipe-sequence))
-  (evaluate-pipe-sequence sy))
-(defmethod evaluate ((sy pipe-sequence-tail))
-  (evaluate-pipe-sequence sy))
+  (cond
+    ((slot-value sy 'pipe-sequence-tail)
+     (let ((pipeline-vector (make-array 0 :adjustable t :fill-pointer t :element-type 'eval-thunk)))
+       (evaluate-pipe-sequence sy pipeline-vector)
+       (make-instance 'pipeline-thunk :processes pipeline-vector)))
+
+    (t
+     (evaluate (slot-value sy 'command)))))
 
 (defmethod evaluate ((sy command))
   (with-slots (compound-command redirect-list) sy
-    (shadow-fd-bindings
+    (with-fd-scope ()
       (handle-redirect redirect-list)
       (evaluate compound-command))))
 
@@ -421,10 +364,10 @@
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
       (format *standard-output* "EXEC: ~A ~A ~A~%" assignments arguments redirects)
-      (shadow-fd-bindings
+      (with-fd-scope ()
         (dolist (r redirects)
           (handle-redirect r))
-        (let ((pid (fork-exec (coerce (mapcar 'token-value arguments) 'vector) :fd-map *fd-bindings* :managed-fds *managed-fds*)))
+        (let ((pid (run (coerce (mapcar 'token-value arguments) 'vector) :fd-alist (reverse *fd-bindings*) :managed-fds (autoclosed-fds))))
           (process-from-pid pid))))))
 
 (define-condition not-a-thunk (warning)
