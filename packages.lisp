@@ -9,6 +9,17 @@
    #:make-iterator-lookahead #:do-iterator #:peek-lookahead-iterator
    #:move-lookahead-to #:map-iterator #:iterator-values))
 
+(defpackage :shcl.thread
+  (:use :common-lisp :shcl.utility :bordeaux-threads)
+  (:export
+   ;; Semaphores
+   #:semaphore #:make-semaphore #:semaphore-signal #:semaphore-wait
+   #:semaphore-p
+   #:queue #:make-queue #:enqueue #:dequeue #:queue-p
+   #:queue-thread #:make-queue-thread #:close-queue-thread #:kill-queue-thread
+   #:queue-thread-p
+   #:async-f #:async #:sync-f #:sync))
+
 (defpackage :shcl.lexer
   (:use :common-lisp :shcl.utility)
   (:export
