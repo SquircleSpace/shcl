@@ -6,9 +6,10 @@
   :version "0.0.1"
   :author "Brad Jensen <brad@bradjensen.net>"
   :licence "All rights reserved."
-  :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel")
+  :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel" "bordeaux-threads")
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
+               (:file "thread" :depends-on ("packages"))
                (:file "lexer" :depends-on ("packages" "utility"))
                (:file "parser" :depends-on ("packages" "utility" "lexer"))
                (:file "shell-grammar" :depends-on ("packages" "utility" "parser" "lexer"))
