@@ -13,15 +13,54 @@
     :type string))
   (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c)))))
 
+(defparameter *gc-managed-fds* (make-weak-hash-table :weakness :key-and-value))
+(defparameter *gc-managed-fds-lock* (make-lock))
+
+(defun gc-managed-fds ()
+  (with-lock-held (*gc-managed-fds-lock*)
+    (hash-table-values *gc-managed-fds*)))
+
+(defstruct (fd-wrapper
+             (:constructor %make-fd-wrapper))
+  value)
+
+(defun gc-manage-fd (fd)
+  (when (find fd (autoclosed-fds))
+    (error "fd is already autoclosed"))
+  (with-lock-held (*gc-managed-fds-lock*)
+    (let ((existing-value (gethash fd *gc-managed-fds*)))
+      (warn "Asked to manage already managed fd")
+      (return-from gc-manage-fd existing-value))
+
+    (let ((wrapper (%make-fd-wrapper :value fd)))
+      (finalize wrapper (lambda () (sb-posix:close fd)))
+      (setf (gethash fd *gc-managed-fds*) wrapper)
+      wrapper)))
+
+(defgeneric raw-fd (fd-wrappr))
+
+(defmethod raw-fd ((fd fd-wrapper))
+  (fd-wrapper-value fd))
+
+(defmethod raw-fd ((fd integer))
+  fd)
+
 (defparameter *fd-bindings* nil)
 (defparameter *fds-in-scope* nil)
 (defparameter *autoclosed-fds* nil)
 
 (defun autoclose-fd (fd)
+  (when (gethash fd *gc-managed-fds*)
+    (error "fd is already gc managed"))
+
   (push fd *autoclosed-fds*)
   (push fd *fds-in-scope*))
+
 (defun autoclosed-fds ()
   *autoclosed-fds*)
+
+(defun all-managed-fds ()
+  (concatenate 'list (autoclosed-fds) (gc-managed-fds)))
 
 (defmacro with-fd-scope (() &body body)
   (let ((fd (gensym "FD")))
@@ -34,12 +73,14 @@
            (sb-posix:close ,fd))))))
 
 (defmacro with-pipe ((read-end write-end) &body body)
-  `(with-fd-scope ()
-     (multiple-value-bind (,read-end ,write-end) (sb-posix:pipe)
-       (format *error-output* "PIPE ~A -> ~A~%" write-end read-end)
-       (autoclose-fd ,read-end)
-       (autoclose-fd ,write-end)
-       ,@body)))
+  (let ((raw-read-end (gensym "RAW-READ-END"))
+        (raw-write-end (gensym "RAW-WRITE-END")))
+    `(with-fd-scope ()
+       (multiple-value-bind (,raw-read-end ,raw-write-end) (sb-posix:pipe)
+         (format *error-output* "PIPE ~A -> ~A~%" write-end read-end)
+         (let ((,read-end (gc-manage-fd ,raw-read-end))
+               (,write-end (gc-manage-fd ,raw-write-end)))
+           ,@body)))))
 
 (defclass eval-thunk ()
   ())
@@ -99,7 +140,7 @@
   (multiple-value-bind (from-fd needs-close) (fd-from-description description)
     (push (cons fd from-fd) *fd-bindings*)
     (when needs-close
-      (autoclose-fd from-fd))))
+      (gc-manage-fd from-fd))))
 
 (define-condition invalid-fd (error)
   ((fd
@@ -367,8 +408,16 @@
       (with-fd-scope ()
         (dolist (r redirects)
           (handle-redirect r))
-        (let ((pid (run (coerce (mapcar 'token-value arguments) 'vector) :fd-alist (reverse *fd-bindings*) :managed-fds (autoclosed-fds))))
-          (process-from-pid pid))))))
+        (let ((all-managed-fds (all-managed-fds)))
+          (declare (special all-managed-fds))
+          ;; Hold on to the list of managed fds so they don't get
+          ;; gc'd.  By holding them in a special variable, we make it
+          ;; pretty much impossible for the compiler to collect the gc
+          ;; wrappers early.
+          (let ((pid (run (coerce (mapcar 'token-value arguments) 'vector)
+                          :fd-alist (reverse *fd-bindings*)
+                          :managed-fds (mapcar 'raw-fd all-managed-fds))))
+            (process-from-pid pid)))))))
 
 (define-condition not-a-thunk (warning)
   ((actual-type
