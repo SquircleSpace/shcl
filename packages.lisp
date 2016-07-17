@@ -80,8 +80,8 @@
   (:export #:run))
 
 (defpackage :shcl.evaluate
-  (:use :common-lisp :trivial-garbage :alexandria :shcl.utility
-        :shcl.shell-grammar :shcl.lexer :shcl.fork-exec)
+  (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
+        :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec)
   (:export #:evaluate))
 
 (defpackage :shcl
