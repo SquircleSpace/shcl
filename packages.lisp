@@ -1,8 +1,8 @@
 (defpackage :shcl.utility
-  (:use :common-lisp)
+  (:use :common-lisp :alexandria :bordeaux-threads)
   (:export
    #:define-once-global #:required #:required-argument-missing #:optimization-settings
-   #:try
+   #:try #:debug-log #:logging-enabled-p #:status
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator
@@ -81,7 +81,8 @@
 
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
-        :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec)
+        :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
+        :shcl.thread)
   (:export #:evaluate))
 
 (defpackage :shcl
