@@ -3,23 +3,28 @@
 (optimization-settings)
 
 (define-parser *shell-grammar*
-  (:start-symbol complete-command)
+  (:start-symbol start)
   (:terminals
    (token a-word assignment-word name newline io-number and-if
           or-if dsemi dless dgreat lessand greatand lessgreat dlessdash
           clobber if-word then else elif fi do-word done case-word esac while until
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
 
+  (start
+   complete-command)
+
   (complete-command
    (newline-list complete-command)
-   (command-list command-separator)
+   (newline-list)
    command-list)
 
   (command-list
-   (and-or command-list-tail))
+   (and-or separator-op command-list-tail)
+   and-or)
 
   (command-list-tail
-   (separator-op and-or command-list-tail)
+   (and-or separator-op command-list-tail)
+   and-or
    ())
 
   (and-or
@@ -60,16 +65,16 @@
    (lparen compound-list rparen))
 
   (compound-list
-   (term separator)
    term
-   (newline-list term separator)
    (newline-list term))
 
   (term
-   (and-or term-tail))
+   (and-or separator term-tail)
+   and-or)
 
   (term-tail
-   (separator and-or term-tail)
+   (and-or separator term-tail)
+   and-or
    ())
 
   (for-clause
@@ -218,6 +223,7 @@
 
   (here-end
    (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
+
   (newline-list
    (newline newline-list-tail))
 
@@ -236,9 +242,6 @@
   (separator
    (separator-op linebreak)
    (newline-list))
-
-  (command-separator
-   separator-op)
 
   (sequential-sep
    (semi linebreak)

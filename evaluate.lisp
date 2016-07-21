@@ -13,101 +13,108 @@
     :type string))
   (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c)))))
 
-(defparameter *gc-managed-fds* (make-weak-hash-table :weakness :key-and-value))
-(defparameter *gc-managed-fds-lock* (make-lock))
+(define-once-global %fd-retain-count-table% (make-hash-table))
+(define-once-global %fd-retain-count-table-lock% (make-lock))
+(defparameter *autorelease-fd-scope* nil)
 
-(defun gc-managed-fds ()
-  (with-lock-held (*gc-managed-fds-lock*)
-    (hash-table-values *gc-managed-fds*)))
+(defun fd-managed-p (fd)
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (not (not (gethash fd %fd-retain-count-table%)))))
 
-(defstruct (fd-wrapper
-             (:constructor %make-fd-wrapper))
-  value)
+(define-condition fd-already-managed (error)
+  ((fd
+    :initarg :fd
+    :initform (required)
+    :accessor fd-already-managed-fd))
+  (:report (lambda (c s) (format s "Can't enter FD ~A into retain/release management again" (fd-already-managed-fd c)))))
 
-(defun gc-manage-fd (fd)
-  (when (find fd (autoclosed-fds))
-    (error "fd is already autoclosed"))
-  (with-lock-held (*gc-managed-fds-lock*)
-    (let ((existing-value (gethash fd *gc-managed-fds*)))
-      (warn "Asked to manage already managed fd")
-      (return-from gc-manage-fd existing-value))
-
-    (let ((wrapper (%make-fd-wrapper :value fd)))
-      (finalize wrapper (lambda () (sb-posix:close fd)))
-      (setf (gethash fd *gc-managed-fds*) wrapper)
-      wrapper)))
-
-(defgeneric raw-fd (fd-wrappr))
-
-(defmethod raw-fd ((fd fd-wrapper))
-  (fd-wrapper-value fd))
-
-(defmethod raw-fd ((fd integer))
+(defun %manage-new-fd (fd)
+  (when (gethash fd %fd-retain-count-table%)
+    (error 'fd-already-managed :fd fd))
+  (setf (gethash fd %fd-retain-count-table%) 1)
   fd)
 
-(defparameter *fd-bindings* nil)
-(defparameter *fds-in-scope* nil)
-(defparameter *autoclosed-fds* nil)
+(define-condition fd-not-managed (error)
+  ((fd
+    :initarg :fd
+    :initform (required)
+    :accessor fd-not-managed-fd))
+  (:report (lambda (c s) (format s "Can't retain unmanaged FD ~A" (fd-not-managed-fd c)))))
 
-(defun autoclose-fd (fd)
-  (when (gethash fd *gc-managed-fds*)
-    (error "fd is already gc managed"))
+(defun fd-retain (fd)
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (unless (gethash fd %fd-retain-count-table%)
+      (error 'fd-not-managed :fd fd))
+    (incf (gethash fd %fd-retain-count-table%))
+    fd))
 
-  (push fd *autoclosed-fds*)
-  (push fd *fds-in-scope*))
+(define-condition fd-over-release (error)
+  ((fd
+    :initarg :fd
+    :initform (required)
+    :accessor fd-over-release-fd))
+  (:report (lambda (c s) (format s "FD ~A was over released" (fd-over-release-fd c)))))
 
-(defun autoclosed-fds ()
-  *autoclosed-fds*)
+(defun %fd-release (fd)
+  (unless (gethash fd %fd-retain-count-table%)
+    (error 'fd-over-release :fd fd))
+  (let ((count (decf (gethash fd %fd-retain-count-table%))))
+    (when (equal 0 count)
+      (debug-log 'status "CLOSE ~A" fd)
+      (sb-posix:close fd)
+      (remhash fd %fd-retain-count-table%)))
+  nil)
 
-(defun all-managed-fds ()
-  (concatenate 'list (autoclosed-fds) (gc-managed-fds)))
+(defun fd-release (fd)
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (%fd-release fd)))
+
+(define-condition fd-autorelease-without-scope (error)
+  ((fd
+    :initarg :fd
+    :initform (required)
+    :accessor fd-autorelease-without-scope-fd))
+  (:report (lambda (c s) (format s "FD ~A was autoreleased without an FD scope in place" (fd-autorelease-without-scope-fd c)))))
+
+(defun fd-autorelease (fd)
+  (unless *autorelease-fd-scope*
+    (error 'fd-autorelease-without-scope :fd fd))
+  (vector-push-extend fd *autorelease-fd-scope*)
+  fd)
 
 (defmacro with-fd-scope (() &body body)
   (let ((fd (gensym "FD")))
     `(let ((*fd-bindings* *fd-bindings*)
-           (*autoclosed-fds* *autoclosed-fds*)
-           *fds-in-scope*)
+           (*autorelease-fd-scope* (make-array 0 :adjustable t :fill-pointer t :element-type 'integer)))
        (unwind-protect (progn ,@body)
-         (dolist (,fd *fds-in-scope*)
-           (format *error-output* "CLOSE ~A~%" ,fd)
-           (sb-posix:close ,fd))))))
+         (with-lock-held (%fd-retain-count-table-lock%)
+           (loop :for ,fd :across *autorelease-fd-scope* :do
+              (%fd-release ,fd)))))))
+
+(defmacro with-living-fds ((fd-list-sym) &body body)
+  `(with-lock-held (%fd-retain-count-table-lock%)
+     (let ((,fd-list-sym (hash-table-keys %fd-retain-count-table%)))
+       ,@body)))
+
+(defun open-retained (pathname flags mode)
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (let ((fd (sb-posix:open pathname flags mode)))
+      (debug-log 'status "OPEN ~A = ~A" fd pathname)
+      (%manage-new-fd fd))))
+
+(defun pipe-retained ()
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (multiple-value-bind (read-end write-end) (sb-posix:pipe)
+      (debug-log 'status "PIPE ~A -> ~A" write-end read-end)
+      (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
 
 (defmacro with-pipe ((read-end write-end) &body body)
   (let ((raw-read-end (gensym "RAW-READ-END"))
         (raw-write-end (gensym "RAW-WRITE-END")))
-    `(with-fd-scope ()
-       (multiple-value-bind (,raw-read-end ,raw-write-end) (sb-posix:pipe)
-         (format *error-output* "PIPE ~A -> ~A~%" write-end read-end)
-         (let ((,read-end (gc-manage-fd ,raw-read-end))
-               (,write-end (gc-manage-fd ,raw-write-end)))
-           ,@body)))))
-
-(defclass eval-thunk ()
-  ())
-
-(defclass process (eval-thunk)
-  ((exit-code)
-   (pid
-    :initarg :pid
-    :accessor process-pid
-    :type integer
-    :initform (required))))
-
-(defun process-from-pid (pid)
-  (make-instance 'process :pid pid))
-
-(defclass pipeline-thunk (eval-thunk)
-  ((processes
-    :initarg :processes
-    :initform (required)
-    :accessor pipeline-thunk-processes
-    :type vector)))
-
-(defun separator-par-p (separator)
-  (check-type separator separator)
-  (with-slots (separator-op) separator
-    (when (slot-boundp separator 'separator-op)
-      (typep separator-op 'par))))
+    `(multiple-value-bind (,raw-read-end ,raw-write-end) (pipe-retained)
+       (let ((,read-end (fd-autorelease ,raw-read-end))
+             (,write-end (fd-autorelease ,raw-write-end)))
+         ,@body))))
 
 (defgeneric open-args-for-redirect (redirect))
 (defmethod open-args-for-redirect ((r less))
@@ -125,22 +132,25 @@
 
 (defgeneric fd-from-description (description))
 (defmethod fd-from-description ((fd integer))
-  (values fd nil))
+  fd)
 (defmethod fd-from-description ((io-file io-file))
   (with-slots (redirect filename) io-file
-    (let ((fd (sb-posix:open (coerce (token-value filename) 'simple-string)
+    (let ((fd (open-retained (coerce (token-value filename) 'simple-string)
                              (open-args-for-redirect redirect)
                              *umask*)))
-      (format *error-output* "OPEN ~A = ~A~%" fd filename)
-      (values fd t))))
-(defmethod fd-from-description ((fd integer))
-  (values fd nil))
+      (fd-autorelease fd))))
+
+(defparameter *fd-bindings* nil)
 
 (defun bind-fd (fd description)
-  (multiple-value-bind (from-fd needs-close) (fd-from-description description)
-    (push (cons fd from-fd) *fd-bindings*)
-    (when needs-close
-      (gc-manage-fd from-fd))))
+  (let ((from-fd (fd-from-description description)))
+    (push (cons fd from-fd) *fd-bindings*)))
+
+(defun separator-par-p (separator)
+  (check-type separator separator)
+  (with-slots (separator-op) separator
+    (when (slot-boundp separator 'separator-op)
+      (typep separator-op 'par))))
 
 (define-condition invalid-fd (error)
   ((fd
@@ -153,8 +163,8 @@
 (defun get-fd (fd)
   (let ((binding (assoc fd *fd-bindings*)))
     (when binding
-      (return-from get-fd (cdr binding))))
-  (when (find fd (autoclosed-fds))
+      (return-from get-fd fd)))
+  (when (fd-managed-p fd)
     (error 'invalid-fd :fd fd))
   (handler-case (sb-posix:fcntl fd sb-posix:f-getfd)
     (sb-posix:syscall-error ()
@@ -234,38 +244,98 @@
     (when redirect-list-tail
       (handle-redirect redirect-list-tail))))
 
+(defun squash-fd-bindings (&optional (fd-bindings *fd-bindings*))
+  (let ((fd-table (make-hash-table))
+        (already-set (make-hash-table))
+        (reversed-bindings (reverse fd-bindings))
+        squashed)
+    (dolist (pair reversed-bindings)
+      (destructuring-bind (target-fd . value-fd) pair
+        (setf (gethash target-fd fd-table) (gethash value-fd fd-table value-fd))))
+
+    (dolist (pair reversed-bindings)
+      (destructuring-bind (target-fd . value-fd) pair
+        (declare (ignore value-fd))
+        (unless (gethash target-fd already-set)
+          (push (cons target-fd (gethash target-fd fd-table)) squashed)
+          (setf (gethash target-fd already-set) t))))
+    (debug-log 'status "Squashed ~A => ~A" fd-bindings squashed)
+    squashed))
+
+(defun evaluate-background-job (sy)
+  (declare (ignore sy))
+  (error 'not-implemented :message "Background jobs aren't implemented")
+  (truthy-exit-status))
+
+(defun evaluate-synchronous-job (sy)
+  (evaluate sy))
+
+(defparameter *special-variables-to-preserve-during-async*
+  '())
+
+(defun evaluate-async-job (sy completion-handler)
+  (let* ((symbols *special-variables-to-preserve-during-async*)
+         (symbol-values (mapcar #'symbol-value symbols))
+         (fd-bindings (squash-fd-bindings))
+         (fds-to-retain (delete-duplicates (mapcar #'cdr fd-bindings))))
+    (labels
+        ((async-eval ()
+           (progv symbols symbol-values
+             (with-fd-scope ()
+               (setf *fd-bindings* fd-bindings)
+               (dolist (fd fds-to-retain)
+                 (fd-autorelease fd))
+
+               (let* ((result (evaluate sy)))
+                 (funcall completion-handler result))))
+           (debug-log 'status "Thread exit ~A" sy)))
+      (dolist (fd fds-to-retain)
+        (fd-retain fd))
+      (make-thread #'async-eval))))
+
+(defun exit-true-p (exit-thing)
+  (zerop exit-thing))
+
+(defun exit-false-p (exit-thing)
+  (not (exit-true-p exit-thing)))
+
+(defun invert-exit-status (exit-thing)
+  (if (exit-true-p exit-thing)
+      1
+      0))
+
+(defun truthy-exit-status ()
+  0)
+
+(defun exit-status (&key pid exit-code exit-signal stop-signal)
+  (declare (ignore pid))
+  (+ (if exit-code exit-code 0) (if exit-signal 128 0) (if stop-signal 128 0)))
+
 (defgeneric evaluate (syntax-tree))
 
 (defmethod evaluate (sy)
   (error 'not-implemented :message (format nil "Cannot eval ~A" (class-name (class-of sy)))))
 
 (defmethod evaluate ((sy complete-command))
-  (with-slots (newline-list complete-command command-list command-separator) sy
-    (cond
-      ((and (slot-boundp sy 'newline-list)
-            complete-command)
-       (evaluate complete-command))
-
-      ((slot-boundp sy 'newline-list)
-       (return-from evaluate nil))
-
-      (t
-       (let ((no-wait (typep command-separator 'par)))
-         (when no-wait
-           (error 'not-implemented :message "& not implemented"))
-
-         (evaluate command-list))))))
+  (with-slots (newline-list complete-command) sy
+    (if (slot-boundp sy 'complete-command)
+        (return-from evaluate (evaluate-synchronous-job complete-command))
+        (return-from evaluate (truthy-exit-status)))))
 
 (defun evaluate-command-list (sy)
-  (with-slots (and-or command-list-tail) sy
-    (let ((no-wait (and command-list-tail
-                        (typep (slot-value command-list-tail 'separator-op) 'par))))
-      (when no-wait
-        (error 'not-implemented :message "& not implemented"))
+  (with-slots (and-or separator-op command-list-tail) sy
+    (let ((no-wait (typep separator-op 'par)))
 
-      (evaluate and-or)
-      (when command-list-tail
-        (evaluate command-list-tail)))))
+      (unless command-list-tail
+        (if no-wait
+            (return-from evaluate-command-list (evaluate-background-job and-or))
+            (return-from evaluate-command-list (evaluate-synchronous-job and-or))))
+
+      (if no-wait
+          (evaluate-background-job sy)
+          (evaluate-synchronous-job and-or))
+
+      (return-from evaluate-command-list (evaluate-synchronous-job command-list-tail)))))
 
 (defmethod evaluate ((sy command-list))
   (evaluate-command-list sy))
@@ -274,8 +344,11 @@
 
 (defun evaluate-and-or (sy)
   (with-slots (pipeline and-or-tail) sy
-    (evaluate pipeline)
-    (when and-or-tail
+    (unless and-or-tail
+      (return-from evaluate-and-or (evaluate-synchronous-job pipeline)))
+
+    (let ((result (evaluate-synchronous-job pipeline)))
+      (declare (ignore result))
       (error 'not-implemented :message "&& and || are not implemented"))))
 
 (defmethod evaluate ((sy and-or))
@@ -285,61 +358,80 @@
 
 (defmethod evaluate ((sy pipeline))
   (with-slots (bang pipe-sequence) sy
-    (error 'not-implemented :message "! not implemented")))
+    (let ((result (evaluate-synchronous-job pipe-sequence)))
+      (return-from evaluate (invert-exit-status result)))))
 
 (defconstant +pipe-read-fd+ 0)
 (defconstant +pipe-write-fd+ 1)
 
-(defun evaluate-pipe-sequence (sy pipeline-vector)
-  (with-slots (command pipe-sequence-tail) sy
-    (cond
-      (pipe-sequence-tail
-       (with-pipe (read-end write-end)
-         (with-fd-scope ()
-           (bind-fd +pipe-write-fd+ write-end)
-           (vector-push-extend (evaluate command) pipeline-vector))
-         (with-fd-scope ()
-           (bind-fd +pipe-read-fd+ read-end)
-           (evaluate-pipe-sequence pipe-sequence-tail pipeline-vector))))
-
-      (t
-       (vector-push-extend (evaluate command) pipeline-vector)))))
+(defun evaluate-pipe-sequence (sy)
+  (let ((vector (make-array 0 :adjustable t :fill-pointer t))
+        (results (make-array 0 :adjustable t :fill-pointer t))
+        (semaphore (make-semaphore))
+        write-fd)
+    (labels
+        ((visit (thing)
+           (with-slots (command pipe-sequence-tail) thing
+             (vector-push-extend command vector)
+             (vector-push-extend nil results)
+             (when pipe-sequence-tail
+               (visit pipe-sequence-tail))))
+         (store (index thing)
+           (setf (aref results index) thing)
+           (semaphore-signal semaphore))
+         (run-command (index read-end write-end)
+           (with-fd-scope ()
+             (when read-end
+               (bind-fd +pipe-read-fd+ read-end))
+             (when write-end
+               (bind-fd +pipe-write-fd+ write-end))
+             (evaluate-async-job (aref vector index)
+                                 (lambda (result) (store index result))))))
+      (visit sy)
+      (assert (< 1 (length vector)))
+      (loop :for index :from (- (length vector) 1) :downto 1 :do
+         (multiple-value-bind (read-end write-end) (pipe-retained)
+           (run-command index read-end write-fd)
+           (when write-fd
+             (fd-release write-fd))
+           (setf write-fd write-end)
+           (fd-release read-end)))
+      (assert write-fd)
+      (run-command 0 nil write-fd)
+      (fd-release write-fd)
+      (loop :for n :below (length vector) :do
+         (semaphore-wait semaphore))
+      (return-from evaluate-pipe-sequence (aref results (- (length results) 1))))))
 
 (defmethod evaluate ((sy pipe-sequence))
-  (cond
-    ((slot-value sy 'pipe-sequence-tail)
-     (let ((pipeline-vector (make-array 0 :adjustable t :fill-pointer t :element-type 'eval-thunk)))
-       (evaluate-pipe-sequence sy pipeline-vector)
-       (make-instance 'pipeline-thunk :processes pipeline-vector)))
+  (with-slots (command pipe-sequence-tail) sy
+    (unless pipe-sequence-tail
+      (return-from evaluate (evaluate-synchronous-job command)))
 
-    (t
-     (evaluate (slot-value sy 'command)))))
+    (return-from evaluate (evaluate-pipe-sequence sy))))
 
 (defmethod evaluate ((sy command))
   (with-slots (compound-command redirect-list) sy
     (with-fd-scope ()
       (handle-redirect redirect-list)
-      (evaluate compound-command))))
+      (return-from evaluate (evaluate-synchronous-job compound-command)))))
 
 (defmethod evaluate ((sy subshell))
+  (declare (ignore sy))
   (error 'not-implemented :message "Subshells not implemented"))
 
 (defmethod evaluate ((sy compound-list))
-  (with-slots (newline-list term separator) sy
-    (when (and (slot-boundp sy 'separator)
-               (separator-par-p separator))
-      (error 'not-implemented :message "& not implemented"))
-
-    (evaluate term)))
+  (with-slots (newline-list term) sy
+    (return-from evaluate (evaluate-synchronous-job term))))
 
 (defun evaluate-term (sy)
-  (with-slots (and-or term-tail) sy
-    (when (and term-tail
-               (separator-par-p (slot-value term-tail 'separator)))
-      (error 'not-implemented :message "& not implemented"))
+  (with-slots (and-or separator term-tail) sy
+    (when (separator-par-p separator)
+      (evaluate-background-job and-or))
 
-    (evaluate and-or)
-    (evaluate term-tail)))
+    (if term-tail
+        (return-from evaluate-term (evaluate-synchronous-job term-tail))
+        (return-from evaluate-term (truthy-exit-status)))))
 
 (defmethod evaluate ((sy term))
   (evaluate-term sy))
@@ -404,36 +496,50 @@
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
-      (format *standard-output* "EXEC: ~A ~A ~A~%" assignments arguments redirects)
+      (debug-log 'status "EXEC: ~A ~A ~A~%" assignments arguments redirects)
       (with-fd-scope ()
         (dolist (r redirects)
           (handle-redirect r))
-        (let ((all-managed-fds (all-managed-fds)))
-          (declare (special all-managed-fds))
-          ;; Hold on to the list of managed fds so they don't get
-          ;; gc'd.  By holding them in a special variable, we make it
-          ;; pretty much impossible for the compiler to collect the gc
-          ;; wrappers early.
-          (let ((pid (run (coerce (mapcar 'token-value arguments) 'vector)
-                          :fd-alist (reverse *fd-bindings*)
-                          :managed-fds (mapcar 'raw-fd all-managed-fds))))
-            (process-from-pid pid)))))))
+        (let* ((bindings (squash-fd-bindings))
+               pid
+               status)
+          (with-living-fds (fds)
+            (setf pid (run (coerce (mapcar 'token-value arguments) 'vector)
+                           :fd-alist (reverse bindings)
+                           :managed-fds fds))
+            (debug-log 'status "PID ~A = ~A" pid (mapcar 'token-value arguments)))
+          (setf status (nth-value 1 (sb-posix:waitpid pid sb-posix:wuntraced)))
+          (debug-log 'status "EXITED ~A" pid)
+          (when (sb-posix:wifstopped status)
+            (warn "Stopped jobs should get a job number, but they don't"))
 
-(define-condition not-a-thunk (warning)
+          (exit-status :pid pid
+                       :exit-code (when (sb-posix:wifexited status)
+                                    (sb-posix:wexitstatus status))
+                       :exit-signal (when (sb-posix:wifsignaled status)
+                                      (sb-posix:wtermsig status))
+                       :stop-signal (when (sb-posix:wifstopped status)
+                                      (sb-posix:wstopsig status))))))))
+
+(define-condition not-an-exit-code (warning)
   ((actual-type
     :initarg :actual-type
-    :accessor not-a-thunk-actual-type
+    :accessor not-an-exit-code-actual-type
     :initform (required)
     :type symbol)
    (eval-target
     :initarg :eval-target
-    :accessor not-a-thunk-eval-target
+    :accessor not-an-exit-code-eval-target
     :initform (required)))
-  (:report (lambda (c s) (format s "~A is not an EVAL-THUNK.  Given ~A~%"
-                                 (not-a-thunk-actual-type c) (not-a-thunk-eval-target c)))))
+  (:report (lambda (c s) (format s "~A is not an exit code.  Given ~A~%"
+                                 (not-an-exit-code-actual-type c) (not-an-exit-code-eval-target c)))))
 
 (defmethod evaluate :around (sy)
   (let ((result (call-next-method)))
-    (unless (typep result 'eval-thunk)
-      (warn 'not-a-thunk :actual-type (class-name (class-of result)) :eval-target sy))
+    (unless (typep result 'integer)
+      (warn 'not-an-exit-code :actual-type (class-name (class-of result)) :eval-target sy))
     result))
+
+(defmethod evaluate ((s string))
+  (do-iterator (command (command-iterator (token-iterator (make-string-input-stream s))))
+    (evaluate command)))

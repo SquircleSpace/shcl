@@ -17,6 +17,26 @@
            ,value)
          (define-symbol-macro ,name (,name))))))
 
+(defparameter *debug-stream* *error-output*)
+(defparameter *debug-stream-lock* (make-lock))
+
+(defparameter *log-levels*
+  (alist-hash-table
+   '((error . t)
+     (warning . t)
+     (status . t))))
+
+(defun logging-enabled-p (level)
+  (gethash level *log-levels*))
+
+(defmacro debug-log (level message &rest format-args)
+  (let ((level-val (gensym "LEVEL-VAL")))
+    `(with-lock-held (*debug-stream-lock*)
+       (let ((,level-val ,level))
+         (when (logging-enabled-p ,level-val)
+           (format *debug-stream* ,message ,@format-args)
+           (fresh-line *debug-stream*))))))
+
 (define-condition required-argument-missing (error)
   ())
 
