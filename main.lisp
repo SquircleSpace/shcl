@@ -57,6 +57,8 @@
         (do-iterator (tree commands)
           (format *standard-output* "TREE: ~A~%" tree)
           (restart-case
-              (evaluate tree)
+              (let ((result (evaluate tree)))
+                (declare (ignorable result))
+                (debug-log 'status "RESULT ~A" result))
             (skip ())))
       (die () (sb-ext:exit :code 1)))))
