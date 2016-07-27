@@ -3,8 +3,8 @@
 (optimization-settings)
 
 (defclass token ()
-  ((value :type string
-          :initform (required)
+  ((value :type (or null string)
+          :initform nil
           :accessor token-value
           :initarg :value)))
 (defmethod print-object ((token token) stream)
@@ -19,14 +19,70 @@
 (defun plusify (symbol)
   (intern (concatenate 'string "+" (symbol-name symbol) "+")))
 
-(defmacro define-simple-token (name &optional superclasses)
-  `(defclass ,name (,@superclasses token)
-     ()))
+(defclass a-word (token)
+  ())
 
-(define-simple-token a-word)
-(define-simple-token assignment-word (a-word))
-(define-simple-token name (a-word))
-(define-simple-token io-number)
+(defclass simple-word (a-word)
+  ((text
+    :initarg :text
+    :accessor simple-word-text
+    :initform (required)
+    :type string)))
+(defmethod print-object ((simple-word simple-word) stream)
+  (format stream "#<~A ~S>" (class-name (class-of simple-word)) (simple-word-text simple-word)))
+
+(defclass compound-word (a-word)
+  ((parts :type vector
+          :initform (required)
+          :accessor compound-word-parts
+          :initarg :parts)))
+(defmethod print-object ((compound-word compound-word) stream)
+  (format stream "#<~A ~S>" (class-name (class-of compound-word)) (compound-word-parts compound-word)))
+
+(defclass assignment-word (a-word)
+  ((name
+    :type name
+    :initform (required)
+    :accessor assignment-word-name
+    :initarg :name)
+   (value-word
+    :type a-word
+    :initarg :value-word
+    :initform (required)
+    :accessor assignment-word-value-word)))
+(defmethod print-object ((word assignment-word) stream)
+  (format stream "#<~A ~S = ~S>" (class-name (class-of word)) (assignment-word-name word) (assignment-word-value-word word)))
+
+(defun make-assignment-word-from-parts (parts raw)
+  (let* ((first-part (aref parts 0))
+         (first-word (simple-word-text first-part))
+         (name-break-point (assignment-word-p first-word))
+         (name (make-instance 'name :text (subseq first-word 0 name-break-point) :value nil))
+         (value (subseq first-word (1+ name-break-point)))
+         (new-parts (make-array (if (zerop (length value))
+                                    (length parts)
+                                    (- (length parts) 1))
+                                :adjustable t :fill-pointer 0)))
+    (unless (zerop (length value))
+      (vector-push-extend (make-instance 'simple-word :text value :value nil) new-parts))
+    (loop :for index :from 1 :below (length parts) :do
+       (vector-push-extend (aref parts index) new-parts))
+    (let ((final-value (if (equal 1 (length new-parts))
+                           (aref new-parts 0)
+                           (make-instance 'compound-word :parts new-parts :value nil))))
+      (make-instance 'assignment-word :name name :value-word final-value :value raw))))
+
+(defclass name (simple-word)
+  ())
+
+(defclass io-number (token)
+  ((fd
+    :type integer
+    :initform (required)
+    :accessor io-number-fd
+    :initarg :fd)))
+(defmethod print-object ((io-number io-number) stream)
+  (format stream "#<~A ~S>" (class-name (class-of io-number)) (io-number-fd io-number)))
 
 (defun name-p (word)
   (labels ((first-okay (char)
@@ -41,19 +97,23 @@
          (return-from name-p nil)))
     t))
 
-(defun assignment-p (word)
-  (let ((position (loop :for index :below (length word) :do
-                     (when (equal (aref word index) #\=)
-                       (return index)))))
+(defun assignment-word-p (word)
+  (let* ((position (loop :for index :below (length word) :do
+                      (when (equal (aref word index) #\=)
+                        (return index)))))
     (unless position
-      (return-from assignment-p nil))
+      (return-from assignment-word-p nil))
 
     (let ((name (make-array position :element-type 'character :displaced-to word)))
-      (name-p name))))
+      (when (name-p name)
+        position))))
 
 (defparameter *print-literals-by-name* t)
 (defclass literal-token (token)
-  ())
+  ((string
+    :type string
+    :allocation :class
+    :accessor literal-token-string)))
 (defmethod print-object ((literal-token literal-token) stream)
   (if *print-literals-by-name*
       (format stream "#<~A>" (class-name (class-of literal-token)))
@@ -62,7 +122,8 @@
 (defmacro define-literal-token (name string &optional superclasses)
   `(progn
      (defclass ,name (,@superclasses literal-token)
-       ((value :initform ,string)))))
+       ((value :initform ,string)
+        (string :initform ,string)))))
 
 (define-literal-token newline (string #\linefeed))
 (define-once-global +newline+ (make-instance 'newline))
@@ -87,8 +148,8 @@
       (great . ">")
       (less . "<"))))
 
-(defun make-operator (string)
-  (make-instance (car (find string *operators* :test #'equal :key #'cdr))))
+(defun make-operator (string raw)
+  (make-instance (car (find string *operators* :test #'equal :key #'cdr)) :value raw))
 
 (defun operator-p (word)
   (find word *operators* :test #'equal :key #'cdr))
@@ -129,8 +190,8 @@
       (bang . "!")
       (in . "in"))))
 
-(defun make-reserved (string)
-  (make-instance (car (find string *reserved-words* :test #'equal :key #'cdr))))
+(defun make-reserved (string raw)
+  (make-instance (car (find string *reserved-words* :test #'equal :key #'cdr)) :value raw))
 
 (defclass reserved-word (a-word)
   ())
@@ -153,91 +214,147 @@
 (defun eof-error (&rest rest)
   (apply 'error 'eof-error rest))
 
+(defclass single-quote (a-word)
+  ((contents
+    :initarg :contents
+    :initform (required)
+    :type string
+    :accessor single-quote-contents)))
+(defmethod print-object ((single-quote single-quote) stream)
+  (format stream "#<~A ~S>" (class-name (class-of single-quote)) (single-quote-contents single-quote)))
+
 (defun read-single-quote (stream)
-  (let ((next-char (peek-char nil stream nil :eof))
-        (value (make-array 0 :element-type 'character :adjustable t :fill-pointer t)))
+  (let* ((all-chars-stream (make-string-output-stream))
+         (stream (make-echo-stream stream all-chars-stream))
+         (next-char (peek-char nil stream nil :eof))
+         (contents (make-array 0 :element-type 'character :adjustable t :fill-pointer t)))
     (labels ((next ()
-               (vector-push-extend next-char value)
+               (vector-push-extend next-char contents)
+               (skip))
+             (skip ()
                (read-char stream nil :eof)
                (setf next-char (peek-char nil stream nil :eof))))
       (assert (equal next-char #\'))
-      (next)
+      (skip)
       (loop :while (not (equal next-char #\'))
          :do (if (equal :eof next-char)
                  (eof-error :comment "Single quote expected")
                  (next)))
       (assert (equal next-char #\'))
       ;; One more for the close quote
-      (next))
-    value))
+      (skip))
+    (make-instance 'single-quote :contents contents
+                   :value (get-output-stream-string all-chars-stream))))
+
+(defclass double-quote (a-word)
+  ((parts :type vector
+          :initform (required)
+          :accessor double-quote-parts
+          :initarg :parts)))
+(defmethod print-object ((double-quote double-quote) stream)
+  (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
 
 (defun read-double-quote (stream)
-  (let ((result (make-array 0 :element-type 'character :adjustable t :fill-pointer t))
+  (let ((token-value (make-array 0 :element-type 'character :adjustable t :fill-pointer t))
+        (parts (make-array 0 :element-type 'token :adjustable t :fill-pointer t))
+        (literal-string (make-array 0 :element-type 'character :adjustable t :fill-pointer t))
         (next-char (peek-char nil stream nil :eof)))
+    (assert (equal next-char #\"))
     (labels ((keep ()
-               (vector-push-extend next-char result)
+               (vector-push-extend next-char literal-string)
                (skip))
              (skip ()
+               (vector-push-extend next-char token-value)
                (read-char stream nil :eof)
-               (setf next-char (peek-char nil stream nil :eof))))
+               (reset-next-char))
+             (reset-next-char ()
+               (setf next-char (peek-char nil stream nil :eof)))
+             (take-literal ()
+               (unless (equal 0 (length literal-string))
+                 (vector-push-extend literal-string parts)
+                 (setf literal-string (make-array 0 :element-type 'character :adjustable t :fill-pointer t)))))
+      (skip)
       (loop
+         (reset-next-char)
          (cond ((equal :eof next-char)
                 (eof-error :comment "Double quote expected"))
 
                ((equal #\" next-char)
-                (keep)
-                (return-from read-double-quote result))
+                (skip)
+                (take-literal)
+                (return-from read-double-quote (make-instance 'double-quote-word :parts parts :value token-value)))
 
                ((equal #\Backslash next-char)
                 (skip)
                 (if (find next-char '(#\$ #\` #\" #\Backslash #\Linefeed))
-                    (keep)
-                    (vector-push-extend #\Backslash result)))
+                    (keep)))
 
                ((equal #\` next-char)
-                (loop :for char :across (read-backquote stream)
-                   :do (vector-push-extend char result)))
+                (take-literal)
+                (let* ((backquote (read-backquote stream))
+                       (backquote-string (token-value backquote)))
+                  (vector-push-extend backquote parts)
+                  (loop :for char :across backquote-string
+                     :do (vector-push-extend char token-value))))
 
                ((equal #\$ next-char)
-                (loop :for char :across (read-dollar stream)
-                   :do (vector-push-extend char result))))))
+                (take-literal)
+                (let* ((dollar (read-dollar stream))
+                       (dollar-string (token-value dollar)))
+                  (vector-push-extend dollar parts)
+                  (loop :for char :across dollar-string
+                     :do (vector-push-extend char token-value))))
+
+               (t
+                (keep)))))
     (assert nil nil "This function shouldn't return via this path")))
 
 (defun read-backquote (stream)
   (declare (ignore stream))
   (error "Backquote is not implemented.  It sucks anyway.  Use $()"))
 
-(defun read-dollar-curly (stream)
-  (declare (ignore stream))
-  (error "${} is not implemented"))
+(defclass command-word (a-word)
+  ((tokens
+    :initarg :tokens
+    :initform (required)
+    :type vector
+    :accessor command-word-tokens)))
+(defmethod print-object ((command-word command-word) stream)
+  (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
 
 (defun read-dollar-paren (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
+    (assert (equal #\$ next-char))
+    (read-char stream nil :eof)
+    (setf next-char (peek-char nil stream nil :eof))
     (assert (equal #\( next-char))
     (read-char stream nil :eof)
     (setf next-char (peek-char nil stream nil :eof))
     (when (equal #\( next-char)
-      (return-from read-dollar-paren (concatenate 'string "(" (read-dollar-paren-paren stream)))))
+      (return-from read-dollar-paren
+        (read-dollar-paren-paren
+         (make-concatenated-stream (make-string-input-stream "$(")
+                                   stream)))))
   ;; We need to parse a full command.  The best way to do that is with
   ;; our `NEXT-TOKEN' function, but that returns tokens instead of
   ;; strings.  We need a string containing everything it read!
   ;; Luckily, an echo stream allows us to know exactly what was read
   ;; by `NEXT-TOKEN'.
   (let ((out-stream (make-string-output-stream)))
-    (format out-stream "(")
+    (format out-stream "$(")
     (let* ((echo-stream (make-echo-stream stream out-stream))
-           (token (next-token echo-stream)))
+           (token-iterator (token-iterator echo-stream))
+           (tokens (make-array 0 :adjustable t :fill-pointer t)))
 
-      (loop
-       (cond ((typep token 'eof)
-              (eof-error ") expected"))
-
-             ((typep token 'rparen)
-              (return-from read-dollar-paren (get-output-stream-string out-stream))))
-       (setf token (next-token echo-stream)))))
+      (do-iterator (token token-iterator)
+        (when (typep token 'rparen)
+          (return-from read-dollar-paren (make-instance 'command-word :tokens tokens :value (get-output-stream-string out-stream))))
+        (vector-push-extend token tokens))
+      (eof-error ") expected")))
   (assert nil nil "This function doesn't return normally"))
 
 (defun read-dollar-paren-paren (stream)
+  (error "$(()) is not implemented")
   (let ((next-char (peek-char nil stream nil :eof))
         (result (make-array 0 :element-type 'character :fill-pointer t :adjustable t)))
     (labels ((take ()
@@ -246,7 +363,7 @@
                (setf next-char (peek-char nil stream nil :eof))))
       (assert (equal #\( next-char))
       (take)
-      (error "$(()) is not implemented"))))
+      )))
 
 (defun read-name (stream)
   (let ((next-char (peek-char nil stream nil :eof))
@@ -266,25 +383,45 @@
          :do (take))
       result)))
 
+(defclass variable-expansion-word (a-word)
+  ((variable
+    :initarg :variable
+    :initform (required)
+    :accessor variable-expansion-word-variable
+    :type string)))
+(defmethod print-object ((word variable-expansion-word) stream)
+  (format stream "#<~A ~S>" (class-name (class-of word)) (variable-expansion-word-variable word)))
+
+(defun read-dollar-curly (stream)
+  (declare (ignore stream))
+  (error "${} is not implemented"))
+
 (defun read-dollar-word (stream)
+  (assert (equal #\$ (read-char stream nil :eof)))
   (let ((next-char (peek-char nil stream nil :eof)))
-    (when (find next-char #(#\@ #\* #\# #\? #\- #\$ #\! #\0))
-      (return-from read-dollar-word (string next-char))))
-  (read-name stream))
+    (when (or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
+              (digit-char-p next-char))
+      (return-from read-dollar-word
+        (make-instance 'variable-expansion-word
+                       :variable (string next-char)
+                       :value (concatenate 'string "$" (string next-char))))))
+  (let ((name (read-name stream)))
+    (make-instance 'variable-expansion-word :variable name :value (concatenate 'string "$" name))))
 
 (defun read-dollar (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
     (assert (equal #\$ next-char))
     (read-char stream nil :eof)
     (setf next-char (peek-char nil stream nil :eof))
-    (cond ((equal #\{ next-char)
-           (concatenate 'string "$" (read-dollar-curly stream)))
+    (let ((new-stream (make-concatenated-stream (make-string-input-stream "$") stream)))
+      (cond ((equal #\{ next-char)
+             (read-dollar-curly new-stream))
 
-          ((equal #\( next-char)
-           (concatenate 'string "$" (read-dollar-paren stream)))
+            ((equal #\( next-char)
+             (read-dollar-paren new-stream))
 
-          (t
-           (concatenate 'string "$" (read-dollar-word stream))))))
+            (t
+             (read-dollar-word new-stream))))))
 
 (defun read-comment (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -329,18 +466,36 @@
     result))
 
 (defun next-token (stream)
-  (let ((word (make-array 0 :element-type 'character :adjustable t :fill-pointer t))
-        (next-char (peek-char nil stream nil :eof))
-        contains-quotes)
-    (labels ((is-operator (&optional (the-word word))
-               (and (not contains-quotes) (operator-p the-word)))
+  (let* ((all-chars-stream (make-string-output-stream))
+         (stream (make-echo-stream stream all-chars-stream))
+         (word (make-array 0 :element-type 'character :adjustable t :fill-pointer t))
+         (parts (make-array 0 :adjustable t :fill-pointer t))
+         (next-char (peek-char nil stream nil :eof))
+         contains-quotes)
+    (labels ((no-content-p ()
+               (and (equal 0 (length parts))
+                    (equal 0 (length word))))
+             (simple-p ()
+               (and (not contains-quotes)
+                    (equal 0 (length parts))))
+             (is-operator (&optional (the-word word))
+               (and (operator-p the-word)
+                    (simple-p)))
+             (assignment-p ()
+               (if (equal 0 (length parts))
+                   (and (assignment-word-p word))
+                   (and (assignment-word-p (simple-word-text (aref parts 0))))))
              (extend? (&optional (char next-char) (the-word word))
                (concatenate 'string the-word (list char)))
              (extend! (&optional (char next-char))
                (vector-push-extend char word))
-             (extend-string! (string)
-               (loop :for char :across string
-                  :do (extend! char)))
+             (word-boundary ()
+               (unless (equal 0 (length word))
+                 (vector-push-extend (make-instance 'simple-word :text word :value nil) parts)
+                 (setf word (make-array 0 :element-type 'character :adjustable t :fill-pointer t))))
+             (add-part (thing)
+               (word-boundary)
+               (vector-push-extend thing parts))
              (consume ()
                (read-char stream nil :eof)
                (reassess-next-char))
@@ -354,23 +509,35 @@
                         value)
 
                        ((is-operator)
-                        (make-operator word))
+                        (make-operator word (get-output-stream-string all-chars-stream)))
 
-                       ((reserved-p word)
-                        (make-reserved word))
+                       ((and (simple-p)
+                             (reserved-p word))
+                        (make-reserved word (get-output-stream-string all-chars-stream)))
 
-                       ((and (not (find-if-not #'digit-char-p word))
+                       ((and (simple-p)
+                             (not (find-if-not #'digit-char-p word))
                              (or (equal #\< next-char) (equal #\> next-char)))
-                        (make-instance 'io-number :value word))
+                        (make-instance 'io-number :value (get-output-stream-string all-chars-stream) :fd (parse-integer word)))
 
-                       ((name-p word)
-                        (make-instance 'name :value word))
+                       ((and (simple-p)
+                             (name-p word))
+                        (make-instance 'name :value (get-output-stream-string all-chars-stream) :text word))
 
-                       ((assignment-p word)
-                        (make-instance 'assignment-word :value word))
+                       ((assignment-p)
+                        (word-boundary)
+                        (make-assignment-word-from-parts parts (get-output-stream-string all-chars-stream)))
+
+                       ((and (equal 1 (length parts))
+                             (equal 0 (length word)))
+                        (aref parts 0))
+
+                       ((not (equal 0 (length parts)))
+                        (word-boundary)
+                        (make-instance 'compound-word :parts parts :value (get-output-stream-string all-chars-stream)))
 
                        (t
-                        (make-instance 'a-word :value word))))))
+                        (make-instance 'simple-word :text word :value (get-output-stream-string all-chars-stream)))))))
 
       (macrolet ((again () '(return-from again)))
 
@@ -385,7 +552,7 @@
                ;; end-of-input indicator shall be returned as the token.
                ((eq :eof next-char)
                 (delimit
-                 (when (equal 0 (length word))
+                 (when (no-content-p)
                    +eof+)))
 
                ;; If the previous character was used as part of an
@@ -421,20 +588,19 @@
                ;; field.
                ((equal next-char #\')
                 (setf contains-quotes t)
-                (extend-string! (read-single-quote stream))
+                (add-part (read-single-quote stream))
                 (reassess-next-char)
                 (again))
                ((equal next-char #\Backslash)
                 (setf contains-quotes t)
                 (consume)
                 (unless (equal next-char #\Linefeed)
-                  (extend! #\Backslash)
                   (extend!))
                 (consume)
                 (again))
                ((equal next-char #\")
                 (setf contains-quotes t)
-                (extend-string! (read-double-quote stream))
+                (add-part (read-double-quote stream))
                 (reassess-next-char)
                 (again))
 
@@ -459,11 +625,11 @@
                ;; operators or quotes. The token shall not be delimited
                ;; by the end of the substitution.
                ((equal next-char #\$)
-                (extend-string! (read-dollar stream))
+                (add-part (read-dollar stream))
                 (reassess-next-char)
                 (again))
                ((equal next-char #\`)
-                (extend-string! (read-backquote stream))
+                (add-part (read-backquote stream))
                 (reassess-next-char)
                 (again))
 
@@ -482,7 +648,7 @@
                ;; If the current character is an unquoted <newline>, the
                ;; current token shall be delimited.
                ((equal #\linefeed next-char)
-                (unless (equal 0 (length word))
+                (unless (no-content-p)
                   (delimit))
                 (consume-no-peek)
                 (delimit +newline+))
@@ -491,14 +657,14 @@
                ;; token containing the previous character is delimited
                ;; and the current character shall be discarded.
                ((blank-p next-char)
-                (unless (equal 0 (length word))
+                (unless (no-content-p)
                   (delimit))
                 (consume)
                 (again))
 
                ;; If the previous character was part of a word, the
                ;; current character shall be appended to that word.
-               ((not (equal 0 (length word)))
+               ((not (no-content-p))
                 (extend!)
                 (consume)
                 (again))
