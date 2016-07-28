@@ -12,3 +12,5 @@
 
 ;; The ever-important errno
 (cvar ("errno" errno) :int)
+
+(cvar ("environ" environ) (:pointer :string))

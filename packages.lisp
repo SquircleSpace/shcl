@@ -3,6 +3,9 @@
   (:export
    #:define-once-global #:required #:required-argument-missing #:optimization-settings
    #:try #:debug-log #:logging-enabled-p #:status
+   ;; Hooks
+   #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
+   #:observe-revival
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator
@@ -72,7 +75,7 @@
 (defpackage :shcl.posix-types
   (:export
    #:size-t #:ssize-t #:pid-t #:posix-spawn-file-actions-t #:posix-spawnattr-t
-   #:errno #:mode-t))
+   #:errno #:mode-t #:environ))
 
 (defpackage :shcl.posix
   (:use :common-lisp :cffi :trivial-garbage :shcl.posix-types :shcl.utility)
@@ -81,13 +84,17 @@
    #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
-   #:with-posix-spawnattr))
+   #:with-posix-spawnattr #:environment-iterator))
 
 (defpackage :shcl.fork-exec
   (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar
         :shcl.posix-types :shcl.posix)
   (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
   (:export #:run))
+
+(defpackage :shcl.environment
+  (:use :common-lisp :shcl.utility :shcl.posix)
+  (:export #:*environment* #:env #:$ifs #:$path #:$pwd #:$oldpwd))
 
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads

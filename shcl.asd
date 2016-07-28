@@ -6,7 +6,7 @@
   :version "0.0.1"
   :author "Brad Jensen <brad@bradjensen.net>"
   :licence "All rights reserved."
-  :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel" "bordeaux-threads")
+  :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel" "bordeaux-threads" "fset")
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
                (:file "thread" :depends-on ("packages"))
@@ -16,5 +16,6 @@
                (:cffi-grovel-file "posix-types")
                (:file "posix" :depends-on ("packages" "posix-types"))
                (:file "fork-exec" :depends-on ("packages" "utility" "shell-grammar" "posix"))
+               (:file "environment" :depends-on ("packages" "utility" "posix"))
                (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread"))
                (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "utility"))))
