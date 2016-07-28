@@ -37,6 +37,38 @@
            (format *debug-stream* ,message ,@format-args)
            (fresh-line *debug-stream*))))))
 
+(defmacro define-hook (name &body initial-contents)
+  `(defparameter ,name
+     ,(if initial-contents
+          `(fset:convert 'fset:set ,initial-contents)
+          `(fset:empty-set))))
+
+(defun add-hook (hook-symbol function-symbol)
+  (check-type hook-symbol symbol)
+  (check-type function-symbol symbol)
+  (setf (symbol-value hook-symbol) (fset:with (symbol-value hook-symbol) function-symbol))
+  hook-symbol)
+
+(defun remove-hook (hook-symbol function-symbol)
+  (check-type hook-symbol symbol)
+  (check-type function-symbol symbol)
+  (setf (symbol-value hook-symbol) (fset:less (symbol-value hook-symbol) function-symbol))
+  hook-symbol)
+
+(defun run-hook (hook)
+  (when (typep hook 'symbol)
+    (setf hook (symbol-value hook)))
+  (fset:do-set (fn hook)
+    (funcall fn)))
+
+(define-hook *revival-hook*)
+
+(defmacro on-revival (function-symbol)
+  `(add-hook '*revival-hook* ',function-symbol))
+
+(defun observe-revival ()
+  (run-hook '*revival-hook*))
+
 (define-condition required-argument-missing (error)
   ())
 

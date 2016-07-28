@@ -101,3 +101,14 @@
      (posix-spawnattr-init ,symbol)
      (unwind-protect (progn ,@body)
        (posix-spawnattr-destroy ,symbol))))
+
+(defun environment-iterator ()
+  (let ((environment-pointer environ)
+        (index 0))
+    (make-iterator ()
+      (when (null-pointer-p (mem-aref environment-pointer :pointer index))
+        (stop))
+
+      (let ((result (mem-aref environment-pointer :string index)))
+        (incf index)
+        (emit result)))))

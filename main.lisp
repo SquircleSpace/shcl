@@ -52,6 +52,7 @@
           commands))))
 
 (defun main ()
+  (observe-revival)
   (let* ((commands (restartable-command-iterator *standard-input*)))
     (restart-case
         (do-iterator (tree commands)
