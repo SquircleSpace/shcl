@@ -96,6 +96,10 @@
   (:use :common-lisp :shcl.utility :shcl.posix)
   (:export #:*environment* #:env #:$ifs #:$path #:$pwd #:$oldpwd))
 
+(defpackage :shcl.expand
+  (:use :common-lisp :shcl.utility :shcl.lexer :shcl.environment)
+  (:export #:expansion-for))
+
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
