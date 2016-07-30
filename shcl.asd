@@ -17,5 +17,6 @@
                (:file "posix" :depends-on ("packages" "posix-types"))
                (:file "fork-exec" :depends-on ("packages" "utility" "shell-grammar" "posix"))
                (:file "environment" :depends-on ("packages" "utility" "posix"))
+               (:file "expand" :depends-on ("packages" "utility" "lexer" "environment"))
                (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread"))
                (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "utility"))))
