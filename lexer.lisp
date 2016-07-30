@@ -436,7 +436,7 @@
     (assert (done-p)))))
 
 (defun blank-p (char)
-  (find char '(#\space #\tab #\linefeed #\return)))
+  (cl-unicode:has-binary-property char "White_Space"))
 
 (defclass token-iterator (lookahead-iterator)
   ())
