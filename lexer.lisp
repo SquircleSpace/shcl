@@ -246,6 +246,12 @@
     (make-instance 'single-quote :contents contents
                    :value (get-output-stream-string all-chars-stream))))
 
+(defclass escaped-character (single-quote)
+  ())
+
+(defun make-escaped-character (char)
+  (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\backslash char)))
+
 (defclass double-quote (a-word)
   ((parts :type vector
           :initform (required)
@@ -595,7 +601,7 @@
                 (setf contains-quotes t)
                 (consume)
                 (unless (equal next-char #\Linefeed)
-                  (extend!))
+                  (add-part (make-escaped-character next-char)))
                 (consume)
                 (again))
                ((equal next-char #\")
