@@ -2,10 +2,15 @@
 
 (optimization-settings)
 
-(defparameter *expand-variables* nil)
-(defparameter *expand-aliases* nil)
-(defparameter *expand-commands* nil)
-(defparameter *expand-pathname* nil)
+(defstruct (string-fragment
+             (:constructor %make-string-fragment))
+  string
+  quoted
+  literal)
+
+(defun make-string-fragment (string &key quoted literal)
+  (%make-string-fragment :string string :quoted quoted :literal literal))
+
 (defparameter *split-fields* t)
 
 (defconstant +soft-word-boundary+ '+soft-word-boundary+)
@@ -21,43 +26,93 @@
   (or (soft-word-boundary-p thing)
       (hard-word-boundary-p thing)))
 
-(defun expansion-for (thing &key expand-variables expand-aliases expand-commands expand-pathname)
-  (let* ((*expand-variables* expand-variables)
-         (*expand-aliases* expand-aliases)
-         (*expand-commands* expand-commands)
-         (*expand-pathname* expand-pathname)
-         (seq (expand thing))
+(defparameter *aliases* (fset:empty-map))
+
+(defstruct alias
+  words
+  continue-expansion)
+
+(defun set-alias (name words &key continue-expansion)
+  (setf (fset:lookup *aliases* name)
+        (make-alias :words (fset:image #'make-string-fragment (fset:convert 'fset:seq words))
+                    :continue-expansion continue-expansion))
+  nil)
+
+(defun unalias (name)
+  (setf *aliases* (fset:less *aliases* name)))
+
+(defun expand-aliases (words)
+  (when (equal 0 (fset:size words))
+    (return-from expand-aliases (values (fset:empty-seq) words)))
+
+  (let ((first (fset:first words)))
+    (unless (typep first 'simple-word)
+      (return-from expand-aliases (values (fset:empty-seq) words)))
+
+    (let ((alias (fset:lookup *aliases* (simple-word-text first))))
+      (unless alias
+        (return-from expand-aliases (values (fset:empty-seq) words)))
+      (with-accessors ((alias-words alias-words) (continue alias-continue-expansion)) alias
+        (unless continue
+          (return-from expand-aliases (values alias-words (fset:less-first words))))
+        (multiple-value-bind (recursive-alias-words remaining) (expand-aliases (fset:less-first words))
+          (values (fset:concat alias-words recursive-alias-words) remaining))))))
+
+(defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
+  (declare (ignore expand-pathname))
+  (when (equal 0 (length things))
+    (return-from expansion-for-words #()))
+
+  (let* ((*split-fields* split-fields)
+         (words (fset:convert 'fset:seq things))
          (result (fset:empty-seq))
-         (boundary-clean t)
          next-word)
-    (labels
-        ((observe (string)
-           (unless next-word
-             (setf next-word (make-string-output-stream)))
-           (write-string string next-word)
-           (setf boundary-clean nil))
-         (boundary ()
-           (setf result (fset:with-last result (get-output-stream-string next-word)))
-           (setf next-word nil)
-           (setf boundary-clean t)))
-      (fset:do-seq (thing seq)
-        (debug-log "next is ~A" thing)
-        (block next
-          (when (and boundary-clean (soft-word-boundary-p thing))
-            (return-from next))
-          (when (word-boundary-p thing)
-            (observe "")
-            (boundary)
-            (return-from next))
-          (observe thing))))
-    (when next-word
-      (setf result (fset:with-last result (get-output-stream-string next-word))))
-    result))
+
+    (multiple-value-bind (pre-seqs seqs)
+        (if expand-aliases
+            (expand-aliases words)
+            (values (fset:empty-seq) words))
+      (setf seqs (fset:image #'expand seqs))
+      (fset:prependf seqs (fset:image (lambda (x) (fset:seq x)) pre-seqs))
+      (labels
+          ((observe (fragment)
+             (unless next-word
+               (setf next-word (fset:empty-seq)))
+             (fset:push-last next-word fragment))
+           (boundary (value)
+             (when (and (not next-word) (soft-word-boundary-p value))
+               (return-from boundary))
+             (when (not next-word)
+               (observe (make-string-fragment "")))
+
+             (fset:push-last result next-word)
+             (setf next-word nil)))
+        (fset:do-seq (sub-seq seqs)
+          (fset:do-seq (fragment sub-seq)
+            (if (word-boundary-p fragment)
+                (boundary fragment)
+                (observe fragment)))
+          (boundary +soft-word-boundary+)))
+
+      result)))
+
+(defun expand-pathname (fragments)
+  )
+
+(defun concat-fragments (fragments)
+  (let ((stream (make-string-output-stream)))
+    (fset:do-seq (f fragments)
+      (write-string (string-fragment-string f) stream))
+    (get-output-stream-string stream)))
+
+(defun expand-assignment-word (assignment-word)
+  (let ((value (assignment-word-value-word assignment-word)))
+    (expansion-for value )))
 
 (defgeneric expand (thing))
 
 (defmethod expand ((thing simple-word))
-  (fset:seq (simple-word-text thing)))
+  (fset:seq (make-string-fragment (simple-word-text thing) :literal t)))
 
 (defmethod expand ((thing compound-word))
   (let* ((parts (compound-word-parts thing))
@@ -70,35 +125,40 @@
 
       (ingest (expand (aref parts 0)))
 
-      (let ((*expand-aliases* nil)
-            (*expand-user* nil))
-        (loop :for index :from 1 :below (length parts) :do
-           (ingest (expand (aref parts index))))))
+      (loop :for index :from 1 :below (length parts) :do
+         (ingest (expand (aref parts index)))))
     result))
 
+;; This is not meant to be used to expand the assignment statements at
+;; the start of a command.  Those expand differently (in particular,
+;; field splitting doesn't occur).
+(defmethod expand ((thing assignment-word))
+  (with-accessors ((name assignment-word-name) (value assignment-word-value-word)) thing
+    (let ((value-expanded (expand value))
+          (name-expanded (expand name))
+          (result (fset:seq (make-string-fragment "="))))
+      (fset:prependf result name-expanded)
+      (fset:appendf result value-expanded)
+      result)))
+
 (defmethod expand ((thing literal-token))
-  (fset:seq (literal-token-string thing)))
+  (fset:seq (make-string-fragment (literal-token-string thing) :literal t)))
 
 (defmethod expand ((thing single-quote))
-  (fset:seq (single-quote-contents thing)))
+  (fset:seq (make-string-fragment (single-quote-contents thing) :quoted t)))
 
 (defmethod expand ((thing double-quote))
-  (let ((*expand-aliases* nil)
-        (*split-fields* nil)
-        (*expand-pathname* nil))
+  (let ((*split-fields* nil))
     (let* ((parts (double-quote-parts thing))
            (result (make-string-output-stream)))
       (loop :for part :across parts :do
          (let ((expansion (expand part)))
            (fset:do-seq (sub-part expansion)
              (unless (word-boundary-p sub-part)
-               (write-string sub-part result)))))
-      (fset:seq (get-output-stream-string result)))))
+               (write-string (string-fragment-string sub-part) result)))))
+      (fset:seq (make-string-fragment (get-output-stream-string result) :quoted t)))))
 
 (defmethod expand ((thing command-word))
-  (unless *expand-commands*
-    (return-from expand (fset:seq (token-value thing))))
-
   (error "not implemented"))
 
 (defmethod expand ((thing variable-expansion-word))
@@ -113,7 +173,7 @@
              (env variable)))))
     (if *split-fields*
         (split value)
-        (fset:seq value))))
+        (fset:seq (make-string-fragment value)))))
 
 (defun ifs-parts (ifs)
   (labels ((blank (c) (cl-unicode:has-binary-property c "White_Space"))
@@ -160,7 +220,7 @@
              (write-char char current-word))
            (finish ()
              (when current-word
-               (setf result (fset:with-last result (get-output-stream-string current-word))))))
+               (setf result (fset:with-last result (make-string-fragment (get-output-stream-string current-word)))))))
         (declare (dynamic-extent #'boundary-p #'delimit))
         (loop
            (block again
