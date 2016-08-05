@@ -98,7 +98,7 @@
 
 (defpackage :shcl.expand
   (:use :common-lisp :shcl.utility :shcl.lexer :shcl.environment)
-  (:export #:expansion-for))
+  (:export #:expansion-for-words #:set-alias #:unalias))
 
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
