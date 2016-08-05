@@ -243,20 +243,28 @@
       (setf b-buffer a-buffer)))
   (values))
 
-(defun vector-iterator (vector)
+(defun vector-iterator (vector &key type)
   (let ((index 0))
-    (make-iterator ()
+    (make-iterator (:type type)
       (when (>= index (length vector))
         (stop))
       (let ((value (aref vector index)))
         (incf index)
         (emit value)))))
 
-(defun list-iterator (list)
+(defun list-iterator (list &key type)
   (let ((cons list))
-    (make-iterator ()
+    (make-iterator (:type type)
       (when (eq nil cons)
         (stop))
       (let ((value (car cons)))
         (setf cons (cdr cons))
         (emit value)))))
+
+(defgeneric iterator (thing &key type &allow-other-keys))
+
+(defmethod iterator ((list list) &key type &allow-other-keys)
+  (list-iterator list :type type))
+
+(defmethod iterator ((vector vector) &key type &allow-other-keys)
+  (vector-iterator vector :type type))
