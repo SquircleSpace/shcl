@@ -1,8 +1,9 @@
 (defpackage :shcl.utility
   (:use :common-lisp :alexandria :bordeaux-threads)
+  (:shadow #:when-let #:when-let*)
   (:export
    #:define-once-global #:required #:required-argument-missing #:optimization-settings
-   #:try #:debug-log #:logging-enabled-p #:status
+   #:when-let #:when-let* #:try #:debug-log #:logging-enabled-p #:status
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
    #:observe-revival
@@ -52,6 +53,7 @@
 
 (defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)
+  (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:define-parser #:syntax-iterator #:parse #:no-parse))
 
 (defpackage :shcl.shell-grammar
@@ -89,6 +91,7 @@
 (defpackage :shcl.fork-exec
   (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar
         :shcl.posix-types :shcl.posix)
+  (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
   (:export #:run))
 
@@ -104,6 +107,7 @@
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
         :shcl.thread)
+  (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:evaluate))
 
 (defpackage :shcl
