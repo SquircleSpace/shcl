@@ -94,6 +94,7 @@
 (defmacro with-living-fds ((fd-list-sym) &body body)
   `(with-lock-held (%fd-retain-count-table-lock%)
      (let ((,fd-list-sym (hash-table-keys %fd-retain-count-table%)))
+       (declare (dynamic-extent ,fd-list-sym))
        ,@body)))
 
 (defun open-retained (pathname flags mode)
