@@ -494,33 +494,45 @@
 
       (values (nreverse assignments) (nreverse arguments) (nreverse redirects)))))
 
+(defun evaluate-assignment-word (assignment-word)
+  (with-accessors ((value assignment-word-value-word) (name assignment-word-name)) assignment-word
+    (let ((expanded (expansion-for (fset:seq value)
+                                   :expand-aliases nil
+                                   :expand-pathname nil
+                                   :split-fields nil)))
+      (assert (equal 1 (fset:size expanded)))
+      (setf (env (simple-word-text name)) expanded))))
+
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
       (debug-log 'status "EXEC: ~A ~A ~A~%" assignments arguments redirects)
-      (with-fd-scope ()
-        (dolist (r redirects)
-          (handle-redirect r))
-        (let* ((bindings (squash-fd-bindings))
-               pid
-               status)
-          (with-living-fds (fds)
-            (setf pid (run (coerce (mapcar 'token-value arguments) 'vector)
-                           :fd-alist (reverse bindings)
-                           :managed-fds fds))
-            (debug-log 'status "PID ~A = ~A" pid (mapcar 'token-value arguments)))
-          (setf status (nth-value 1 (sb-posix:waitpid pid sb-posix:wuntraced)))
-          (debug-log 'status "EXITED ~A" pid)
-          (when (sb-posix:wifstopped status)
-            (warn "Stopped jobs should get a job number, but they don't"))
+      (with-environment (*environment*)
+        (dolist (assign assignments)
+          (evaluate-assignment-word assign))
+        (with-fd-scope ()
+          (dolist (r redirects)
+            (handle-redirect r))
+          (let* ((bindings (squash-fd-bindings))
+                 pid
+                 status)
+            (with-living-fds (fds)
+              (setf pid (run (coerce (mapcar 'token-value arguments) 'vector)
+                             :fd-alist (reverse bindings)
+                             :managed-fds fds))
+              (debug-log 'status "PID ~A = ~A" pid (mapcar 'token-value arguments)))
+            (setf status (nth-value 1 (sb-posix:waitpid pid sb-posix:wuntraced)))
+            (debug-log 'status "EXITED ~A" pid)
+            (when (sb-posix:wifstopped status)
+              (warn "Stopped jobs should get a job number, but they don't"))
 
-          (exit-status :pid pid
-                       :exit-code (when (sb-posix:wifexited status)
-                                    (sb-posix:wexitstatus status))
-                       :exit-signal (when (sb-posix:wifsignaled status)
-                                      (sb-posix:wtermsig status))
-                       :stop-signal (when (sb-posix:wifstopped status)
-                                      (sb-posix:wstopsig status))))))))
+            (exit-status :pid pid
+                         :exit-code (when (sb-posix:wifexited status)
+                                      (sb-posix:wexitstatus status))
+                         :exit-signal (when (sb-posix:wifsignaled status)
+                                        (sb-posix:wtermsig status))
+                         :stop-signal (when (sb-posix:wifstopped status)
+                                        (sb-posix:wstopsig status)))))))))
 
 (define-condition not-an-exit-code (warning)
   ((actual-type
