@@ -69,6 +69,29 @@
 (defun observe-revival ()
   (run-hook '*revival-hook*))
 
+(defun %when-let (let-sym bindings body)
+  (let ((block (gensym (format nil "WHEN-~A-BLOCK" (symbol-name let-sym)))))
+    (labels
+        ((transform (binding)
+           (when (symbolp binding)
+             (setf binding (list binding nil)))
+           (destructuring-bind (variable &optional value) binding
+             (let ((value-sym (gensym "VALUE")))
+               (setf value `(let ((,value-sym value))
+                              (if ,value-sym
+                                  ,value-sym
+                                  (return-from ,block))))
+               (list variable value)))))
+      `(block ,block
+         (,let-sym ,(mapcar #'transform bindings)
+           ,@body)))))
+
+(defmacro when-let* (bindings &body body)
+  (%when-let 'let* bindings body))
+
+(defmacro when-let (bindings &body body)
+  (%when-let 'let bindings body))
+
 (define-condition required-argument-missing (error)
   ())
 
