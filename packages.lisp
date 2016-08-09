@@ -97,7 +97,7 @@
 
 (defpackage :shcl.environment
   (:use :common-lisp :shcl.utility :shcl.posix)
-  (:export #:*environment* #:env #:$ifs #:$path #:$pwd #:$oldpwd))
+  (:export #:*environment* #:with-environment #:env #:$ifs #:$path #:$pwd #:$oldpwd))
 
 (defpackage :shcl.expand
   (:use :common-lisp :shcl.utility :shcl.lexer :shcl.environment)
@@ -106,7 +106,7 @@
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
-        :shcl.thread)
+        :shcl.thread :shcl.expand)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:evaluate))
 
