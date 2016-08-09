@@ -26,6 +26,14 @@
   (or (soft-word-boundary-p thing)
       (hard-word-boundary-p thing)))
 
+(defgeneric to-string (thing))
+(defmethod to-string ((thing string))
+  thing)
+(defmethod to-string ((thing simple-word))
+  (simple-word-text thing))
+(defmethod to-string ((thing token))
+  nil)
+
 (defparameter *aliases* (fset:empty-map))
 
 (defstruct alias
@@ -34,67 +42,80 @@
 
 (defun set-alias (name words &key continue-expansion)
   (setf (fset:lookup *aliases* name)
-        (make-alias :words (fset:image #'make-string-fragment (fset:convert 'fset:seq words))
+        (make-alias :words (fset:image #'to-string (fset:convert 'fset:seq words))
                     :continue-expansion continue-expansion))
   nil)
 
 (defun unalias (name)
   (setf *aliases* (fset:less *aliases* name)))
 
-(defun expand-aliases (words)
-  (when (equal 0 (fset:size words))
-    (return-from expand-aliases (values (fset:empty-seq) words)))
+(defun expand-aliases (tokens)
+  (unless (typep tokens 'fset:seq)
+    (setf tokens (fset:convert 'fset:seq tokens)))
 
-  (let ((first (fset:first words)))
-    (unless (typep first 'simple-word)
-      (return-from expand-aliases (values (fset:empty-seq) words)))
+  (let* ((remaining tokens)
+         (*aliases* *aliases*))
+    (labels
+        ((finish ()
+           (return-from expand-aliases remaining))
+         (alias-for (string)
+           (unless string
+             (return-from alias-for))
+           (fset:lookup *aliases* string))
+         (next-word ()
+           (to-string (fset:first remaining))))
+      (loop
+         (when (zerop (fset:size remaining))
+           (finish))
 
-    (let ((alias (fset:lookup *aliases* (simple-word-text first))))
-      (unless alias
-        (return-from expand-aliases (values (fset:empty-seq) words)))
-      (with-accessors ((alias-words alias-words) (continue alias-continue-expansion)) alias
-        (unless continue
-          (return-from expand-aliases (values alias-words (fset:less-first words))))
-        (multiple-value-bind (recursive-alias-words remaining) (expand-aliases (fset:less-first words))
-          (values (fset:concat alias-words recursive-alias-words) remaining))))))
+         (let* ((next-word (to-string (next-word)))
+                (alias (alias-for next-word)))
+           (unless alias
+             (finish))
+
+           (setf *aliases* (fset:less *aliases* next-word))
+
+           (let ((less-first (fset:less-first remaining)))
+             (when (alias-continue-expansion alias)
+               (setf less-first (expand-aliases less-first)))
+             (setf remaining (fset:concat (alias-words alias) less-first))))))))
 
 (defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
   (declare (ignore expand-pathname))
-  (when (equal 0 (length things))
+  (setf things (fset:convert 'fset:seq things))
+  (when (equal 0 (fset:size things))
     (return-from expansion-for-words #()))
 
   (let* ((*split-fields* split-fields)
-         (words (fset:convert 'fset:seq things))
          (result (fset:empty-seq))
+         (seqs (if expand-aliases
+                   (expand-aliases things)
+                   things))
          next-word)
 
-    (multiple-value-bind (pre-seqs seqs)
-        (if expand-aliases
-            (expand-aliases words)
-            (values (fset:empty-seq) words))
-      (setf seqs (fset:image #'expand seqs))
-      (fset:prependf seqs (fset:image (lambda (x) (fset:seq x)) pre-seqs))
-      (labels
-          ((observe (fragment)
-             (unless next-word
-               (setf next-word (fset:empty-seq)))
-             (fset:push-last next-word fragment))
-           (boundary (value)
-             (when (and (not next-word) (soft-word-boundary-p value))
-               (return-from boundary))
-             (when (not next-word)
-               (observe (make-string-fragment "")))
+    (setf seqs (fset:image #'expand seqs))
+    (fset:prependf seqs (fset:image (lambda (x) (fset:seq x)) pre-seqs))
+    (labels
+        ((observe (fragment)
+           (unless next-word
+             (setf next-word (fset:empty-seq)))
+           (fset:push-last next-word fragment))
+         (boundary (value)
+           (when (and (not next-word) (soft-word-boundary-p value))
+             (return-from boundary))
+           (when (not next-word)
+             (observe (make-string-fragment "")))
 
-             (fset:push-last result next-word)
-             (setf next-word nil)))
-        (fset:do-seq (sub-seq seqs)
-          (fset:do-seq (fragment sub-seq)
-            (if (word-boundary-p fragment)
-                (boundary fragment)
-                (observe fragment)))
-          (boundary +soft-word-boundary+)))
+           (fset:push-last result next-word)
+           (setf next-word nil)))
+      (fset:do-seq (sub-seq seqs)
+        (fset:do-seq (fragment sub-seq)
+          (if (word-boundary-p fragment)
+              (boundary fragment)
+              (observe fragment)))
+        (boundary +soft-word-boundary+)))
 
-      result)))
+    result))
 
 (defun expand-pathname (fragments)
   )
@@ -104,10 +125,6 @@
     (fset:do-seq (f fragments)
       (write-string (string-fragment-string f) stream))
     (get-output-stream-string stream)))
-
-(defun expand-assignment-word (assignment-word)
-  (let ((value (assignment-word-value-word assignment-word)))
-    (expansion-for value )))
 
 (defgeneric expand (thing))
 
