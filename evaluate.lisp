@@ -496,20 +496,28 @@
 
 (defun evaluate-assignment-word (assignment-word)
   (with-accessors ((value assignment-word-value-word) (name assignment-word-name)) assignment-word
-    (let ((expanded (expansion-for (fset:seq value)
-                                   :expand-aliases nil
-                                   :expand-pathname nil
-                                   :split-fields nil)))
+    (let ((expanded (expansion-for-words
+                     (fset:seq value)
+                     :expand-aliases nil
+                     :expand-pathname nil
+                     :split-fields nil)))
       (assert (equal 1 (fset:size expanded)))
-      (setf (env (simple-word-text name)) expanded))))
+      (setf (env (simple-word-text name)) (fset:first expanded)))))
+
+(defun linearize-environment (&optional (environment *environment*))
+  (let ((result (fset:empty-seq)))
+    (fset:do-map (key value environment)
+      (fset:push-last result (concatenate 'string key "=" value)))
+    result))
 
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
       (debug-log 'status "EXEC: ~A ~A ~A~%" assignments arguments redirects)
-      (with-environment (*environment*)
+      (with-environment-scope ()
         (dolist (assign assignments)
           (evaluate-assignment-word assign))
+        (setf arguments (expansion-for-words arguments :expand-aliases t :expand-pathname t))
         (with-fd-scope ()
           (dolist (r redirects)
             (handle-redirect r))
@@ -517,10 +525,11 @@
                  pid
                  status)
             (with-living-fds (fds)
-              (setf pid (run (coerce (mapcar 'token-value arguments) 'vector)
+              (setf pid (run arguments
                              :fd-alist (reverse bindings)
-                             :managed-fds fds))
-              (debug-log 'status "PID ~A = ~A" pid (mapcar 'token-value arguments)))
+                             :managed-fds fds
+                             :environment (linearize-environment *environment*)))
+              (debug-log 'status "PID ~A = ~A" pid arguments))
             (setf status (nth-value 1 (sb-posix:waitpid pid sb-posix:wuntraced)))
             (debug-log 'status "EXITED ~A" pid)
             (when (sb-posix:wifstopped status)
