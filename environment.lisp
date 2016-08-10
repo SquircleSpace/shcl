@@ -23,7 +23,7 @@
 (defparameter *environment* (environment-to-map))
 (on-revival reset-environment)
 
-(defmacro with-environment ((environment) &body body)
+(defmacro with-environment-scope ((&optional (environment '*environment*)) &body body)
   `(let ((*environment* ,environment))
      ,@body))
 

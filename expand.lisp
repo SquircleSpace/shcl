@@ -94,7 +94,6 @@
          next-word)
 
     (setf seqs (fset:image #'expand seqs))
-    (fset:prependf seqs (fset:image (lambda (x) (fset:seq x)) pre-seqs))
     (labels
         ((observe (fragment)
            (unless next-word
@@ -115,10 +114,10 @@
               (observe fragment)))
         (boundary +soft-word-boundary+)))
 
-    result))
+    (fset:image #'concat-fragments result)))
 
 (defun expand-pathname (fragments)
-  )
+  (declare (ignore fragments)))
 
 (defun concat-fragments (fragments)
   (let ((stream (make-string-output-stream)))
@@ -127,6 +126,9 @@
     (get-output-stream-string stream)))
 
 (defgeneric expand (thing))
+
+(defmethod expand ((thing string))
+  (fset:seq (make-string-fragment thing :literal t)))
 
 (defmethod expand ((thing simple-word))
   (fset:seq (make-string-fragment (simple-word-text thing) :literal t)))

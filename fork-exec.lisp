@@ -27,17 +27,11 @@
        (debug-log 'status "FECLOSE ~A~%" fd)
        (posix-spawn-file-actions-addclose file-actions fd))))
 
-(defun run (command &key fd-alist managed-fds)
+(defun run (command &key fd-alist managed-fds (environment (fset:empty-seq)))
+  (setf command (fset:convert 'fset:seq command))
   (with-posix-spawn-file-actions (file-actions)
     (take-fd-map fd-alist managed-fds file-actions)
     (with-posix-spawnattr (attr)
       (with-foreign-object (pid 'pid-t)
-        (with-foreign-object
-            (c-argv :string (+ 1 (length command)))
-          (loop :for index :below (length command) :do
-             (setf (mem-aref c-argv :string index) (aref command index)))
-          (setf (mem-aref c-argv :string (length command)) (null-pointer))
-
-          (let ((envp (null-pointer)))
-            (posix-spawnp pid (aref command 0) file-actions attr c-argv envp)
-            (return-from run (mem-ref pid 'pid-t))))))))
+        (posix-spawnp pid (fset:first command) file-actions attr command environment)
+        (return-from run (mem-ref pid 'pid-t))))))

@@ -53,13 +53,49 @@
              (error 'syscall-error :function ',lisp-name))
            ,result)))))
 
+(define-foreign-type string-table-type ()
+  ((size
+    :initarg :size
+    :initform nil))
+  (:actual-type :pointer)
+  (:simple-parser string-table))
+
+(defmethod translate-to-foreign ((sequence fset:seq) (type string-table-type))
+  (with-slots (size inner-type) type
+    (let ((seq-size (fset:size sequence))
+          table
+          side-table)
+      (when size
+        (assert (equal seq-size size)))
+      (let (success)
+        (unwind-protect
+             (let ((index 0))
+               (setf table (foreign-alloc :string :initial-element (null-pointer) :count seq-size :null-terminated-p t))
+               (setf side-table (make-array seq-size :initial-element nil))
+               (fset:do-seq (thing sequence)
+                 (multiple-value-bind (converted-value param) (convert-to-foreign thing :string)
+                   (setf (mem-aref table :string index) converted-value)
+                   (setf (aref side-table index) param)
+                   (incf index)))
+               (setf success t)
+               (values table side-table))
+          (unless success
+            (if side-table
+                (free-translated-object table type side-table)
+                (foreign-free table))))))))
+
+(defmethod free-translated-object (translated (type string-table-type) param)
+  (loop :for index :below (length param) :do
+     (free-converted-object (mem-aref translated :pointer index) :string (aref param index)))
+  (foreign-free translated))
+
 (define-c-wrapper (posix-spawnp "posix_spawnp") (:int #'zerop)
   (pid (:pointer pid-t))
   (file :string)
   (file-actions (:pointer (:struct posix-spawn-file-actions-t)))
   (attrp (:pointer (:struct posix-spawnattr-t)))
-  (argv (:pointer :string))
-  (envp (:pointer :string)))
+  (argv string-table)
+  (envp string-table))
 
 (define-c-wrapper (posix-spawn-file-actions-init "posix_spawn_file_actions_init") (:int #'zerop)
   (file-actions (:pointer (:struct posix-spawn-file-actions-t))))
