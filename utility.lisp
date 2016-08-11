@@ -292,6 +292,14 @@
         (setf cons (cdr cons))
         (emit value)))))
 
+(defun seq-iterator (seq &key type)
+  (make-iterator (:type type)
+    (when (equal 0 (fset:size seq))
+      (stop))
+    (let ((element (fset:first seq)))
+      (setf seq (fset:less-first seq))
+      (emit element))))
+
 (defgeneric iterator (thing &key type &allow-other-keys))
 
 (defmethod iterator ((list list) &key type &allow-other-keys)
@@ -299,3 +307,6 @@
 
 (defmethod iterator ((vector vector) &key type &allow-other-keys)
   (vector-iterator vector :type type))
+
+(defmethod iterator ((seq fset:seq) &key type &allow-other-keys)
+  (seq-iterator seq :type type))
