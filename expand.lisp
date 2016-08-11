@@ -80,6 +80,16 @@
                (setf less-first (expand-aliases less-first)))
              (setf remaining (fset:concat (alias-words alias) less-first))))))))
 
+(defun expansion-for-word (word &rest args &key expand-aliases expand-pathname (split-fields t))
+  (declare (ignore expand-aliases expand-pathname))
+  (let ((result (apply 'expansion-for-words (fset:seq word) args)))
+    (cond
+      (split-fields
+       result)
+      (t
+       (assert (equal 1 (fset:size result)))
+       (fset:first result)))))
+
 (defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
   (declare (ignore expand-pathname))
   (setf things (fset:convert 'fset:seq things))
