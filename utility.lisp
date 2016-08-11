@@ -69,6 +69,14 @@
 (defun observe-revival ()
   (run-hook '*revival-hook*))
 
+(define-hook *dump-hook*)
+
+(defmacro on-dump (function-symbol)
+  `(add-hook '*dump-hook* ',function-symbol))
+
+(defun observe-dump ()
+  (run-hook '*dump-hook*))
+
 (defun %when-let (let-sym bindings body)
   (let ((block (gensym (format nil "WHEN-~A-BLOCK" (symbol-name let-sym)))))
     (labels
