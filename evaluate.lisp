@@ -273,7 +273,7 @@
   (evaluate sy))
 
 (defparameter *special-variables-to-preserve-during-async*
-  '())
+  '(*environment*))
 
 (defun evaluate-async-job (sy completion-handler)
   (let* ((symbols *special-variables-to-preserve-during-async*)
