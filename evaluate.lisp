@@ -136,7 +136,8 @@
   fd)
 (defmethod fd-from-description ((io-file io-file))
   (with-slots (redirect filename) io-file
-    (let ((fd (open-retained (coerce (token-value filename) 'simple-string)
+    (let ((fd (open-retained (coerce (expansion-for-word filename :split-fields nil :expand-pathname t)
+                                     'simple-string)
                              (open-args-for-redirect redirect)
                              *umask*)))
       (fd-autorelease fd))))
@@ -496,13 +497,12 @@
 
 (defun evaluate-assignment-word (assignment-word)
   (with-accessors ((value assignment-word-value-word) (name assignment-word-name)) assignment-word
-    (let ((expanded (expansion-for-words
-                     (fset:seq value)
+    (let ((expanded (expansion-for-word
+                     value
                      :expand-aliases nil
                      :expand-pathname nil
                      :split-fields nil)))
-      (assert (equal 1 (fset:size expanded)))
-      (setf (env (simple-word-text name)) (fset:first expanded)))))
+      (setf (env (simple-word-text name)) expanded))))
 
 (defun linearize-environment (&optional (environment *environment*))
   (let ((result (fset:empty-seq)))
@@ -510,10 +510,21 @@
       (fset:push-last result (concatenate 'string key "=" value)))
     result))
 
+(defun evaluate-command-free (assignments redirects)
+  (dolist (assign assignments)
+    (evaluate-assignment-word assign))
+  (with-fd-scope ()
+    (dolist (redirect redirects)
+      (handle-redirect redirect)))
+  (truthy-exit-status))
+
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
       (debug-log 'status "EXEC: ~A ~A ~A~%" assignments arguments redirects)
+      (when (zerop (length arguments))
+        (return-from evaluate (evaluate-command-free assignments redirects)))
+
       (with-environment-scope ()
         (dolist (assign assignments)
           (evaluate-assignment-word assign))
