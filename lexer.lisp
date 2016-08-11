@@ -439,7 +439,7 @@
          (progn
            (read-char stream nil :eof)
            (setf next-char (peek-char nil stream nil :eof))))
-    (assert (done-p)))))
+      (assert (done-p)))))
 
 (defun blank-p (char)
   (cl-unicode:has-binary-property char "White_Space"))
