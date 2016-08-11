@@ -9,7 +9,7 @@
    #:observe-revival #:on-dump #:observe-dump
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
-   #:fork-lookahead-iterator #:vector-iterator #:list-iterator
+   #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:make-iterator-lookahead #:do-iterator #:peek-lookahead-iterator
    #:move-lookahead-to #:map-iterator #:iterator-values))
 
