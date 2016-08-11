@@ -35,11 +35,15 @@
                                                     :exported t)))))
     map))
 
+(defparameter *environment* (environment-to-map))
+(on-revival reset-environment)
+(on-dump clear-environment)
+
 (defun reset-environment ()
   (setf *environment* (environment-to-map)))
 
-(defparameter *environment* (environment-to-map))
-(on-revival reset-environment)
+(defun clear-environment ()
+  (setf *environment* nil))
 
 (defun linearized-exported-environment (&optional (environment *environment*))
   (let ((result (fset:empty-seq)))

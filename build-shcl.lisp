@@ -5,5 +5,6 @@
 (handler-case
     (progn
       (asdf:load-system :shcl)
+      (funcall (intern "OBSERVE-DUMP" (find-package "SHCL.UTILITY")))
       (sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t))
   (error (c) (format *error-output* "Fatal error: ~A~%" c)))

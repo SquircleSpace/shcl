@@ -6,7 +6,7 @@
    #:when-let #:when-let* #:try #:debug-log #:logging-enabled-p #:status
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
-   #:observe-revival
+   #:observe-revival #:on-dump #:observe-dump
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator
