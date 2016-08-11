@@ -2,6 +2,15 @@
 
 (optimization-settings)
 
+(defmacro define-make-load-form-for-class (class-name)
+  (let ((object (gensym "OBJECT"))
+        (environment (gensym "ENVIRONMENT"))
+        (slots (gensym "SLOTS")))
+    `(defmethod make-load-form ((,object ,class-name) &optional ,environment)
+       (assert (eq ',class-name (class-name (class-of ,object))))
+       (let ((,slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-direct-slots (find-class ',class-name)))))
+         (make-load-form-saving-slots ,object :slot-names ,slots :environment ,environment)))))
+
 (defclass token ()
   ((value :type (or null string)
           :initform nil
@@ -9,11 +18,13 @@
           :initarg :value)))
 (defmethod print-object ((token token) stream)
   (format stream "#<~A ~W>" (class-name (class-of token)) (token-value token)))
+(define-make-load-form-for-class token)
 
 (defclass eof (token)
   ((value :initform "<EOF>")))
 (defmethod print-object ((eof eof) stream)
   (format stream "#<EOF>"))
+(define-make-load-form-for-class eof)
 (define-once-global +eof+ (make-instance 'eof))
 
 (defun plusify (symbol)
@@ -21,6 +32,7 @@
 
 (defclass a-word (token)
   ())
+(define-make-load-form-for-class a-word)
 
 (defclass simple-word (a-word)
   ((text
@@ -30,6 +42,7 @@
     :type string)))
 (defmethod print-object ((simple-word simple-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of simple-word)) (simple-word-text simple-word)))
+(define-make-load-form-for-class simple-word)
 
 (defclass compound-word (a-word)
   ((parts :type vector
@@ -38,6 +51,7 @@
           :initarg :parts)))
 (defmethod print-object ((compound-word compound-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of compound-word)) (compound-word-parts compound-word)))
+(define-make-load-form-for-class compound-word)
 
 (defclass assignment-word (a-word)
   ((name
@@ -52,6 +66,7 @@
     :accessor assignment-word-value-word)))
 (defmethod print-object ((word assignment-word) stream)
   (format stream "#<~A ~S = ~S>" (class-name (class-of word)) (assignment-word-name word) (assignment-word-value-word word)))
+(define-make-load-form-for-class assignment-word)
 
 (defun make-assignment-word-from-parts (parts raw)
   (let* ((first-part (aref parts 0))
@@ -74,6 +89,7 @@
 
 (defclass name (simple-word)
   ())
+(define-make-load-form-for-class name)
 
 (defclass io-number (token)
   ((fd
@@ -83,6 +99,7 @@
     :initarg :fd)))
 (defmethod print-object ((io-number io-number) stream)
   (format stream "#<~A ~S>" (class-name (class-of io-number)) (io-number-fd io-number)))
+(define-make-load-form-for-class io-number)
 
 (defun name-p (word)
   (labels ((first-okay (char)
@@ -118,12 +135,14 @@
   (if *print-literals-by-name*
       (format stream "#<~A>" (class-name (class-of literal-token)))
       (format stream "#<LITERAL-TOKEN ~W>" (token-value literal-token))))
+(define-make-load-form-for-class literal-token)
 
 (defmacro define-literal-token (name string &optional superclasses)
   `(progn
      (defclass ,name (,@superclasses literal-token)
        ((value :initform ,string)
-        (string :initform ,string)))))
+        (string :initform ,string)))
+     (define-make-load-form-for-class ,name)))
 
 (define-literal-token newline (string #\linefeed))
 (define-once-global +newline+ (make-instance 'newline))
@@ -195,6 +214,7 @@
 
 (defclass reserved-word (a-word)
   ())
+(define-make-load-form-for-class reserved-word)
 
 (defmacro define-reserved-words ()
   `(progn ,@(loop :for pair :across *reserved-words* :collect
@@ -222,6 +242,7 @@
     :accessor single-quote-contents)))
 (defmethod print-object ((single-quote single-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of single-quote)) (single-quote-contents single-quote)))
+(define-make-load-form-for-class single-quote)
 
 (defun read-single-quote (stream)
   (let* ((all-chars-stream (make-string-output-stream))
@@ -248,6 +269,7 @@
 
 (defclass escaped-character (single-quote)
   ())
+(define-make-load-form-for-class escaped-character)
 
 (defun make-escaped-character (char)
   (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\backslash char)))
@@ -259,6 +281,7 @@
           :initarg :parts)))
 (defmethod print-object ((double-quote double-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
+(define-make-load-form-for-class double-quote)
 
 (defun read-double-quote (stream)
   (let ((token-value (make-array 0 :element-type 'character :adjustable t :fill-pointer t))
@@ -327,6 +350,7 @@
     :accessor command-word-tokens)))
 (defmethod print-object ((command-word command-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
+(define-make-load-form-for-class command-word)
 
 (defun read-dollar-paren (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -397,6 +421,7 @@
     :type string)))
 (defmethod print-object ((word variable-expansion-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of word)) (variable-expansion-word-variable word)))
+(define-make-load-form-for-class variable-expansion-word)
 
 (defun read-dollar-curly (stream)
   (declare (ignore stream))
