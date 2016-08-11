@@ -504,12 +504,6 @@
                      :split-fields nil)))
       (setf (env (simple-word-text name)) expanded))))
 
-(defun linearize-environment (&optional (environment *environment*))
-  (let ((result (fset:empty-seq)))
-    (fset:do-map (key value environment)
-      (fset:push-last result (concatenate 'string key "=" value)))
-    result))
-
 (defun evaluate-command-free (assignments redirects)
   (dolist (assign assignments)
     (evaluate-assignment-word assign))
@@ -539,7 +533,7 @@
               (setf pid (run arguments
                              :fd-alist (reverse bindings)
                              :managed-fds fds
-                             :environment (linearize-environment *environment*)))
+                             :environment (linearized-exported-environment)))
               (debug-log 'status "PID ~A = ~A" pid arguments))
             (setf status (nth-value 1 (sb-posix:waitpid pid sb-posix:wuntraced)))
             (debug-log 'status "EXITED ~A" pid)

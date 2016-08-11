@@ -2,6 +2,22 @@
 
 (optimization-settings)
 
+(define-once-global +env-default+ "")
+
+(defclass environment-binding ()
+  ((value
+    :initarg :value
+    :initform +env-default+
+    :accessor environment-binding-value
+    :type string)
+   (exported-p
+    :initarg :exported
+    :initform nil
+    :accessor environment-binding-exported-p
+    :type boolean)))
+
+(define-once-global +env-default-binding+ (make-instance 'environment-binding))
+
 (defun deconstruct-environment-binding (binding)
   (let (index)
     (loop :for i :below (length binding) :do
@@ -11,10 +27,12 @@
     (values (subseq binding 0 index) (subseq binding (1+ index)))))
 
 (defun environment-to-map ()
-  (let ((map (fset:empty-map "")))
+  (let ((map (fset:empty-map +env-default-binding+)))
     (do-iterator (binding (environment-iterator))
       (multiple-value-bind (key value) (deconstruct-environment-binding binding)
-        (setf map (fset:with map key value))))
+        (setf map (fset:with map key (make-instance 'environment-binding
+                                                    :value value
+                                                    :exported t)))))
     map))
 
 (defun reset-environment ()
@@ -23,6 +41,13 @@
 (defparameter *environment* (environment-to-map))
 (on-revival reset-environment)
 
+(defun linearized-exported-environment (&optional (environment *environment*))
+  (let ((result (fset:empty-seq)))
+    (fset:do-map (key value environment)
+      (when (environment-binding-exported-p value)
+        (fset:push-last result (concatenate 'string key "=" (environment-binding-value value)))))
+    result))
+
 (defmacro with-environment-scope ((&optional (environment '*environment*)) &body body)
   `(let ((*environment* ,environment))
      ,@body))
@@ -30,8 +55,8 @@
 (defun lookup-with-default (collection key default)
   (multiple-value-bind (value found) (fset:lookup collection key)
     (if found
-        value
-        default)))
+        (values value t)
+        (values default nil))))
 
 (define-setf-expander lookup-with-default (collection key default &environment env)
   (multiple-value-bind (temp-vars temp-vals new-value-vars setter getter)
@@ -48,12 +73,23 @@
           ,value)
        `(lookup-with-default ,getter ,key-sym ,default-sym)))))
 
-(defun env (key &optional (default ""))
-  (lookup-with-default *environment* key default))
+(defun env (key &optional (default +env-default+))
+  (multiple-value-bind (entry found) (fset:lookup *environment* key)
+    (if found
+        (environment-binding-value entry)
+        default)))
+
+(defun exported-p (key)
+  (let ((entry (fset:lookup *environment* key)))
+    (when entry
+      (environment-binding-exported-p entry))))
 
 (defun %set-env (key value default)
   (declare (ignore default))
-  (setf *environment* (fset:with *environment* key value))
+  (setf *environment* (fset:with *environment* key
+                                 (make-instance 'environment-binding
+                                                :value value
+                                                :exported (exported-p key))))
   value)
 
 (defun set-env (key value)
@@ -61,6 +97,12 @@
 
 (defsetf env (key &optional default) (value)
   `(%set-env ,key ,value ,default))
+
+(defun export-variable (key)
+  (setf (fset:lookup *environment* key) (cons (env key) t)))
+
+(defun unexport-variable (key)
+  (setf (fset:lookup *environment* key) (cons (env key) nil)))
 
 (defmacro define-environment-accessor (name &optional (default ""))
   `(define-symbol-macro ,(intern (concatenate 'string "$" (string-upcase name))) (env ,name ,default)))
