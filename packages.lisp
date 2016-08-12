@@ -4,6 +4,7 @@
   (:export
    #:define-once-global #:required #:required-argument-missing #:optimization-settings
    #:when-let #:when-let* #:try #:debug-log #:logging-enabled-p #:status
+   #:make-extensible-vector
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
    #:observe-revival #:on-dump #:observe-dump
