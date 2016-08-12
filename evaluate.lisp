@@ -85,7 +85,7 @@
 (defmacro with-fd-scope (() &body body)
   (let ((fd (gensym "FD")))
     `(let ((*fd-bindings* *fd-bindings*)
-           (*autorelease-fd-scope* (make-array 0 :adjustable t :fill-pointer t :element-type 'integer)))
+           (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
        (unwind-protect (progn ,@body)
          (with-lock-held (%fd-retain-count-table-lock%)
            (loop :for ,fd :across *autorelease-fd-scope* :do
@@ -367,8 +367,8 @@
 (defconstant +pipe-write-fd+ 1)
 
 (defun evaluate-pipe-sequence (sy)
-  (let ((vector (make-array 0 :adjustable t :fill-pointer t))
-        (results (make-array 0 :adjustable t :fill-pointer t))
+  (let ((vector (make-extensible-vector))
+        (results (make-extensible-vector))
         (semaphore (make-semaphore))
         write-fd)
     (labels

@@ -133,6 +133,29 @@
          (labels (,@labels-forms)
            ,(catch-form tag-label-alist))))))
 
+(defun make-extensible-vector
+    (&key
+       (initial-size 0)
+       (initial-element nil initial-element-p)
+       (initial-contents nil initial-contents-p)
+       (element-type t)
+       (fill-pointer t))
+  (cond
+    ((and initial-element-p initial-contents-p)
+     (error "Can't specify both initial-element and initial-contents"))
+
+    ((not fill-pointer)
+     (error "fill-pointer cannot be nil"))
+
+    (initial-element-p
+     (make-array initial-size :adjustable t :fill-pointer fill-pointer :initial-element initial-element :element-type element-type))
+
+    (initial-contents-p
+     (make-array initial-size :adjustable t :fill-pointer fill-pointer :initial-contents initial-contents :element-type element-type))
+
+    (t
+     (make-array initial-size :adjustable t :fill-pointer fill-pointer :element-type element-type))))
+
 (defclass iterator ()
   ((compute
     :initarg :compute)))
@@ -197,7 +220,7 @@
       (emit (funcall function value)))))
 
 (defun iterator-values (iter)
-  (let ((vector (make-array 0 :adjustable t :fill-pointer t)))
+  (let ((vector (make-extensible-vector)))
     (do-iterator (value iter :result vector)
       (vector-push-extend value vector))))
 
