@@ -501,103 +501,158 @@
       (vector-push-extend value result))
     result))
 
+(defclass lexer-context ()
+  ((all-chars-stream
+    :type stream
+    :initform (make-string-output-stream))
+   (stream
+    :type echo-stream)
+   (raw-stream
+    :type stream
+    :initarg :stream
+    :initform (required))
+   (pending-word
+    :type (or null string)
+    :initform nil)
+   (parts
+    :type array
+    :initform (make-extensible-vector))))
+(defmethod print-object ((lc lexer-context) stream)
+  (with-slots (pending-word parts) lc
+    (format stream "#<~A parts ~A pending-word ~A>" (class-name (class-of lc)) parts pending-word)))
+
+(defmethod shared-initialize :around ((instance lexer-context) slots &rest args &key &allow-other-keys)
+  (declare (ignore args))
+  (with-slots (all-chars-stream stream raw-stream) instance
+    (let ((before (if (slot-boundp instance 'raw-stream) raw-stream (gensym)))
+          (result (call-next-method))
+          (after (if (slot-boundp instance 'raw-stream) raw-stream (gensym))))
+      (unless (eq before after)
+        (setf stream (make-echo-stream raw-stream all-chars-stream)))
+      result)))
+
+(defun lexer-context-add-pending-word (context)
+  (with-slots (pending-word parts) context
+    (when pending-word
+      (return-from lexer-context-add-pending-word))
+    (setf pending-word (make-extensible-vector :element-type 'character))))
+
+(defun lexer-context-next-char (context)
+  (with-slots (stream) context
+    (peek-char nil stream nil :eof)))
+
+(defun lexer-context-no-content-p (context)
+  (with-slots (parts pending-word) context
+    (and (equal 0 (length parts))
+         (equal 0 (length pending-word)))))
+
+(defun lexer-context-assignment-p (context)
+  (with-slots (parts pending-word) context
+    (if (equal 0 (length parts))
+        (assignment-word-p pending-word)
+        (and (typep (aref parts 0) 'simple-word)
+             (assignment-word-p (simple-word-text (aref parts 0)))))))
+
+(defun lexer-context-consume-character (context)
+  (with-slots (stream) context
+    (read-char stream nil :eof)))
+
+(defun lexer-context-extend-word (context)
+  (lexer-context-add-pending-word context)
+  (with-slots (pending-word) context
+    (vector-push-extend (lexer-context-next-char context) pending-word)
+    (lexer-context-consume-character context)))
+
+(defun lexer-context-word-boundary (context)
+  (with-slots (parts pending-word) context
+    (when pending-word
+      (vector-push-extend (make-instance 'simple-word :text pending-word) parts)
+      (setf pending-word nil))))
+
+(defun lexer-context-add-part (context part)
+  (lexer-context-word-boundary context)
+  (with-slots (parts) context
+    (vector-push-extend part parts)))
+
+(defun lexer-context-simple-word (context)
+  (with-slots (parts pending-word) context
+    (cond
+      ((equal 0 (length parts))
+       pending-word)
+
+      ((and (equal 1 (length parts))
+            (not pending-word)
+            (typep (aref parts 0) 'simple-word))
+       (simple-word-text (aref parts 0)))
+
+      (t
+       nil))))
+
+(defun lexer-context-delimit (context)
+  (lexer-context-word-boundary context)
+  (with-slots (parts all-chars-stream) context
+    (let* ((part-count (length parts))
+           (simple-word (lexer-context-simple-word context)))
+      (cond ((and simple-word
+                  (operator-p simple-word))
+             (make-operator simple-word (get-output-stream-string all-chars-stream)))
+
+            ((and simple-word
+                  (reserved-p simple-word))
+             (make-reserved simple-word (get-output-stream-string all-chars-stream)))
+
+            ((and simple-word
+                  (not (find-if-not #'digit-char-p simple-word))
+                  (or (equal #\< (lexer-context-next-char context))
+                      (equal #\> (lexer-context-next-char context))))
+             (make-instance 'io-number :value (get-output-stream-string all-chars-stream) :fd (parse-integer simple-word)))
+
+            ((and simple-word
+                  (name-p simple-word))
+             (make-instance 'name :value (get-output-stream-string all-chars-stream) :text simple-word))
+
+            ((lexer-context-assignment-p context)
+             (make-assignment-word-from-parts parts (get-output-stream-string all-chars-stream)))
+
+            ((equal 1 part-count)
+             (aref parts 0))
+
+            ((< 1 part-count)
+             (make-instance 'compound-word :parts parts :value (get-output-stream-string all-chars-stream)))
+
+            (t
+             (error "All cases should be covered above"))))))
+
 (defun next-token (stream)
-  (let* ((all-chars-stream (make-string-output-stream))
-         (stream (make-echo-stream stream all-chars-stream))
-         (word (make-extensible-vector :element-type 'character))
-         (parts (make-extensible-vector))
-         (next-char (peek-char nil stream nil :eof)))
-    (labels ((no-content-p ()
-               (and (equal 0 (length parts))
-                    (equal 0 (length word))))
-             (simple-p ()
-               (equal 0 (length parts)))
-             (is-operator (&optional (the-word word))
-               (and (operator-p the-word)
-                    (simple-p)))
-             (assignment-p ()
-               (if (equal 0 (length parts))
-                   (assignment-word-p word)
-                   (and (typep (aref parts 0) 'simple-word)
-                        (assignment-word-p (simple-word-text (aref parts 0))))))
-             (extend? (&optional (char next-char) (the-word word))
-               (concatenate 'string the-word (list char)))
-             (extend! (&optional (char next-char))
-               (vector-push-extend char word))
-             (word-boundary ()
-               (unless (equal 0 (length word))
-                 (vector-push-extend (make-instance 'simple-word :text word :value nil) parts)
-                 (setf word (make-extensible-vector :element-type 'character))))
-             (add-part (thing)
-               (word-boundary)
-               (vector-push-extend thing parts))
-             (consume ()
-               (read-char stream nil :eof)
-               (reassess-next-char))
-             (consume-no-peek ()
-               (read-char stream nil :eof))
-             (reassess-next-char ()
-               (setf next-char (peek-char nil stream nil :eof)))
-             (delimit (&optional value)
-               (return-from next-token
-                 (cond (value
-                        value)
+  (let* ((context (make-instance 'lexer-context :stream stream)))
+    (labels ((next-char () (lexer-context-next-char context)))
 
-                       ((is-operator)
-                        (make-operator word (get-output-stream-string all-chars-stream)))
-
-                       ((and (simple-p)
-                             (reserved-p word))
-                        (make-reserved word (get-output-stream-string all-chars-stream)))
-
-                       ((and (simple-p)
-                             (not (find-if-not #'digit-char-p word))
-                             (or (equal #\< next-char) (equal #\> next-char)))
-                        (make-instance 'io-number :value (get-output-stream-string all-chars-stream) :fd (parse-integer word)))
-
-                       ((and (simple-p)
-                             (name-p word))
-                        (make-instance 'name :value (get-output-stream-string all-chars-stream) :text word))
-
-                       ((assignment-p)
-                        (word-boundary)
-                        (make-assignment-word-from-parts parts (get-output-stream-string all-chars-stream)))
-
-                       ((and (equal 1 (length parts))
-                             (equal 0 (length word)))
-                        (aref parts 0))
-
-                       ((not (equal 0 (length parts)))
-                        (word-boundary)
-                        (make-instance 'compound-word :parts parts :value (get-output-stream-string all-chars-stream)))
-
-                       (t
-                        (make-instance 'simple-word :text word :value (get-output-stream-string all-chars-stream)))))))
-
-      (macrolet ((again () '(return-from again)))
-
-        ;; The lexing rules depend on whether the current character
-        ;; was quoted.  We will always deal with quoting upfront, and
-        ;; so we can assume that the current character is never quoted
-        (loop
-           (block again
+      ;; The lexing rules depend on whether the current character
+      ;; was quoted.  We will always deal with quoting upfront, and
+      ;; so we can assume that the current character is never quoted
+      (loop
+         (block again
+           (labels ((again () (return-from again))
+                    (delimit () (return-from next-token (lexer-context-delimit context))))
              (cond
                ;; If the end of input is recognized, the current token
                ;; shall be delimited. If there is no current token, the
                ;; end-of-input indicator shall be returned as the token.
-               ((eq :eof next-char)
-                (delimit
-                 (when (no-content-p)
-                   +eof+)))
+               ((eq :eof (next-char))
+                (when (lexer-context-no-content-p context)
+                  (lexer-context-add-part context +eof+))
+                (delimit))
 
                ;; If the previous character was used as part of an
                ;; operator and the current character is not quoted and
                ;; can be used with the current characters to form an
                ;; operator, it shall be used as part of that (operator)
                ;; token.
-               ((and (is-operator) (is-operator (extend?)))
-                (extend!)
-                (consume)
+               ((let ((simple-word (lexer-context-simple-word context)))
+                  (and simple-word
+                       (operator-p simple-word)
+                       (operator-p (concatenate 'string simple-word (string (next-char))))))
+                (lexer-context-extend-word context)
                 (again))
 
                ;; If the previous character was used as part of an
@@ -605,7 +660,10 @@
                ;; the current characters to form an operator, the
                ;; operator containing the previous character shall be
                ;; delimited.
-               ((and (is-operator) (not (is-operator (extend?))))
+               ((let ((simple-word (lexer-context-simple-word context)))
+                  (and simple-word
+                       (operator-p simple-word)
+                       (not (operator-p (concatenate 'string simple-word (string (next-char)))))))
                 (delimit))
 
                ;; If the current character is backslash, single-quote,
@@ -621,19 +679,17 @@
                ;; the quote mark and the end of the quoted text. The
                ;; token shall not be delimited by the end of the quoted
                ;; field.
-               ((equal next-char #\')
-                (add-part (read-single-quote stream))
-                (reassess-next-char)
+               ((equal (next-char) #\')
+                (lexer-context-add-part context (read-single-quote stream))
                 (again))
-               ((equal next-char #\Backslash)
-                (consume)
-                (unless (equal next-char #\Linefeed)
-                  (add-part (make-escaped-character next-char)))
-                (consume)
+               ((equal (next-char) #\Backslash)
+                (lexer-context-consume-character context)
+                (unless (equal (next-char) #\Linefeed)
+                  (lexer-context-add-part context (make-escaped-character (next-char))))
+                (lexer-context-consume-character context)
                 (again))
-               ((equal next-char #\")
-                (add-part (read-double-quote stream))
-                (reassess-next-char)
+               ((equal (next-char) #\")
+                (lexer-context-add-part context (read-double-quote stream))
                 (again))
 
                ;; If the current character is an unquoted '$' or '`',
@@ -656,13 +712,11 @@
                ;; including any embedded or enclosing substitution
                ;; operators or quotes. The token shall not be delimited
                ;; by the end of the substitution.
-               ((equal next-char #\$)
-                (add-part (read-dollar stream))
-                (reassess-next-char)
+               ((equal (next-char) #\$)
+                (lexer-context-add-part context (read-dollar stream))
                 (again))
-               ((equal next-char #\`)
-                (add-part (read-backquote stream))
-                (reassess-next-char)
+               ((equal (next-char) #\`)
+                (lexer-context-add-part context (read-backquote stream))
                 (again))
 
                ;; If the current character is not quoted and can be used
@@ -670,35 +724,33 @@
                ;; token (if any) shall be delimited. The current
                ;; character shall be used as the beginning of the next
                ;; (operator) token.
-               ((operator-prefix-p (string next-char))
-                (unless (equal 0 (length word))
+               ((operator-prefix-p (string (next-char)))
+                (unless (lexer-context-no-content-p context)
                   (delimit))
-                (extend!)
-                (consume)
+                (lexer-context-extend-word context)
                 (again))
 
                ;; If the current character is an unquoted <newline>, the
                ;; current token shall be delimited.
-               ((equal #\linefeed next-char)
-                (unless (no-content-p)
-                  (delimit))
-                (consume-no-peek)
-                (delimit +newline+))
+               ((equal #\linefeed (next-char))
+                (when (lexer-context-no-content-p context)
+                  (lexer-context-consume-character context)
+                  (lexer-context-add-part context +newline+))
+                (delimit))
 
                ;; If the current character is an unquoted <blank>, any
                ;; token containing the previous character is delimited
                ;; and the current character shall be discarded.
-               ((blank-p next-char)
-                (unless (no-content-p)
+               ((blank-p (next-char))
+                (unless (lexer-context-no-content-p context)
                   (delimit))
-                (consume)
+                (lexer-context-consume-character context)
                 (again))
 
                ;; If the previous character was part of a word, the
                ;; current character shall be appended to that word.
-               ((not (no-content-p))
-                (extend!)
-                (consume)
+               ((not (lexer-context-no-content-p context))
+                (lexer-context-extend-word context)
                 (again))
 
                ;; If the current character is a '#', it and all
@@ -706,13 +758,12 @@
                ;; <newline> shall be discarded as a comment. The
                ;; <newline> that ends the line is not considered part of
                ;; the comment.
-               ((equal #\# next-char)
+               ((equal #\# (next-char))
                 (read-comment stream)
                 (again))
 
                ;; The current character is used as the start of a new
                ;; word.
                (t
-                (extend!)
-                (consume)
+                (lexer-context-extend-word context)
                 (again)))))))))
