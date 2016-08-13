@@ -316,7 +316,7 @@
                ((equal #\" next-char)
                 (skip)
                 (take-literal)
-                (return-from read-double-quote (make-instance 'double-quote-word :parts parts :value token-value)))
+                (return-from read-double-quote (make-instance 'double-quote :parts parts :value token-value)))
 
                ((equal #\Backslash next-char)
                 (skip)
