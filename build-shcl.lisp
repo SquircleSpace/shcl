@@ -4,6 +4,7 @@
   (push here asdf:*central-registry*))
 (handler-case
     (progn
+      (asdf:compile-system :shcl)
       (asdf:load-system :shcl)
       (funcall (intern "OBSERVE-DUMP" (find-package "SHCL.UTILITY")))
       (sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t))
