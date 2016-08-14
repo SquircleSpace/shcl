@@ -437,6 +437,7 @@
   (let ((next-char (peek-char nil stream nil :eof)))
     (when (or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
               (digit-char-p next-char))
+      (read-char stream nil :eof)
       (return-from read-dollar-word
         (make-instance 'variable-expansion-word
                        :variable (string next-char)
