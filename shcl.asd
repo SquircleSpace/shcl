@@ -20,3 +20,13 @@
                (:file "expand" :depends-on ("packages" "utility" "lexer" "environment"))
                (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread"))
                (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "utility"))))
+
+(defsystem "shcl-test"
+  :description "Shcl tests, tests for a lisp shell"
+  :version "0.0.1"
+  :author "Brad Jensen <brad@bradjensen.net>"
+  :licence "All rights reserved."
+  :depends-on ("fiveam")
+  :components ((:file "test/packages")
+               (:file "test/suites" :depends-on ("test/packages"))
+               (:file "test/lexer" :depends-on ("test/packages" "test/suites"))))
