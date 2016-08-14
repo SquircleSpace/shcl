@@ -43,7 +43,7 @@
   (setf *environment* (environment-to-map)))
 
 (defun clear-environment ()
-  (setf *environment* nil))
+  (setf *environment* (fset:empty-map)))
 
 (defun linearized-exported-environment (&optional (environment *environment*))
   (let ((result (fset:empty-seq)))
@@ -80,8 +80,8 @@
 (defun env (key &optional (default +env-default+))
   (multiple-value-bind (entry found) (fset:lookup *environment* key)
     (if found
-        (environment-binding-value entry)
-        default)))
+        (values (environment-binding-value entry) t)
+        (values default nil))))
 
 (defun exported-p (key)
   (let ((entry (fset:lookup *environment* key)))
@@ -102,11 +102,18 @@
 (defsetf env (key &optional default) (value)
   `(%set-env ,key ,value ,default))
 
+(defun unset-env (key)
+  (setf *environment* (fset:less *environment* key)))
+
 (defun export-variable (key)
-  (setf (fset:lookup *environment* key) (cons (env key) t)))
+  (setf (fset:lookup *environment* key) (make-instance 'environment-binding
+                                                       :value (env key)
+                                                       :exported t)))
 
 (defun unexport-variable (key)
-  (setf (fset:lookup *environment* key) (cons (env key) nil)))
+  (setf (fset:lookup *environment* key) (make-instance 'environment-binding
+                                                       :value (env key)
+                                                       :exported nil)))
 
 (defmacro define-environment-accessor (name &optional (default ""))
   `(define-symbol-macro ,(intern (concatenate 'string "$" (string-upcase name))) (env ,name ,default)))
