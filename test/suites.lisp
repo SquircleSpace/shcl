@@ -11,3 +11,6 @@
 
 (def-suite lexer-failing
     :in shcl-failing)
+
+(def-suite environment
+    :in shcl)

@@ -100,7 +100,8 @@
   (:use :common-lisp :shcl.utility :shcl.posix)
   (:export
    #:*environment* #:linearized-exported-environment #:with-environment-scope
-   #:env #:export-variable #:unexport-variable
+   #:env #:export-variable #:unexport-variable #:clear-environment #:exported-p
+   #:unset-env
    #:$ifs #:$path #:$pwd #:$oldpwd))
 
 (defpackage :shcl.expand
