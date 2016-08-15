@@ -14,3 +14,6 @@
 
 (def-suite environment
     :in shcl)
+
+(def-suite utility
+    :in shcl)
