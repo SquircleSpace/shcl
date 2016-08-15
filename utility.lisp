@@ -38,9 +38,11 @@
            (fresh-line *debug-stream*))))))
 
 (defmacro define-hook (name &body initial-contents)
+  (dolist (fn initial-contents)
+    (check-type fn symbol))
   `(defparameter ,name
      ,(if initial-contents
-          `(fset:convert 'fset:set ,initial-contents)
+          `(fset:set ,@(mapcar (lambda (x) `(quote ,x)) initial-contents))
           `(fset:empty-set))))
 
 (defun add-hook (hook-symbol function-symbol)
