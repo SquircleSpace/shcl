@@ -50,7 +50,12 @@
    #:while #:until #:for #:lbrace #:rbrace #:bang #:in
 
    ;; Functions
-   #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream))
+   #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream
+
+   ;; Extensible reading
+   #:set-character-handler #:make-shell-dispatch-character
+   #:set-shell-dispatch-character #:*shell-readtable*
+   #:shell-extensible-read #:reset-shell-readtable))
 
 (defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)
