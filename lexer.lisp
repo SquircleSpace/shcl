@@ -507,7 +507,8 @@
     :type stream
     :initform (make-string-output-stream))
    (stream
-    :type echo-stream)
+    :type echo-stream
+    :reader lexer-context-stream)
    (raw-stream
     :type stream
     :initarg :stream
@@ -558,11 +559,15 @@
   (with-slots (stream) context
     (read-char stream nil :eof)))
 
-(defun lexer-context-extend-word (context)
+(defun lexer-context-add-chars (context chars)
   (lexer-context-add-pending-word context)
   (with-slots (pending-word) context
-    (vector-push-extend (lexer-context-next-char context) pending-word)
-    (lexer-context-consume-character context)))
+    (loop :for char :across chars :do
+       (vector-push-extend char pending-word))))
+
+(defun lexer-context-extend-word (context)
+  (lexer-context-add-chars context (string (lexer-context-next-char context)))
+  (lexer-context-consume-character context))
 
 (defun lexer-context-word-boundary (context)
   (with-slots (parts pending-word) context
@@ -623,6 +628,142 @@
 
             (t
              (error "All cases should be covered above"))))))
+
+(define-once-global +empty-shell-readtable+ (fset:empty-map))
+(defparameter *shell-readtable* +empty-shell-readtable+)
+(defun reset-shell-readtable ()
+  (setf *shell-readtable* +empty-shell-readtable+))
+
+(defclass dispatch-char ()
+  ((table
+    :type fset:map
+    :initform (fset:empty-map)
+    :initarg :table
+    :reader dispatch-char-table)
+   (fallback
+    :type (or null function)
+    :initform nil
+    :initarg :fallback
+    :reader dispatch-char-fallback)))
+
+(define-once-global +default-dispatch-char+ (make-instance 'dispatch-char))
+
+(defun make-dispatch-char-description
+    (&key (based-on +default-dispatch-char+)
+       (table nil table-p) (fallback nil fallback-p))
+  (unless (or table-p fallback-p)
+    (return-from make-dispatch-char-description based-on))
+
+  (make-instance
+   'dispatch-char
+   :table (if table-p table (dispatch-char-table based-on))
+   :fallback (if fallback-p fallback (dispatch-char-fallback based-on))))
+
+(define-condition character-already-set (error)
+  ((char
+    :accessor character-already-set-char
+    :initarg :char
+    :type character
+    :initform (required))
+   (value
+    :accessor character-already-set-value
+    :initarg :value
+    :initform (required)))
+  (:report (lambda (c s) (format s "~W is already set to ~A" (character-already-set-char c) (character-already-set-value c)))))
+
+(define-condition character-not-dispatch (error)
+  ((char
+    :accessor character-not-dispatch-char
+    :initform (required)
+    :initarg :char
+    :type character))
+  (:report (lambda (c s) (format s "~W is not a dispatch character" (character-not-dispatch-char c)))))
+
+(defun error-if-exists (character map)
+  (multiple-value-bind (old-value found) (fset:lookup map character)
+    (when found
+      (cerror "Continue and replace" 'character-already-set :char character :value old-value))))
+
+(defun set-character-handler (character fn &key (if-exists :error))
+  (assert (find if-exists #(:error :replace)))
+  (when (eq if-exists :error)
+    (error-if-exists character *shell-readtable*))
+  (setf *shell-readtable* (fset:with *shell-readtable* character fn)))
+
+(defun make-shell-dispatch-character (first-character &key (if-exists :error) (default-handler nil default-handler-p))
+  (assert (find if-exists #(:error :replace)))
+  (when (eq if-exists :error)
+    (error-if-exists first-character *shell-readtable*))
+  (multiple-value-bind (value found) (fset:lookup *shell-readtable* first-character)
+    (when (and found 'dispatch-char)
+      (when default-handler-p
+        (let ((replacement (make-dispatch-char-description
+                            :based-on value :fallback default-handler)))
+          (setf (fset:lookup *shell-readtable* first-character) replacement)))
+      (return-from make-shell-dispatch-character))
+    (setf (fset:lookup *shell-readtable* first-character) (make-dispatch-char-description :fallback default-handler))))
+
+(defun set-shell-dispatch-character (first-character second-character fn &key (if-exists :error))
+  (assert (find if-exists #(:error :replace)))
+  (macrolet
+      ((first-entry () '(fset:lookup *shell-readtable* first-character)))
+    (multiple-value-bind (first found) (first-entry)
+      (when (and found (not (typep first 'dispatch-char)))
+        (error 'character-not-dispatch :char first-character))
+      (when (eq if-exists :error)
+        (error-if-exists second-character (dispatch-char-table first)))
+      (let ((new-sub-table (fset:with (dispatch-char-table first) second-character fn)))
+        (setf (first-entry) (make-dispatch-char-description :based-on first :table new-sub-table))
+        t))))
+
+(defun %shell-extensible-read (stream map initiation-sequence fallback)
+  (let ((next-char (peek-char nil stream nil :eof)))
+    (vector-push-extend next-char initiation-sequence)
+    (multiple-value-bind (value found) (fset:lookup map next-char)
+      (when (not found)
+        (return-from %shell-extensible-read (funcall fallback stream initiation-sequence)))
+
+    (read-char stream nil :eof)
+    (let ((result
+           (typecase value
+             (dispatch-char
+              (let ((inner-fallback (dispatch-char-fallback value)))
+                (%shell-extensible-read stream
+                                        (dispatch-char-table value)
+                                        initiation-sequence
+                                        (if inner-fallback
+                                            inner-fallback
+                                            (lambda (s i)
+                                              (declare (ignore s))
+                                              (error "Unhandled dispatch character sequence ~A" i))))))
+
+             (t
+              (funcall value stream initiation-sequence)))))
+
+      (unless (or (eq result t) (typep result '(or string token)))
+        (error "Lexer extensions must return a token, got ~A" result))
+      result))))
+
+(defun shell-extensible-read (stream)
+  (labels
+      ((fallback (s initiation-sequence)
+         (declare (ignore s))
+         (assert (equal 1 (length initiation-sequence)) nil
+                 "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
+         (return-from shell-extensible-read nil)))
+    (%shell-extensible-read stream *shell-readtable* (make-extensible-vector) #'fallback)))
+
+(defun handle-extensible-syntax (context)
+  (let ((value (shell-extensible-read (lexer-context-stream context))))
+    (unless value
+      (return-from handle-extensible-syntax nil))
+    (when (eq t value)
+      (return-from handle-extensible-syntax t))
+
+    (typecase value
+      (string (lexer-context-add-chars context value))
+      (token (lexer-context-add-part context value))))
+  t)
 
 (defun next-token (stream)
   (let* ((context (make-instance 'lexer-context :stream stream)))
@@ -752,6 +893,9 @@
                ;; current character shall be appended to that word.
                ((not (lexer-context-no-content-p context))
                 (lexer-context-extend-word context)
+                (again))
+
+               ((handle-extensible-syntax context)
                 (again))
 
                ;; If the current character is a '#', it and all

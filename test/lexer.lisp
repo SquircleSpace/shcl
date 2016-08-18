@@ -42,3 +42,65 @@
 
 (def-test basics-failing (:compile-at :definition-time :suite lexer-failing)
   (is (lexes-to-token-types "`sub command`" 'command-word)))
+
+(defclass form-token (token)
+  ((form
+   :initarg :form
+   :reader form-token-form)))
+
+(defun make-form (value)
+  (make-instance 'form-token :form value))
+
+(def-test extensible-reading (:compile-at :definition-time)
+  (let* ((*shell-readtable* *shell-readtable*)
+         (stream (make-string-input-stream "[(+ 1 2 3)#,\"asdf\"#.stuff"))
+         s-reader-ran)
+    (reset-shell-readtable)
+    (labels
+        (([-reader (s i)
+           (declare (ignore i))
+           (make-form (read s)))
+         (comma-reader (s i)
+           (declare (ignore i))
+           (make-form (read s)))
+         (default-dot-reader (s i)
+           (declare (ignore s i))
+           (make-form 'stuff))
+         (default-s-reader (s i)
+           (declare (ignore s i))
+           (setf s-reader-ran t)
+           "s"))
+      ;; Simple reader
+      (set-character-handler #\[ #'[-reader)
+      (is (equal
+           '(+ 1 2 3)
+           (form-token-form (shell-extensible-read stream))))
+
+      ;; Dispatch reader
+      (make-shell-dispatch-character #\# :default-handler (constantly t))
+      (set-shell-dispatch-character #\# #\, #'comma-reader)
+      ;; two-character sequence
+      (is (equal
+           "asdf"
+           (form-token-form (shell-extensible-read stream))))
+
+      ;; Dispatch char fallback (and commenting)
+      (is (equal
+           t
+           (shell-extensible-read stream)))
+
+      ;; Ultimate fallback (No matches at all)
+      (is (equal
+           nil
+           (shell-extensible-read stream)))
+
+      (is (equal (read-char stream nil :eof) #\.))
+
+      ;; Dispatch char fallback (normal case)
+      (make-shell-dispatch-character #\s :default-handler #'default-s-reader)
+      (is (equal
+           "s"
+           (shell-extensible-read stream)))
+      (is (eq
+           t
+           s-reader-ran)))))
