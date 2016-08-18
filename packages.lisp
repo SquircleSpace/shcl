@@ -55,7 +55,8 @@
    ;; Extensible reading
    #:set-character-handler #:make-shell-dispatch-character
    #:set-shell-dispatch-character #:*shell-readtable*
-   #:shell-extensible-read #:reset-shell-readtable))
+   #:shell-extensible-read #:reset-shell-readtable
+   #:lexer-context-mark-end-of-token))
 
 (defpackage :shcl.parser
   (:use :common-lisp :alexandria :shcl.lexer :shcl.utility)

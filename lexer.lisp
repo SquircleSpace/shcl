@@ -397,8 +397,7 @@
                (read stream nil :eof)
                (setf next-char (peek-char nil stream nil :eof))))
       (assert (equal #\( next-char))
-      (take)
-      )))
+      (take))))
 
 (defun read-name (stream)
   (let ((next-char (peek-char nil stream nil :eof))
@@ -479,11 +478,13 @@
   ())
 
 (defun token-iterator (stream)
-  (make-iterator (:type 'token-iterator)
-    (let ((token (next-token stream)))
-      (when (typep token 'eof)
-        (stop))
-      (emit token))))
+  (let ((readtable *shell-readtable*))
+    (make-iterator (:type 'token-iterator)
+      (let ((*shell-readtable* readtable)
+            (token (next-token stream)))
+        (when (typep token 'eof)
+          (stop))
+        (emit token)))))
 
 (defgeneric tokenize (source))
 
@@ -507,7 +508,7 @@
     :type stream
     :initform (make-string-output-stream))
    (stream
-    :type echo-stream
+    :type stream
     :reader lexer-context-stream)
    (raw-stream
     :type stream
@@ -594,6 +595,10 @@
       (t
        nil))))
 
+(defun lexer-context-mark-end-of-token (context)
+  (with-slots (stream) context
+    (setf stream (make-string-input-stream ""))))
+
 (defun lexer-context-delimit (context)
   (lexer-context-word-boundary context)
   (with-slots (parts all-chars-stream) context
@@ -641,7 +646,7 @@
     :initarg :table
     :reader dispatch-char-table)
    (fallback
-    :type (or null function)
+    :type (or null symbol function)
     :initform nil
     :initarg :fallback
     :reader dispatch-char-fallback)))
@@ -716,12 +721,12 @@
         (setf (first-entry) (make-dispatch-char-description :based-on first :table new-sub-table))
         t))))
 
-(defun %shell-extensible-read (stream map initiation-sequence fallback)
+(defun %shell-extensible-read (stream map initiation-sequence fallback context)
   (let ((next-char (peek-char nil stream nil :eof)))
     (vector-push-extend next-char initiation-sequence)
     (multiple-value-bind (value found) (fset:lookup map next-char)
       (when (not found)
-        (return-from %shell-extensible-read (funcall fallback stream initiation-sequence)))
+        (return-from %shell-extensible-read (funcall fallback stream initiation-sequence context)))
 
     (read-char stream nil :eof)
     (let ((result
@@ -733,28 +738,35 @@
                                         initiation-sequence
                                         (if inner-fallback
                                             inner-fallback
-                                            (lambda (s i)
-                                              (declare (ignore s))
-                                              (error "Unhandled dispatch character sequence ~A" i))))))
+                                            (lambda (s i c)
+                                              (declare (ignore s c))
+                                              (error "Unhandled dispatch character sequence ~A" i)))
+                                        context)))
 
              (t
-              (funcall value stream initiation-sequence)))))
+              (funcall value stream initiation-sequence context)))))
 
       (unless (or (eq result t) (typep result '(or string token)))
         (error "Lexer extensions must return a token, got ~A" result))
       result))))
 
+(defun shell-extensible-read-ingest (context)
+  (with-slots (stream) context
+    (labels
+        ((fallback (s initiation-sequence c)
+           (declare (ignore s c))
+           (assert (equal 1 (length initiation-sequence)) nil
+                   "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
+           (return-from shell-extensible-read-ingest nil)))
+      (%shell-extensible-read stream *shell-readtable* (make-extensible-vector) #'fallback context))))
+
 (defun shell-extensible-read (stream)
-  (labels
-      ((fallback (s initiation-sequence)
-         (declare (ignore s))
-         (assert (equal 1 (length initiation-sequence)) nil
-                 "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
-         (return-from shell-extensible-read nil)))
-    (%shell-extensible-read stream *shell-readtable* (make-extensible-vector) #'fallback)))
+  (let ((c (make-instance 'lexer-context :stream stream)))
+    (declare (dynamic-extent c))
+    (shell-extensible-read-ingest c)))
 
 (defun handle-extensible-syntax (context)
-  (let ((value (shell-extensible-read (lexer-context-stream context))))
+  (let ((value (shell-extensible-read-ingest context)))
     (unless value
       (return-from handle-extensible-syntax nil))
     (when (eq t value)
@@ -889,13 +901,13 @@
                 (lexer-context-consume-character context)
                 (again))
 
+               ((handle-extensible-syntax context)
+                (again))
+
                ;; If the previous character was part of a word, the
                ;; current character shall be appended to that word.
                ((not (lexer-context-no-content-p context))
                 (lexer-context-extend-word context)
-                (again))
-
-               ((handle-extensible-syntax context)
                 (again))
 
                ;; If the current character is a '#', it and all
