@@ -16,6 +16,9 @@
 (defconstant +soft-word-boundary+ '+soft-word-boundary+)
 (defconstant +hard-word-boundary+ '+hard-word-boundary+)
 
+(defun word-boundary ()
+  +soft-word-boundary+)
+
 (defun soft-word-boundary-p (thing)
   (eq +soft-word-boundary+ thing))
 
