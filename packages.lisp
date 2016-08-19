@@ -112,7 +112,9 @@
 
 (defpackage :shcl.expand
   (:use :common-lisp :shcl.utility :shcl.lexer :shcl.environment)
-  (:export #:expansion-for-word #:expansion-for-words #:set-alias #:unalias))
+  (:export
+   #:expansion-for-word #:expansion-for-words #:set-alias #:unalias
+   #:expand #:make-string-fragment))
 
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
