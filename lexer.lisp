@@ -2,6 +2,11 @@
 
 (optimization-settings)
 
+(define-once-global +empty-shell-readtable+ (fset:empty-map))
+(defparameter *shell-readtable* +empty-shell-readtable+)
+(defun reset-shell-readtable ()
+  (setf *shell-readtable* +empty-shell-readtable+))
+
 (defmacro define-make-load-form-for-class (class-name)
   (let ((object (gensym "OBJECT"))
         (environment (gensym "ENVIRONMENT"))
@@ -633,11 +638,6 @@
 
             (t
              (error "All cases should be covered above"))))))
-
-(define-once-global +empty-shell-readtable+ (fset:empty-map))
-(defparameter *shell-readtable* +empty-shell-readtable+)
-(defun reset-shell-readtable ()
-  (setf *shell-readtable* +empty-shell-readtable+))
 
 (defclass dispatch-char ()
   ((table
