@@ -1,6 +1,4 @@
-(defpackage :shcl.extensions.lisp-interpolation
-  (:use :common-lisp :shcl.utility :shcl.lexer :shcl.shell-grammar :shcl.evaluate :shcl.expand))
-(in-package :shcl.extensions.lisp-interpolation)
+(in-package :shcl.lisp-interpolation)
 
 (defgeneric prepare-for-baking (token))
 (defmethod prepare-for-baking (token)

@@ -123,6 +123,11 @@
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:evaluate))
 
+(defpackage :shcl.lisp-interpolation
+  (:use :common-lisp :shcl.utility :shcl.lexer :shcl.shell-grammar :shcl.evaluate :shcl.expand)
+  (:export
+   #:enable-reader-syntax))
+
 (defpackage :shcl
   (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility :shcl.evaluate)
   (:export #:main))
