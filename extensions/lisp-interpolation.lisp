@@ -2,12 +2,44 @@
   (:use :common-lisp :shcl.utility :shcl.lexer :shcl.shell-grammar :shcl.evaluate :shcl.expand))
 (in-package :shcl.extensions.lisp-interpolation)
 
-(defclass lisp-form (token)
+(defgeneric prepare-for-baking (token))
+(defmethod prepare-for-baking (token)
+  token)
+
+(defclass lisp-form (a-word)
   ((form
     :initarg :form
     :initform (required))))
 (defmethod print-object ((token lisp-form) stream)
   (format stream "#<~A ~A>" (class-name (class-of token)) (slot-value token 'form)))
+
+(defmethod prepare-for-baking ((lisp-form lisp-form))
+  (let ((token (make-instance 'cooked-lisp-form)))
+    (values
+     token
+     `(setf (slot-value ,token 'function)
+            (lambda ()
+              (fset:seq
+               (make-string-fragment
+                (format nil "~A" ,(slot-value lisp-form 'form))
+                :quoted t)))))))
+
+(defclass lisp-splice-form (lisp-form)
+  ())
+
+(defmethod prepare-for-baking ((lisp-form lisp-splice-form))
+  (let ((token (make-instance 'cooked-lisp-form)))
+    (values
+     token
+     `(setf (slot-value ,token 'function)
+            (lambda ()
+              (let ((seq ,(slot-value lisp-form 'form))
+                    (result (fset:empty-seq)))
+                (do-iterator (thing (iterator seq))
+                  (fset:push-last result (make-string-fragment (format nil "~A" thing) :quoted t))
+                  (fset:push-last result (word-boundary)))
+                (setf result (fset:less-last result))
+                result))))))
 
 (defclass cooked-lisp-form (a-word)
   ((function
@@ -16,13 +48,17 @@
   (format stream "#<~A>" (class-name (class-of token))))
 
 (defmethod expand ((token cooked-lisp-form))
-  (fset:seq (make-string-fragment (format nil "~A" (funcall (slot-value token 'function))))))
+  (funcall (slot-value token 'function)))
 
 (defun read-lisp-form (stream initiation-sequence context)
   (declare (ignore initiation-sequence context))
-  (let* ((form (read-preserving-whitespace stream))
-         (wrapper (make-instance 'lisp-form :form form)))
-    wrapper))
+  (let ((form (read-preserving-whitespace stream)))
+    (make-instance 'lisp-form :form form)))
+
+(defun read-lisp-splice-form (stream initiation-sequence context)
+  (declare (ignore initiation-sequence context))
+  (let ((form (read-preserving-whitespace stream)))
+    (make-instance 'lisp-splice-form :form form)))
 
 (defun hash-default-handler (stream initiation-sequence context)
   (unless (equal #\linefeed (aref initiation-sequence (- (length initiation-sequence) 1)))
@@ -43,6 +79,7 @@
            t))
       (set-shell-dispatch-character #\# #\$ #'end-shell-parse))
     (make-shell-dispatch-character #\, :default-handler 'read-lisp-form)
+    (set-shell-dispatch-character #\, #\@ 'read-lisp-splice-form)
     (let* ((raw-token-iter (token-iterator stream))
            (token-iter
             (make-iterator (:type 'token-iterator)
@@ -64,14 +101,10 @@
   (let ((oven (make-extensible-vector))
         (mangled-tokens (make-extensible-vector)))
     (dolist (token tokens)
-      (cond
-        ((typep token 'lisp-form)
-         (let ((form (slot-value token 'form))
-               (cooked (make-instance 'cooked-lisp-form)))
-           (vector-push-extend cooked mangled-tokens)
-           (vector-push-extend `(setf (slot-value ,cooked 'function) (lambda () ,form)) oven)))
-        (t
-         (vector-push-extend token mangled-tokens))))
+      (multiple-value-bind (new-token preperation-form) (prepare-for-baking token)
+        (vector-push-extend new-token mangled-tokens)
+        (when preperation-form
+          (vector-push-extend preperation-form oven))))
     (let* ((token-iter (vector-iterator mangled-tokens :type 'token-iterator))
            (commands (command-iterator token-iter))
            (evaluates (make-extensible-vector)))
