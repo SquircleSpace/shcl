@@ -87,7 +87,7 @@
              (setf binding (list binding nil)))
            (destructuring-bind (variable &optional value) binding
              (let ((value-sym (gensym "VALUE")))
-               (setf value `(let ((,value-sym value))
+               (setf value `(let ((,value-sym ,value))
                               (if ,value-sym
                                   ,value-sym
                                   (return-from ,block))))
