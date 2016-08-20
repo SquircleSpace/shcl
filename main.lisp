@@ -29,6 +29,12 @@
                  :type 'token-iterator)
    form-queue))
 
+(defun display-prompt (input-stream output-stream)
+  (when (and (interactive-stream-p input-stream)
+             (not (listen input-stream)))
+    (format output-stream "shcl> ")
+    (finish-output output-stream)))
+
 (defun restartable-command-iterator (raw-stream form-queue)
   (let* ((stream (debug-char-stream raw-stream))
          (tokens (main-token-iterator stream form-queue))
@@ -58,6 +64,7 @@
   (enable-shell-splice-syntax)
   (let* ((form-queue (make-queue))
          (commands (restartable-command-iterator *standard-input* form-queue)))
+    (display-prompt *standard-input* *standard-output*)
     (restart-case
         (do-iterator (tree commands)
           (loop
@@ -71,5 +78,6 @@
               (let ((result (evaluate tree)))
                 (declare (ignorable result))
                 (debug-log 'status "RESULT ~A" result))
-            (skip ())))
+            (skip ()))
+          (display-prompt *standard-input* *standard-output*))
       (die () (sb-ext:exit :code 1)))))
