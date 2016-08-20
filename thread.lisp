@@ -55,17 +55,28 @@
       (condition-notify cv)
       nil)))
 
-(defun dequeue (queue)
+(defun %dequeue (queue &key (wait t))
   (with-accessors ((front queue-front) (back queue-back)
                    (lock queue-lock) (cv queue-cv)) queue
     (with-lock-held (lock)
+      (when (and (not wait) (null front))
+        (return-from %dequeue (values nil nil)))
       (loop :while (null front) :do (condition-wait cv lock))
       (let ((item (car front)))
         (if (eq front back)
             (setf front nil
                   back nil)
             (setf front (cdr front)))
-        item))))
+        (values item t)))))
+
+(defun dequeue (queue)
+  (nth-value 0 (%dequeue queue)))
+
+(defun dequeue-no-block (queue &optional default)
+  (multiple-value-bind (value valid) (%dequeue queue :wait nil)
+    (if valid
+        value
+        default)))
 
 (defstruct (queue-thread
              (:constructor %make-queue-thread)
