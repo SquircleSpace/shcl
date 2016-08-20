@@ -9,7 +9,7 @@
   :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel" "bordeaux-threads" "fset" "cl-unicode" "closer-mop")
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
-               (:file "thread" :depends-on ("packages"))
+               (:file "thread" :depends-on ("packages" "utility"))
                (:file "lexer" :depends-on ("packages" "utility"))
                (:file "parser" :depends-on ("packages" "utility" "lexer"))
                (:file "shell-grammar" :depends-on ("packages" "utility" "parser" "lexer"))
@@ -19,9 +19,9 @@
                (:file "environment" :depends-on ("packages" "utility" "posix"))
                (:file "expand" :depends-on ("packages" "utility" "lexer" "environment"))
                (:file "baking" :depends-on ("packages" "utility" "thread"))
-               (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread"))
+               (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread" "environment"))
                (:file "lisp-interpolation" :depends-on ("packages" "utility" "lexer" "shell-grammar" "evaluate" "expand" "baking"))
-               (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "utility"))))
+               (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "baking" "utility"))))
 
 (defsystem "shcl-test"
   :description "Shcl tests, tests for a lisp shell"
