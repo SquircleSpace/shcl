@@ -21,7 +21,7 @@
                (:file "baking" :depends-on ("packages" "utility" "thread"))
                (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread" "environment"))
                (:file "lisp-interpolation" :depends-on ("packages" "utility" "lexer" "shell-grammar" "evaluate" "expand" "baking"))
-               (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "baking" "utility"))))
+               (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "baking" "lisp-interpolation" "utility"))))
 
 (defsystem "shcl-test"
   :description "Shcl tests, tests for a lisp shell"
