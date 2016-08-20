@@ -483,13 +483,11 @@
   ())
 
 (defun token-iterator (stream)
-  (let ((readtable *shell-readtable*))
-    (make-iterator (:type 'token-iterator)
-      (let ((*shell-readtable* readtable)
-            (token (next-token stream)))
-        (when (typep token 'eof)
-          (stop))
-        (emit token)))))
+  (make-iterator (:type 'token-iterator)
+    (let ((token (next-token stream)))
+      (when (typep token 'eof)
+        (stop))
+      (emit token))))
 
 (defgeneric tokenize (source))
 
