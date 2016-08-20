@@ -18,7 +18,9 @@
                (:file "fork-exec" :depends-on ("packages" "utility" "shell-grammar" "posix"))
                (:file "environment" :depends-on ("packages" "utility" "posix"))
                (:file "expand" :depends-on ("packages" "utility" "lexer" "environment"))
+               (:file "baking" :depends-on ("packages" "utility" "thread"))
                (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread"))
+               (:file "lisp-interpolation" :depends-on ("packages" "utility" "lexer" "shell-grammar" "evaluate" "expand" "baking"))
                (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "utility"))))
 
 (defsystem "shcl-test"

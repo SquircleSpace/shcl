@@ -1,51 +1,39 @@
 (in-package :shcl.lisp-interpolation)
 
-(defgeneric prepare-for-baking (token))
-(defmethod prepare-for-baking (token)
-  token)
-
 (defclass lisp-form (a-word)
   ((form
     :initarg :form
-    :initform (required))))
+    :initform (required))
+   function))
 (defmethod print-object ((token lisp-form) stream)
   (format stream "#<~A ~A>" (class-name (class-of token)) (slot-value token 'form)))
 
-(defmethod prepare-for-baking ((lisp-form lisp-form))
-  (let ((token (make-instance 'cooked-lisp-form)))
-    (values
-     token
-     `(setf (slot-value ,token 'function)
-            (lambda ()
-              (fset:seq
-               (make-string-fragment
-                (format nil "~A" ,(slot-value lisp-form 'form))
-                :quoted t)))))))
+(defmethod bake-form-for-token ((lisp-form lisp-form))
+  `(setf (slot-value ,lisp-form 'function)
+         (lambda ()
+           (fset:seq
+            (make-string-fragment
+             (format nil "~A" ,(slot-value lisp-form 'form))
+             :quoted t)))))
 
 (defclass lisp-splice-form (lisp-form)
   ())
 
-(defmethod prepare-for-baking ((lisp-form lisp-splice-form))
-  (let ((token (make-instance 'cooked-lisp-form)))
-    (values
-     token
-     `(setf (slot-value ,token 'function)
-            (lambda ()
-              (let ((seq ,(slot-value lisp-form 'form))
-                    (result (fset:empty-seq)))
-                (do-iterator (thing (iterator seq))
-                  (fset:push-last result (make-string-fragment (format nil "~A" thing) :quoted t))
-                  (fset:push-last result (word-boundary)))
-                (setf result (fset:less-last result))
-                result))))))
+(defmethod bake-form-for-token ((lisp-form lisp-splice-form))
+  (let ((seq (gensym "SEQ"))
+        (result (gensym "RESULT"))
+        (thing (gensym "THING")))
+    `(setf (slot-value ,lisp-form 'function)
+           (lambda ()
+             (let ((,seq ,(slot-value lisp-form 'form))
+                   (,result (fset:empty-seq)))
+               (do-iterator (,thing (iterator ,seq))
+                 (fset:push-last ,result (make-string-fragment (format nil "~A" thing) :quoted t))
+                 (fset:push-last ,result (word-boundary)))
+               (setf ,result (fset:less-last ,result))
+               ,result)))))
 
-(defclass cooked-lisp-form (a-word)
-  ((function
-    :initform nil)))
-(defmethod print-object ((token cooked-lisp-form) stream)
-  (format stream "#<~A>" (class-name (class-of token))))
-
-(defmethod expand ((token cooked-lisp-form))
+(defmethod expand ((token lisp-form))
   (funcall (slot-value token 'function)))
 
 (defun read-lisp-form (stream initiation-sequence context)
@@ -76,8 +64,7 @@
            (setf proper-end-found t)
            t))
       (set-shell-dispatch-character #\# #\$ #'end-shell-parse))
-    (make-shell-dispatch-character #\, :default-handler 'read-lisp-form)
-    (set-shell-dispatch-character #\, #\@ 'read-lisp-splice-form)
+    (enable-shell-splice-syntax)
     (let* ((raw-token-iter (token-iterator stream))
            (token-iter
             (make-iterator (:type 'token-iterator)
@@ -95,15 +82,17 @@
 (defun enable-reader-syntax ()
   (set-dispatch-macro-character #\# #\$ 'read-shell-command))
 
+(defun enable-shell-splice-syntax ()
+  (make-shell-dispatch-character #\, :default-handler 'read-lisp-form)
+  (set-shell-dispatch-character #\, #\@ 'read-lisp-splice-form))
+
 (defmacro parse-token-sequence (tokens)
-  (let ((oven (make-extensible-vector))
-        (mangled-tokens (make-extensible-vector)))
+  (let ((oven (make-extensible-vector)))
     (dolist (token tokens)
-      (multiple-value-bind (new-token preperation-form) (prepare-for-baking token)
-        (vector-push-extend new-token mangled-tokens)
-        (when preperation-form
-          (vector-push-extend preperation-form oven))))
-    (let* ((token-iter (vector-iterator mangled-tokens :type 'token-iterator))
+      (let ((form (bake-form-for-token token)))
+        (when form
+          (vector-push-extend form oven))))
+    (let* ((token-iter (list-iterator tokens :type 'token-iterator))
            (commands (command-iterator token-iter))
            (evaluates (make-extensible-vector)))
       (do-iterator (command commands)
