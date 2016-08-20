@@ -123,10 +123,15 @@
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:evaluate))
 
+(defpackage :shcl.baking
+  (:use :common-lisp :shcl.utility :shcl.lexer :shcl.thread)
+  (:export #:bake-form-for-token #:bake-tokens))
+
 (defpackage :shcl.lisp-interpolation
-  (:use :common-lisp :shcl.utility :shcl.lexer :shcl.shell-grammar :shcl.evaluate :shcl.expand)
+  (:use :common-lisp :shcl.utility :shcl.lexer :shcl.shell-grammar
+        :shcl.evaluate :shcl.expand :shcl.baking)
   (:export
-   #:enable-reader-syntax))
+   #:enable-shell-splice-syntax #:enable-reader-syntax))
 
 (defpackage :shcl
   (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility :shcl.evaluate)
