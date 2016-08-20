@@ -55,6 +55,7 @@
 
 (defun main ()
   (observe-revival)
+  (enable-shell-splice-syntax)
   (let* ((form-queue (make-queue))
          (commands (restartable-command-iterator *standard-input* form-queue)))
     (restart-case
