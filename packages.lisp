@@ -134,5 +134,6 @@
    #:enable-shell-splice-syntax #:enable-reader-syntax))
 
 (defpackage :shcl
-  (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility :shcl.evaluate)
+  (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility
+        :shcl.evaluate :shcl.baking :shcl.thread :shcl.lisp-interpolation)
   (:export #:main))

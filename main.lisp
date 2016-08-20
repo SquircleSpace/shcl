@@ -20,22 +20,24 @@
         (make-echo-stream stream (make-instance 'echo))
         stream)))
 
-(defun debug-token-iterator (stream)
-  (map-iterator (token-iterator stream)
-                (lambda (x)
-                  (format *standard-output* "TOKEN: ~A~%" x)
-                  x)
-                :type 'token-iterator))
+(defun main-token-iterator (stream form-queue)
+  (bake-tokens
+   (map-iterator (token-iterator stream)
+                 (lambda (x)
+                   (debug-log 'status "TOKEN: ~A~%" x)
+                   x)
+                 :type 'token-iterator)
+   form-queue))
 
-(defun restartable-command-iterator (raw-stream)
+(defun restartable-command-iterator (raw-stream form-queue)
   (let* ((stream (debug-char-stream raw-stream))
-         (tokens (debug-token-iterator stream))
+         (tokens (main-token-iterator stream form-queue))
          (commands (command-iterator tokens)))
     (labels
         ((reset-token-iterator ()
            (loop :while (read-char-no-hang raw-stream nil nil))
            (setf stream (debug-char-stream raw-stream)
-                 tokens (debug-token-iterator stream)
+                 tokens (main-token-iterator stream form-queue)
                  commands (command-iterator tokens))))
       (if (interactive-stream-p raw-stream)
           (make-iterator ()
@@ -53,10 +55,17 @@
 
 (defun main ()
   (observe-revival)
-  (let* ((commands (restartable-command-iterator *standard-input*)))
+  (let* ((form-queue (make-queue))
+         (commands (restartable-command-iterator *standard-input* form-queue)))
     (restart-case
         (do-iterator (tree commands)
-          (format *standard-output* "TREE: ~A~%" tree)
+          (loop
+             (multiple-value-bind (form valid) (dequeue-no-block form-queue)
+               (unless valid
+                 (return))
+               (debug-log 'status "EVAL ~A" form)
+               (eval form)))
+          (debug-log 'status "TREE: ~A~%" tree)
           (restart-case
               (let ((result (evaluate tree)))
                 (declare (ignorable result))
