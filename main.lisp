@@ -59,25 +59,52 @@
                    (go start)))))
           commands))))
 
+(defparameter *enable-lisp-splice* nil)
+
+(defparameter *help* nil)
+
+(defparameter *options*
+  '((*enable-lisp-splice* nil "Extend shell language to support splicing lisp expressions")
+    (*help* nil "Show list of options")))
+
+(defmacro with-options ((argv &key (options '*options*)) &body body)
+  (let ((vars (gensym "VARS"))
+        (values (gensym "VALUES"))
+        (command (gensym "COMMAND"))
+        (kwargs (gensym "KWARGS"))
+        (rest (gensym "REST")))
+    `(multiple-value-bind (,vars ,values ,command ,kwargs ,rest) (cl-cli:parse-cli ,argv ,options)
+       (declare (ignore ,command ,kwargs ,rest))
+       (progv ,vars ,values
+         ,@body))))
+
 (defun main ()
   (observe-revival)
-  (enable-shell-splice-syntax)
-  (let* ((form-queue (make-queue))
-         (commands (restartable-command-iterator *standard-input* form-queue)))
-    (display-prompt *standard-input* *standard-output*)
-    (restart-case
-        (do-iterator (tree commands)
-          (loop
-             (multiple-value-bind (form valid) (dequeue-no-block form-queue)
-               (unless valid
-                 (return))
-               (debug-log 'status "EVAL ~A" form)
-               (eval form)))
-          (debug-log 'status "TREE: ~A~%" tree)
-          (restart-case
-              (let ((result (evaluate tree)))
-                (declare (ignorable result))
-                (debug-log 'status "RESULT ~A" result))
-            (skip ()))
-          (display-prompt *standard-input* *standard-output*))
-      (die () (sb-ext:exit :code 1)))))
+  (with-options (sb-ext:*posix-argv*)
+    (when *help*
+      (cl-cli:help *options* nil :prog-name "shcl")
+      (return-from main))
+
+    (when *enable-lisp-splice*
+      (enable-shell-splice-syntax))
+
+    (let* ((form-queue (make-queue))
+           (commands (restartable-command-iterator *standard-input* form-queue)))
+      (display-prompt *standard-input* *standard-output*)
+      (restart-case
+          (do-iterator (tree commands)
+            (loop
+               (let* ((stop '#:stop)
+                      (form (dequeue-no-block form-queue stop)))
+                 (when (eq stop form)
+                   (return))
+                 (debug-log 'status "EVAL ~A" form)
+                 (eval form)))
+            (debug-log 'status "TREE: ~A~%" tree)
+            (restart-case
+                (let ((result (evaluate tree)))
+                  (declare (ignorable result))
+                  (debug-log 'status "RESULT ~A" result))
+              (skip ()))
+            (display-prompt *standard-input* *standard-output*))
+        (die () (sb-ext:exit :code 1))))))
