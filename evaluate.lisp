@@ -529,6 +529,10 @@
           (let* ((bindings (squash-fd-bindings))
                  pid
                  status)
+            (when-let ((builtin (lookup-builtin (fset:first arguments))))
+              (return-from evaluate
+                (exit-status :exit-code (funcall builtin arguments))))
+
             (with-living-fds (fds)
               (setf pid (run arguments
                              :fd-alist (reverse bindings)

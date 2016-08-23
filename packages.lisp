@@ -116,10 +116,14 @@
    #:expansion-for-word #:expansion-for-words #:set-alias #:unalias
    #:expand #:make-string-fragment #:word-boundary))
 
+(defpackage :shcl.builtin
+  (:use :common-lisp :shcl.utility)
+  (:export #:define-builtin #:lookup-builtin))
+
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
-        :shcl.thread :shcl.expand :shcl.environment)
+        :shcl.thread :shcl.expand :shcl.environment :shcl.builtin)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:evaluate))
 
@@ -129,7 +133,7 @@
 
 (defpackage :shcl.lisp-interpolation
   (:use :common-lisp :shcl.utility :shcl.lexer :shcl.shell-grammar
-        :shcl.evaluate :shcl.expand :shcl.baking)
+        :shcl.evaluate :shcl.expand :shcl.baking :shcl.builtin)
   (:export
    #:enable-shell-splice-syntax #:enable-reader-syntax))
 

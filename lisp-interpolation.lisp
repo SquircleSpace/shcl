@@ -111,3 +111,9 @@
          `(progn
             ,@(coerce oven 'list)
             ,@(coerce evaluates 'list)))))))
+
+(define-builtin enable-lisp-syntax (args)
+  (unless (equal 1 (fset:size args))
+    (return-from enable-lisp-syntax 1))
+  (enable-shell-splice-syntax)
+  0)

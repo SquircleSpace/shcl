@@ -19,7 +19,8 @@
                (:file "environment" :depends-on ("packages" "utility" "posix"))
                (:file "expand" :depends-on ("packages" "utility" "lexer" "environment"))
                (:file "baking" :depends-on ("packages" "utility" "thread"))
-               (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread" "environment"))
+               (:file "builtin" :depends-on ("packages" "utility"))
+               (:file "evaluate" :depends-on ("packages" "utility" "parser" "lexer" "fork-exec" "thread" "environment" "builtin"))
                (:file "lisp-interpolation" :depends-on ("packages" "utility" "lexer" "shell-grammar" "evaluate" "expand" "baking"))
                (:file "main" :depends-on ("packages" "evaluate" "shell-grammar" "lexer" "baking" "lisp-interpolation" "utility"))))
 
