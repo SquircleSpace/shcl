@@ -5,17 +5,54 @@
 
 (optimization-settings)
 
-(defmacro define-once-global (name &body initform)
-  (let ((value (gensym "VALUE"))
-        (set (gensym "SET")))
+(defmacro define-once-global (name initform &body options)
+  "Define a global variable.
+
+The variable is initialized the first time it is accessed and is
+initialized at most once.  Redefining the variable with
+`define-once-global' will reset the variable to be uninitialized."
+  (check-type name symbol)
+  (unless (get name 'define-once-global-getter)
+    (setf (get name 'define-once-global-getter) (gensym (symbol-name name))))
+  (let* ((value (gensym "VALUE"))
+         (set (gensym "SET"))
+         (getter (get name 'define-once-global-getter))
+         (setter (get name 'define-once-global-setter))
+         (setter-value (gensym "SETTER-VALUE"))
+         (lock (gensym "LOCK"))
+         (documentation (second (find :documentation options :key 'car)))
+         (no-lock (second (find :no-lock options :key 'car)))
+         (read-only (second (find :read-only options :key 'car)))
+         (lock-form (if no-lock '(progn) `(bordeaux-threads:with-lock-held (,lock)))))
+    (when (and (not read-only) (not setter))
+      (setf (get name 'define-once-global-setter) (gensym (concatenate 'string (symbol-name name) "-SETTER")))
+      (setf setter (get name 'define-once-global-setter)))
+
+    (check-type documentation (or null string))
+    (when documentation
+      (setf documentation (list documentation)))
+    (unless (member no-lock '(nil t))
+      (error ":no-lock option must have value nil or t"))
+    (unless (member read-only '(nil t))
+      (error ":read-only option must have value nil or t"))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
-       (let (,value ,set)
-         (defun ,name ()
-           (unless ,set
-             (setf ,value (progn ,@initform)
-                   ,set t))
-           ,value)
-         (define-symbol-macro ,name (,name))))))
+       (let (,@(unless no-lock `((,lock (bordeaux-threads:make-lock ,(symbol-name name)))))
+             ,value ,set)
+         (defun ,getter ()
+           ,@documentation
+           (,@lock-form
+            (unless ,set
+              (setf ,value ,initform
+                    ,set t))
+            ,value))
+         ,@(unless read-only
+                   `((defun ,setter (,setter-value)
+                       (,@lock-form
+                        (setf ,value ,setter-value
+                              ,set t)
+                        ,setter-value))
+                     (defsetf ,getter ,setter)))
+         (define-symbol-macro ,name (,getter))))))
 
 (defparameter *debug-stream* *error-output*)
 (defparameter *debug-stream-lock* (make-lock))
