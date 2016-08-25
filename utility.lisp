@@ -1,6 +1,9 @@
 (in-package :shcl.utility)
 
 (defmacro optimization-settings ()
+  "Declaims standard optimization settings.
+
+Put this at the top of every file!"
   `(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0))))
 
 (optimization-settings)
@@ -54,19 +57,25 @@ initialized at most once.  Redefining the variable with
                      (defsetf ,getter ,setter)))
          (define-symbol-macro ,name (,getter))))))
 
-(defparameter *debug-stream* *error-output*)
-(defparameter *debug-stream-lock* (make-lock))
+(defparameter *debug-stream* *error-output*
+  "The stream where log lines are sent.")
+(defparameter *debug-stream-lock* (make-lock)
+  "The lock that protects `*debug-stream*'.")
 
 (defparameter *log-levels*
   (alist-hash-table
    '((error . t)
      (warning . t)
-     (status . t))))
+     (status . t)))
+  "The hash table that dictates which log levels are enabled and which
+are not.")
 
 (defun logging-enabled-p (level)
+  "Returns t iff the given log level is enabled."
   (gethash level *log-levels*))
 
 (defmacro debug-log (level message &rest format-args)
+  "Emit a log line."
   (let ((level-val (gensym "LEVEL-VAL")))
     `(with-lock-held (*debug-stream-lock*)
        (let ((,level-val ,level))
@@ -134,18 +143,49 @@ initialized at most once.  Redefining the variable with
            ,@body)))))
 
 (defmacro when-let* (bindings &body body)
+  "Establish bindings (like `let*' would).  If any variable is bound to
+nil, then the whole `when-let*' short circuts and evaluates to nil."
   (%when-let 'let* bindings body))
 
 (defmacro when-let (bindings &body body)
+  "Establish bindings (like `let' would).  If any variable is bound to
+nil, then the whole `when-let' short circuts and evaulates to nil."
   (%when-let 'let bindings body))
 
 (define-condition required-argument-missing (error)
-  ())
+  ()
+  (:documentation
+   "A condition for indicating that a required argument was not provided."))
 
 (defmacro required ()
+  "This form always signals an error of type `required-argument-missing'."
   `(error 'required-argument-missing))
 
 (defmacro try (exceptionable-form &body clauses)
+  "A better version of `catch'.
+
+When you use `catch', you can't distinguish between normal execution and a thrown value.  Sometimes that is desirable.  Other times, you might like to know the difference.  With `signal' and conditions, you have that flexibility.  However, the condition system is fairly heavyweight and thus isn't appropriate for all use cases.  The `try' macro attempts to bring some of the flexibility of `handler-case' to `catch' and tries to emulate the control-flow of a more traditional exception system.
+
+Example:
+(try
+    (throw 'foobar (values 1 2 3))
+  (foobar (x y z) (+ x y z))
+  (baz (a) (frobnosticate a)))
+
+It is unspecified what happens if one of the handler clauses throws a
+tag named in a different clause."
+  ;; We're going to do a slightly insane thing.  We're going to build
+  ;; up a series of nested forms that look like this.
+  ;; (multiple-value-call #'foo-handler
+  ;;   (catch 'foo
+  ;;     (return-from no-problem
+  ;;       (multiple-value-call #'bar-handler
+  ;;         (catch 'bar
+  ;;           (return-from no-problem <...>))))))
+  ;; If nothing is thrown, then the return-from form will execute.  If
+  ;; something is thrown, then we bypass the return-from and call the
+  ;; handler instead.  When the handler returns, its wrapping
+  ;; return-from form will cause us to exit the try form altogether.
   (let ((no-problem (gensym "NO-PROBLEM"))
         labels-forms
         tag-label-alist)
@@ -179,6 +219,8 @@ initialized at most once.  Redefining the variable with
        (initial-contents nil initial-contents-p)
        (element-type t)
        (fill-pointer t))
+  "This function provides a quick way to make a single-dimensional,
+adjustable array with a fill pointer."
   (cond
     ((and initial-element-p initial-contents-p)
      (error "Can't specify both initial-element and initial-contents"))
@@ -197,9 +239,22 @@ initialized at most once.  Redefining the variable with
 
 (defclass iterator ()
   ((compute
-    :initarg :compute)))
+    :initarg :compute
+    :documentation
+    "A function that returns the next value."))
+  (:documentation
+   "This represents the most basic sort of iterator.  It can only go
+forward."))
 
 (defmacro make-iterator ((&key type) &body body)
+  "Create an iterator.
+
+The body of this macro will be executed each time the iterator needs
+to produce a new value.  Within the body, the local macros `stop' and
+`emit' can be used to indicate end of sequence or return a value.
+After `stop' is evaluated, the iterator will not be called again.
+Both `stop' and `emit' cause a control transfer out of the body of
+`make-iterator'."
   (let ((stop-value (gensym "STOP-VALUE"))
         (compute (gensym "COMPUTE"))
         (compute-block (gensym "COMPUTE-BLOCK"))
