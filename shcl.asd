@@ -32,4 +32,6 @@
   :depends-on ("fiveam")
   :components ((:file "test/packages")
                (:file "test/suites" :depends-on ("test/packages"))
-               (:file "test/lexer" :depends-on ("test/packages" "test/suites"))))
+               (:file "test/lexer" :depends-on ("test/packages" "test/suites"))
+               (:file "test/utility" :depends-on ("test/packages" "test/suites"))
+               (:file "test/environment" :depends-on ("test/packages" "test/suites"))))
