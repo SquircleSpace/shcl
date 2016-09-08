@@ -11,8 +11,8 @@
    ;; Iterators
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
-   #:make-iterator-lookahead #:do-iterator #:peek-lookahead-iterator
-   #:move-lookahead-to #:map-iterator #:iterator-values))
+   #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
+   #:iterator-values #:lookahead-iterator-wrapper))
 
 (defpackage :shcl.thread
   (:use :common-lisp :shcl.utility :bordeaux-threads)

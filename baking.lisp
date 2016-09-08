@@ -11,4 +11,4 @@
          (when-let ((form (bake-form-for-token token)))
            (enqueue form bakery-queue))
          token))
-    (map-iterator token-iter #'bake :type 'token-iterator)))
+    (map-iterator token-iter #'bake)))
