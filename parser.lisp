@@ -107,12 +107,12 @@
 
           ;; Easiest stuff first.  The root node
           (send `(defparameter ,name ',name))
-          (send `(defmethod parse ((type (eql ',name)) (iter token-iterator))
+          (send `(defmethod parse ((type (eql ',name)) (iter lookahead-iterator))
                    (parse ',start-symbol iter)))
 
           ;; Now parsers for the terminals
           (dolist (term terminals)
-            (send `(defmethod parse ((type (eql ',term)) (iter token-iterator))
+            (send `(defmethod parse ((type (eql ',term)) (iter lookahead-iterator))
                      (multiple-value-bind (value more) (peek-lookahead-iterator iter)
                        (unless more
                          (no-parse "unexpected EOF" ',term))
@@ -183,16 +183,13 @@
                              (,@(hash-table-keys unique-slots))))))
 
                 (send `(defmethod parse
-                           ((type (eql ',nonterm-name)) (iter token-iterator))
+                           ((type (eql ',nonterm-name)) (iter lookahead-iterator))
                          ,@(nreverse the-body)
                          (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
     `(progn ,@(nreverse result-forms))))
 
-(defclass syntax-iterator (iterator)
-  ())
-
 (defun syntax-iterator (grammar token-iterator)
-  (make-iterator (:type 'syntax-iterator)
+  (make-iterator ()
     (try-parse (iter token-iterator)
         (lambda (message expected) (error 'abort-parse :message message :expected-tokens expected))
       (let ((value (parse grammar iter)))

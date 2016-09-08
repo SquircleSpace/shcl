@@ -21,13 +21,13 @@
         stream)))
 
 (defun main-token-iterator (stream form-queue)
-  (bake-tokens
-   (map-iterator (token-iterator stream)
-                 (lambda (x)
-                   (debug-log 'status "TOKEN: ~A~%" x)
-                   x)
-                 :type 'token-iterator)
-   form-queue))
+  (lookahead-iterator-wrapper
+   (bake-tokens
+    (map-iterator (token-iterator stream)
+                  (lambda (x)
+                    (debug-log 'status "TOKEN: ~A~%" x)
+                    x))
+    form-queue)))
 
 (defun display-prompt (input-stream output-stream)
   (when (and (interactive-stream-p input-stream)

@@ -67,7 +67,7 @@
     (enable-shell-splice-syntax)
     (let* ((raw-token-iter (token-iterator stream))
            (token-iter
-            (make-iterator (:type 'token-iterator)
+            (make-iterator ()
               (when proper-end-found
                 (stop))
               (multiple-value-bind (value more) (next raw-token-iter)
@@ -92,7 +92,7 @@
       (let ((form (bake-form-for-token token)))
         (when form
           (vector-push-extend form oven))))
-    (let* ((token-iter (list-iterator tokens :type 'token-iterator))
+    (let* ((token-iter (list-iterator tokens))
            (commands (command-iterator token-iter))
            (evaluates (make-extensible-vector)))
       (do-iterator (command commands)

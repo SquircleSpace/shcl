@@ -263,5 +263,5 @@
 (defmethod parse-shell ((s stream))
   (parse-shell (token-iterator s)))
 
-(defmethod parse-shell ((iter token-iterator))
+(defmethod parse-shell ((iter lookahead-iterator))
   (next (command-iterator iter)))

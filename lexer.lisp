@@ -479,11 +479,8 @@
 (defun blank-p (char)
   (cl-unicode:has-binary-property char "White_Space"))
 
-(defclass token-iterator (lookahead-iterator)
-  ())
-
 (defun token-iterator (stream)
-  (make-iterator (:type 'token-iterator)
+  (make-iterator ()
     (let ((token (next-token stream)))
       (when (typep token 'eof)
         (stop))
