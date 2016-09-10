@@ -2,14 +2,13 @@
 
 (optimization-settings)
 
-(define-once-global +env-default+ ""
-  (:documentation
-   "The value of unset environment variables."))
+(defparameter *env-default* ""
+  "The value of unset environment variables.")
 
 (defclass environment-binding ()
   ((value
     :initarg :value
-    :initform +env-default+
+    :initform *env-default*
     :accessor environment-binding-value
     :type string)
    (exported-p
@@ -20,9 +19,8 @@
   (:documentation
    "Everything there is to know about an environment variable."))
 
-(define-once-global +env-default-binding+ (make-instance 'environment-binding)
-  (:documentation
-   "The default state for an environment binding."))
+(defparameter *env-default-binding* (make-instance 'environment-binding)
+  "The default state for an environment binding.")
 
 (defun deconstruct-environment-binding (binding)
   "Parse a string describing an environment binding.
@@ -40,7 +38,7 @@ Returns two values: the variable name and the value."
 (defun environment-to-map ()
   "Translate the posix environment of the current process into a map
 suitable for storing in `*environment*'."
-  (let ((map (fset:empty-map +env-default-binding+)))
+  (let ((map (fset:empty-map *env-default-binding*)))
     (do-iterator (binding (environment-iterator))
       (multiple-value-bind (key value) (deconstruct-environment-binding binding)
         (setf map (fset:with map key (make-instance 'environment-binding
@@ -101,7 +99,7 @@ The second return value is t iff the key was found in the collection."
           ,value)
        `(lookup-with-default ,getter ,key-sym ,default-sym)))))
 
-(defun env (key &optional (default +env-default+))
+(defun env (key &optional (default *env-default*))
   "Look up the given variable in the current environment."
   (multiple-value-bind (entry found) (fset:lookup *environment* key)
     (if found
@@ -148,7 +146,7 @@ given key."
                                                        :value (env key)
                                                        :exported nil)))
 
-(defmacro define-environment-accessor (name &optional (default '+env-default+))
+(defmacro define-environment-accessor (name &optional (default '*env-default*))
   "Define a symbol macro that accesses the given environment
 variable."
   `(define-symbol-macro ,(intern (concatenate 'string "$" (string-upcase name))) (env ,name ,default)))
