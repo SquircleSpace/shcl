@@ -17,3 +17,6 @@
 
 (def-suite utility
     :in shcl)
+
+(def-suite posix
+    :in shcl)

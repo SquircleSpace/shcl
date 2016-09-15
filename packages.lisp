@@ -84,7 +84,7 @@
 (defpackage :shcl.posix-types
   (:export
    #:size-t #:ssize-t #:pid-t #:posix-spawn-file-actions-t #:posix-spawnattr-t
-   #:errno #:mode-t #:environ))
+   #:dirent #:d-name #:errno #:mode-t #:environ))
 
 (defpackage :shcl.posix
   (:use :common-lisp :cffi :trivial-garbage :shcl.posix-types :shcl.utility)
@@ -93,7 +93,8 @@
    #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
-   #:with-posix-spawnattr #:environment-iterator))
+   #:with-posix-spawnattr #:environment-iterator #:open-fds
+   #:compiler-owned-fds #:fork #:_exit #:waitpid #:forked))
 
 (defpackage :shcl.fork-exec
   (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar
