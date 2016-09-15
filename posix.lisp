@@ -40,7 +40,7 @@
   (declare (ignore value))
   t)
 
-(defmacro define-c-wrapper ((lisp-name c-name) (return-type &optional (error-checker 'pass)) &body arg-descriptions)
+(defmacro define-c-wrapper ((lisp-name c-name) (return-type &optional (error-checker ''pass)) &body arg-descriptions)
   (let ((lisp-impl-name (intern (concatenate 'string "%" (symbol-name lisp-name))))
         (result (gensym "RESULT"))
         (args (mapcar #'first arg-descriptions)))
@@ -148,3 +148,91 @@
       (let ((result (mem-aref environment-pointer :string index)))
         (incf index)
         (emit result)))))
+
+(define-c-wrapper (opendir "opendir") (:pointer (lambda (x) (not (null-pointer-p x))))
+  (name :string))
+
+(define-c-wrapper (closedir "closedir") (:int #'zerop)
+  (dirp :pointer))
+
+(define-c-wrapper (dirfd "dirfd") (:int (lambda (x) (not (minusp x))))
+  (dirp :pointer))
+
+(define-c-wrapper (%readdir "readdir") ((:pointer (:struct dirent))
+                                        (lambda (x)
+                                          (or (not (null-pointer-p x))
+                                              (zerop errno))))
+  (dirp :pointer))
+
+(defun readdir (dirp)
+  (setf errno 0)
+  (%readdir dirp))
+
+(defun open-fds ()
+  (let ((result (make-extensible-vector :element-type 'integer))
+        dir-fd
+        dir)
+    (unwind-protect
+         (progn
+           (setf dir (opendir "/dev/fd"))
+           (setf dir-fd (dirfd dir))
+           (loop
+              (block again
+                (let ((dirent (readdir dir))
+                      name-ptr)
+                  (when (null-pointer-p dirent)
+                    (return))
+                  (setf name-ptr (foreign-slot-pointer dirent '(:struct dirent) 'd-name))
+                  (let ((s (foreign-string-to-lisp name-ptr)))
+                    (when (equal #\. (aref s 0))
+                      (return-from again))
+                    (vector-push-extend (parse-integer s)
+                                        result))))))
+      (when dir
+        (closedir dir)))
+    (remove dir-fd result)))
+
+(defun compiler-owned-fds ()
+  #+sbcl
+  (vector (sb-sys:fd-stream-fd sb-sys:*tty*))
+  #-sbcl
+  (progn
+    (warn "Unsupported compiler.  Can't determine which fds the compiler owns.")
+    #()))
+
+(defun fork ()
+  #+sbcl (sb-posix:fork)
+  #-sbcl (error "Cannot fork on this compiler"))
+
+(define-c-wrapper (_exit "_exit") (:void)
+  (status :int))
+
+(define-c-wrapper (%waitpid "waitpid") (pid-t (lambda (x) (not (equal -1 x))))
+  (pid pid-t)
+  (wstatus (:pointer :int))
+  (options :int))
+
+(defun waitpid (pid options)
+  (with-foreign-object (status :int)
+    (let ((pid-output (%waitpid pid status options)))
+      (values pid-output (mem-ref status :int)))))
+
+(defmacro forked (&body body)
+  (let ((pid (gensym "PID"))
+        (e (gensym "E")))
+    `(let ((,pid (fork)))
+       (cond
+         ((plusp ,pid)
+          ,pid)
+         ((zerop ,pid)
+          (unwind-protect
+               (handler-case (progn ,@body)
+                 (error (,e)
+                   (format sb-sys:*stderr* "ERROR: ~A~%" ,e)
+                   (finish-output sb-sys:*stderr*)
+                   (_exit 1)))
+            (_exit 0)))
+         ((minusp ,pid)
+          ;; The wrapper around posix fork should have taken care of this
+          ;; for us
+          (assert nil nil "This is impossible"))))))
