@@ -3,7 +3,8 @@
 (optimization-settings)
 
 (defparameter *umask*
-  (logior sb-posix:s-irusr sb-posix:s-iwusr sb-posix:s-irgrp sb-posix:s-iroth))
+  (logior sb-posix:s-irusr sb-posix:s-iwusr sb-posix:s-irgrp sb-posix:s-iroth)
+  "The umask that should be used when creating new files.")
 
 (define-condition not-implemented (warning error)
   ((message
@@ -11,13 +12,26 @@
     :initform ""
     :accessor not-implemented-message
     :type string))
-  (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c)))))
+  (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c))))
+  (:documentation
+   "A condition indicating that a feature hasn't been implemented
+yet."))
 
-(define-once-global %fd-retain-count-table% (make-hash-table))
-(define-once-global %fd-retain-count-table-lock% (make-lock))
-(defparameter *autorelease-fd-scope* nil)
+(define-once-global %fd-retain-count-table% (make-hash-table)
+  (:documentation
+   "This table tracks how many outstanding retains each file
+descriptor has."))
+(define-once-global %fd-retain-count-table-lock% (make-lock)
+  (:documentation
+   "This lock protects `%fd-retain-count-table-lock%'."))
+(defparameter *autorelease-fd-scope* nil
+  "The collection of file descriptors that should be released when the
+current fd scope exits.
+
+This is bound by `with-fd-scope'.")
 
 (defun fd-managed-p (fd)
+  "Returns t iff the given fd is being managed with retain/release."
   (with-lock-held (%fd-retain-count-table-lock%)
     (not (not (gethash fd %fd-retain-count-table%)))))
 
@@ -29,6 +43,7 @@
   (:report (lambda (c s) (format s "Can't enter FD ~A into retain/release management again" (fd-already-managed-fd c)))))
 
 (defun %manage-new-fd (fd)
+  "Enter the given fd into the retain/release table."
   (when (gethash fd %fd-retain-count-table%)
     (error 'fd-already-managed :fd fd))
   (setf (gethash fd %fd-retain-count-table%) 1)
@@ -42,6 +57,10 @@
   (:report (lambda (c s) (format s "Can't retain unmanaged FD ~A" (fd-not-managed-fd c)))))
 
 (defun fd-retain (fd)
+  "Increment the retain count for the given fd.
+
+The given fd will not be closed in the shell process until the retain
+count reaches 0.  See `fd-release'."
   (with-lock-held (%fd-retain-count-table-lock%)
     (unless (gethash fd %fd-retain-count-table%)
       (error 'fd-not-managed :fd fd))
@@ -56,6 +75,8 @@
   (:report (lambda (c s) (format s "FD ~A was over released" (fd-over-release-fd c)))))
 
 (defun %fd-release (fd)
+  "Do the work of `fd-release', but assume the table is already
+locked."
   (unless (gethash fd %fd-retain-count-table%)
     (error 'fd-over-release :fd fd))
   (let ((count (decf (gethash fd %fd-retain-count-table%))))
@@ -66,6 +87,9 @@
   nil)
 
 (defun fd-release (fd)
+  "Decrement the retain count for the given fd.
+
+If the retain count reaches 0, then it will be closed immediately."
   (with-lock-held (%fd-retain-count-table-lock%)
     (%fd-release fd)))
 
@@ -77,12 +101,20 @@
   (:report (lambda (c s) (format s "FD ~A was autoreleased without an FD scope in place" (fd-autorelease-without-scope-fd c)))))
 
 (defun fd-autorelease (fd)
+  "Release the given fd when the current fd scope exits."
   (unless *autorelease-fd-scope*
     (error 'fd-autorelease-without-scope :fd fd))
   (vector-push-extend fd *autorelease-fd-scope*)
   fd)
 
 (defmacro with-fd-scope (() &body body)
+  "Introduce an fd scope.
+
+Calls to `fd-autorelease' while this fd scope is active will not
+decrement fd retain counts until control leaves this fd scope.
+
+Additionally, any manipulations to the fd table `*fd-bindings*' will
+be reverted when this scope exits."
   (let ((fd (gensym "FD")))
     `(let ((*fd-bindings* *fd-bindings*)
            (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
@@ -92,24 +124,43 @@
               (%fd-release ,fd)))))))
 
 (defmacro with-living-fds ((fd-list-sym) &body body)
+  "Lock the fd table and list all managed file descriptors.
+
+Since this locks the fd table, it is very important to minimize the
+amount of work done in the body of this macro.  Ideally, you would
+do nothing exept spawn a new process."
   `(with-lock-held (%fd-retain-count-table-lock%)
      (let ((,fd-list-sym (hash-table-keys %fd-retain-count-table%)))
        (declare (dynamic-extent ,fd-list-sym))
        ,@body)))
 
 (defun open-retained (pathname flags mode)
+  "This is a wrapper around the posix open function which
+atomically adds the new fd to the fd table and gives it a +1 retain
+count."
   (with-lock-held (%fd-retain-count-table-lock%)
     (let ((fd (sb-posix:open pathname flags mode)))
       (debug-log 'status "OPEN ~A = ~A" fd pathname)
       (%manage-new-fd fd))))
 
 (defun pipe-retained ()
+  "This is a wrapper around the posix pipe function which atomically
+adds the new fds to the fd table and gives them +1 retain counts.
+
+Returns two values: the read-end of the pipe and the write end of the
+pipe."
   (with-lock-held (%fd-retain-count-table-lock%)
     (multiple-value-bind (read-end write-end) (sb-posix:pipe)
       (debug-log 'status "PIPE ~A -> ~A" write-end read-end)
       (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
 
 (defmacro with-pipe ((read-end write-end) &body body)
+  "Introduce a pipe into the retain table (as if with `pipe-retained')
+with a +0 retain count.
+
+That is, you do not need to release the file descriptors produced by
+this macro.  You must balance any retains you perform on the given
+file descriptors."
   (let ((raw-read-end (gensym "RAW-READ-END"))
         (raw-write-end (gensym "RAW-WRITE-END")))
     `(multiple-value-bind (,raw-read-end ,raw-write-end) (pipe-retained)
@@ -117,7 +168,10 @@
              (,write-end (fd-autorelease ,raw-write-end)))
          ,@body))))
 
-(defgeneric open-args-for-redirect (redirect))
+(defgeneric open-args-for-redirect (redirect)
+  (:documentation
+   "Returns the flags that should be passed to the posix open function
+for the given redirect."))
 (defmethod open-args-for-redirect ((r less))
   (declare (ignore r))
   (logior sb-posix:o-rdonly))
@@ -131,7 +185,12 @@
   (declare (ignore r))
   (logior sb-posix:o-rdwr sb-posix:o-creat))
 
-(defgeneric fd-from-description (description))
+(defgeneric fd-from-description (description)
+  (:documentation
+   "Given a description of a place, produce a file descriptor for that place.
+
+This function implements part of `bind-fd' and should not be called
+directly."))
 (defmethod fd-from-description ((fd integer))
   fd)
 (defmethod fd-from-description ((io-file io-file))
@@ -142,13 +201,31 @@
                              *umask*)))
       (fd-autorelease fd))))
 
-(defparameter *fd-bindings* nil)
+(defparameter *fd-bindings* nil
+  "This variable contains information about how fds should be bound
+when a new process is spawned.
+
+This variable should not be accessed directly.  You should add
+bindings with `bind-fd' and query bindings with `get-fd'. See also
+`squash-fd-bindings'.")
 
 (defun bind-fd (fd description)
+  "Extend `*fd-bindings*' to include a binding for `fd' to the thing
+implied by `description'.
+
+Note: `description' is interpreted by the `fd-from-description'
+generic function.
+
+This function doesn't actually modify the given fd in the current
+process.  Instead, it will simply store information about what the
+named fd should be bound to in spawned processes.  This may involve
+allocating a new fd in this process."
   (let ((from-fd (fd-from-description description)))
     (push (cons fd from-fd) *fd-bindings*)))
 
 (defun separator-par-p (separator)
+  "Return non-nil iff the given separator non-terminal describes a
+& (par) separator."
   (check-type separator separator)
   (with-slots (separator-op) separator
     (when (slot-boundp separator 'separator-op)
@@ -160,9 +237,21 @@
     :initarg :fd
     :accessor invalid-fd-fd
     :initform (required)))
-  (:report (lambda (c s) (format s "Redirect from invalid fd: ~A~%" (invalid-fd-fd c)))))
+  (:report (lambda (c s) (format s "Redirect from invalid fd: ~A~%" (invalid-fd-fd c))))
+  (:documentation
+   "A condition that indicates that an invalid fd has been
+requested.
+
+This represents an error in the shell expression.
+
+An fd is considered invalid if it hasn't been bound by the shell
+expression."))
 
 (defun get-fd (fd)
+  "Return the fd (in this process) will be dup'd into to the given
+fd (in a spawned subprocesses).
+
+See `bind-fd'."
   (let ((binding (assoc fd *fd-bindings*)))
     (when binding
       (return-from get-fd fd)))
@@ -173,7 +262,9 @@
       (error 'invalid-fd :fd fd)))
   fd)
 
-(defgeneric handle-redirect (redirect &optional fd-override))
+(defgeneric handle-redirect (redirect &optional fd-override)
+  (:documentation
+   "Bind fds (as necessary) to actualize the redirect requested."))
 
 (defmethod handle-redirect ((r io-redirect) &optional fd-override)
   (when fd-override
