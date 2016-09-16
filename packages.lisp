@@ -79,7 +79,7 @@
    #:redirect-list #:redirect-list-tail #:io-redirect #:io-file #:filename
    #:io-here #:here-end #:newline-list #:newline-list-tail #:linebreak
    #:separator-op #:separator #:command-separator #:sequential-sep
-   #:wordly-word #:redirect))
+   #:wordly-word #:redirect #:fd-description))
 
 (defpackage :shcl.posix-types
   (:export

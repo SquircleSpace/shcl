@@ -5,7 +5,7 @@
 (define-parser *shell-grammar*
   (:start-symbol start)
   (:terminals
-   (token a-word assignment-word name newline io-number and-if
+   (token a-word simple-word assignment-word name newline io-number and-if
           or-if dsemi dless dgreat lessand greatand lessgreat dlessdash
           clobber if-word then else elif fi do-word done case-word esac while until
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
@@ -207,9 +207,9 @@
 
   (io-file
    ((redirect less) filename)
-   ((redirect lessand) filename)
+   ((redirect lessand) (fd-description simple-word))
    ((redirect great) filename)
-   ((redirect greatand) filename)
+   ((redirect greatand) (fd-description simple-word))
    ((redirect dgreat) filename)
    ((redirect lessgreat) filename)
    ((redirect clobber) filename))
