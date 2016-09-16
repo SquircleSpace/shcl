@@ -236,3 +236,6 @@
           ;; The wrapper around posix fork should have taken care of this
           ;; for us
           (assert nil nil "This is impossible"))))))
+
+(define-c-wrapper (dup "dup") (:int (lambda (x) (not (equal -1 x))))
+  (fd :int))
