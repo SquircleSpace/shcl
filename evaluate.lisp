@@ -289,22 +289,22 @@ See `bind-fd'."
 (defmethod handle-redirect ((r io-file) &optional fd-override)
   (labels
       ((to-int (filename)
-         (let* ((fd-string (token-value filename)))
+         (let* ((fd-string (simple-word-text filename)))
            (parse-integer fd-string)))
        (fd (default) (or fd-override default)))
-    (with-slots (redirect filename) r
+    (with-slots (redirect filename fd-description) r
       (etypecase redirect
         (less
          (bind-fd (fd 0) r))
 
         (lessand
-         (bind-fd (fd 0) (get-fd (to-int filename))))
+         (bind-fd (fd 0) (get-fd (to-int fd-description))))
 
         (great
          (bind-fd (fd 1) r))
 
         (greatand
-         (bind-fd (fd 1) (get-fd (to-int filename))))
+         (bind-fd (fd 1) (get-fd (to-int fd-description))))
 
         (dgreat
          (bind-fd (fd 1) r))
