@@ -94,7 +94,7 @@
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
    #:with-posix-spawnattr #:environment-iterator #:open-fds
-   #:compiler-owned-fds #:fork #:_exit #:waitpid #:forked))
+   #:compiler-owned-fds #:fork #:_exit #:waitpid #:forked #:dup))
 
 (defpackage :shcl.fork-exec
   (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar
@@ -124,7 +124,8 @@
 (defpackage :shcl.evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
-        :shcl.thread :shcl.expand :shcl.environment :shcl.builtin)
+        :shcl.thread :shcl.expand :shcl.environment :shcl.builtin
+        :shcl.posix)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:evaluate))
 

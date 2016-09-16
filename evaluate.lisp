@@ -116,7 +116,7 @@ decrement fd retain counts until control leaves this fd scope.
 Additionally, any manipulations to the fd table `*fd-bindings*' will
 be reverted when this scope exits."
   (let ((fd (gensym "FD")))
-    `(let ((*fd-bindings* *fd-bindings*)
+    `(let ((*fd-bindings* (or *fd-bindings* (fset:empty-map)))
            (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
        (unwind-protect (progn ,@body)
          (with-lock-held (%fd-retain-count-table-lock%)
@@ -133,6 +133,12 @@ do nothing exept spawn a new process."
      (let ((,fd-list-sym (hash-table-keys %fd-retain-count-table%)))
        (declare (dynamic-extent ,fd-list-sym))
        ,@body)))
+
+(defun dup-retained (fd)
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (let ((new-fd (dup fd)))
+      (debug-log 'status "DUP ~A = ~A" new-fd fd)
+      (%manage-new-fd new-fd))))
 
 (defun open-retained (pathname flags mode)
   "This is a wrapper around the posix open function which
@@ -206,8 +212,7 @@ directly."))
 when a new process is spawned.
 
 This variable should not be accessed directly.  You should add
-bindings with `bind-fd' and query bindings with `get-fd'. See also
-`squash-fd-bindings'.")
+bindings with `bind-fd' and query bindings with `get-fd'.")
 
 (defun bind-fd (fd description)
   "Extend `*fd-bindings*' to include a binding for `fd' to the thing
@@ -220,8 +225,11 @@ This function doesn't actually modify the given fd in the current
 process.  Instead, it will simply store information about what the
 named fd should be bound to in spawned processes.  This may involve
 allocating a new fd in this process."
+  (unless *fd-bindings*
+    (error "Cannot bind without an fd-scope"))
   (let ((from-fd (fd-from-description description)))
-    (push (cons fd from-fd) *fd-bindings*)))
+    (fset:adjoinf *fd-bindings* fd from-fd)
+    (debug-log 'status "BIND ~A = ~A (~A)" fd from-fd *fd-bindings*)))
 
 (defun separator-par-p (separator)
   "Return non-nil iff the given separator non-terminal describes a
@@ -252,9 +260,9 @@ expression."))
 fd (in a spawned subprocesses).
 
 See `bind-fd'."
-  (let ((binding (assoc fd *fd-bindings*)))
+  (let ((binding (fset:lookup *fd-bindings* fd)))
     (when binding
-      (return-from get-fd fd)))
+      (return-from get-fd binding)))
   (when (fd-managed-p fd)
     (error 'invalid-fd :fd fd))
   (handler-case (sb-posix:fcntl fd sb-posix:f-getfd)
@@ -337,23 +345,50 @@ See `bind-fd'."
     (when redirect-list-tail
       (handle-redirect redirect-list-tail))))
 
-(defun squash-fd-bindings (&optional (fd-bindings *fd-bindings*))
-  (let ((fd-table (make-hash-table))
-        (already-set (make-hash-table))
-        (reversed-bindings (reverse fd-bindings))
-        squashed)
-    (dolist (pair reversed-bindings)
-      (destructuring-bind (target-fd . value-fd) pair
-        (setf (gethash target-fd fd-table) (gethash value-fd fd-table value-fd))))
+(defun simplify-fd-bindings-default-new-fd-fn (fd)
+  (fd-autorelease (dup-retained fd)))
 
-    (dolist (pair reversed-bindings)
-      (destructuring-bind (target-fd . value-fd) pair
-        (declare (ignore value-fd))
-        (unless (gethash target-fd already-set)
-          (push (cons target-fd (gethash target-fd fd-table)) squashed)
-          (setf (gethash target-fd already-set) t))))
-    (debug-log 'status "Squashed ~A => ~A" fd-bindings squashed)
-    squashed))
+(defun simplify-fd-bindings (&key (fd-bindings *fd-bindings*) (new-fd-fn #'simplify-fd-bindings-default-new-fd-fn))
+  "Transform the given bindings so that there is no overlap between
+fds that will be bound in the child process and the source fds in this
+process.
+
+The goal is to make it so that we can naively use dup2 to create the
+desired state in the child process.  The requirement specified
+above (no overlap) is stricter than necessary, but also easier to
+implement.
+
+While the return value of this function is safe to bind to
+`*fd-bindings*', there is very little reason to do that.
+
+The new-fd-fn argument is only intended to be used for testing."
+  ;; An alternative approach would be to identify cycles in the
+  ;; dependency graph implied by fd-bindings.  Then, the dependency
+  ;; cycles could be broken using dup.
+  (debug-log 'status "SIMPLIFY ~A" fd-bindings)
+  (let* ((ours (fset:empty-set))
+         (theirs (fset:empty-set))
+         (conflict (fset:empty-set)))
+    (fset:do-map (key value fd-bindings)
+      (fset:adjoinf theirs key)
+      (fset:adjoinf ours value))
+    (setf conflict (fset:intersection ours theirs))
+    (when (zerop (fset:size conflict))
+      (debug-log 'status "SIMPLIFIED")
+      (return-from simplify-fd-bindings fd-bindings))
+
+    (let ((translation (make-hash-table)))
+      (fset:do-set (conflicted-fd conflict)
+        (let (new-fd)
+          (loop :do (setf new-fd (funcall new-fd-fn))
+             :while (fset:lookup theirs new-fd))
+          (setf (gethash conflicted-fd translation) new-fd)))
+      (fset:do-map (key value fd-bindings)
+        (let ((new-value (gethash value translation)))
+          (when new-value
+            (fset:adjoinf fd-bindings key new-value))))
+      (debug-log 'status "SIMPLIFIED ~A" fd-bindings)
+      fd-bindings)))
 
 (defun evaluate-background-job (sy)
   (declare (ignore sy))
@@ -369,20 +404,24 @@ See `bind-fd'."
 (defun evaluate-async-job (sy completion-handler)
   (let* ((symbols *special-variables-to-preserve-during-async*)
          (symbol-values (mapcar #'symbol-value symbols))
-         (fd-bindings (squash-fd-bindings))
-         (fds-to-retain (delete-duplicates (mapcar #'cdr fd-bindings))))
+         (fd-bindings *fd-bindings*)
+         (fds-to-retain (fset:empty-set)))
+    (fset:do-map (theirs ours fd-bindings)
+      (declare (ignore theirs))
+      (fset:adjoinf fds-to-retain ours))
+
     (labels
         ((async-eval ()
            (progv symbols symbol-values
              (with-fd-scope ()
                (setf *fd-bindings* fd-bindings)
-               (dolist (fd fds-to-retain)
+               (fset:do-set (fd fds-to-retain)
                  (fd-autorelease fd))
 
                (let* ((result (evaluate sy)))
                  (funcall completion-handler result))))
            (debug-log 'status "Thread exit ~A" sy)))
-      (dolist (fd fds-to-retain)
+      (fset:do-set (fd fds-to-retain)
         (fd-retain fd))
       (make-thread #'async-eval))))
 
@@ -617,7 +656,7 @@ See `bind-fd'."
         (with-fd-scope ()
           (dolist (r redirects)
             (handle-redirect r))
-          (let* ((bindings (squash-fd-bindings))
+          (let* ((bindings (simplify-fd-bindings))
                  pid
                  status)
             (when-let ((builtin (lookup-builtin (fset:first arguments))))
@@ -626,7 +665,7 @@ See `bind-fd'."
 
             (with-living-fds (fds)
               (setf pid (run arguments
-                             :fd-alist (reverse bindings)
+                             :fd-alist (fset:convert 'list bindings)
                              :managed-fds fds
                              :environment (linearized-exported-environment)))
               (debug-log 'status "PID ~A = ~A" pid arguments))
