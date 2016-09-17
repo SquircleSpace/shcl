@@ -396,12 +396,21 @@ The new-fd-fn argument is only intended to be used for testing."
   (truthy-exit-status))
 
 (defun evaluate-synchronous-job (sy)
+  "Evaluate the given syntax tree synchronously.
+
+This is a synonym for `evaluate'."
   (evaluate sy))
 
 (defparameter *special-variables-to-preserve-during-async*
-  '(*environment*))
+  '(*environment*)
+  "The values of these variables will be preserved when switching
+threads to evaluate a syntax tree asynchronously (both for
+`evaluate-async-job' and `evaluate-background-job').")
 
 (defun evaluate-async-job (sy completion-handler)
+  "Evaluate the given syntax tree asynchronously.
+
+This function does not create an entry in the job table."
   (let* ((symbols *special-variables-to-preserve-during-async*)
          (symbol-values (mapcar #'symbol-value symbols))
          (fd-bindings *fd-bindings*)
@@ -426,24 +435,36 @@ The new-fd-fn argument is only intended to be used for testing."
       (make-thread #'async-eval))))
 
 (defun exit-true-p (exit-thing)
+  "Given an exit code, return t iff the program exited successfully."
   (zerop exit-thing))
 
 (defun exit-false-p (exit-thing)
+  "Given an exit code, return t iff the program didn't exit
+sucesfully."
   (not (exit-true-p exit-thing)))
 
 (defun invert-exit-status (exit-thing)
+  "Given an exit code, produce a similar code that indicates failure."
   (if (exit-true-p exit-thing)
       1
       0))
 
 (defun truthy-exit-status ()
+  "Produce an exit code that indicates success."
   0)
 
 (defun exit-status (&key pid exit-code exit-signal stop-signal)
+  "Produce an exit code that incorperates the given information."
   (declare (ignore pid))
   (+ (if exit-code exit-code 0) (if exit-signal 128 0) (if stop-signal 128 0)))
 
-(defgeneric evaluate (syntax-tree))
+(defgeneric evaluate (syntax-tree)
+  (:documentation
+   "This is the main driver for evaluating shell expressions.
+
+It is analogous to `eval' for Common Lisp.
+
+The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod evaluate (sy)
   (error 'not-implemented :message (format nil "Cannot eval ~A" (class-name (class-of sy)))))
@@ -519,8 +540,11 @@ The new-fd-fn argument is only intended to be used for testing."
                (bind-fd +pipe-write-fd+ write-end))
              (evaluate-async-job (aref vector index)
                                  (lambda (result) (store index result))))))
+      ;; Produce a vector containing all the elements of the pipeline
       (visit sy)
       (assert (< 1 (length vector)))
+
+      ;; Run each command in the pipeline
       (loop :for index :from (- (length vector) 1) :downto 1 :do
          (multiple-value-bind (read-end write-end) (pipe-retained)
            (run-command index read-end write-fd)
@@ -528,11 +552,16 @@ The new-fd-fn argument is only intended to be used for testing."
              (fd-release write-fd))
            (setf write-fd write-end)
            (fd-release read-end)))
+
+      ;; Run the very first command
       (assert write-fd)
       (run-command 0 nil write-fd)
       (fd-release write-fd)
+
+      ;; And wait
       (loop :for n :below (length vector) :do
          (semaphore-wait semaphore))
+
       (return-from evaluate-pipe-sequence (aref results (- (length results) 1))))))
 
 (defmethod evaluate ((sy pipe-sequence))
@@ -571,6 +600,8 @@ The new-fd-fn argument is only intended to be used for testing."
   (evaluate-term sy))
 
 (defun cmd-prefix-parts (prefix)
+  "Given a cmd-prefix, separate it into the 2 things it
+describes (variable assignments and io redirects)."
   (with-slots (io-redirect assignment-word cmd-prefix-tail) prefix
     (multiple-value-bind (assignments redirects)
         (when cmd-prefix-tail
@@ -585,6 +616,8 @@ The new-fd-fn argument is only intended to be used for testing."
       (values assignments redirects))))
 
 (defun cmd-suffix-parts (suffix)
+  "Given a cmd-suffix, separate it into the things id
+describes (command arguments and io redirects)."
   (with-slots (io-redirect a-word cmd-suffix-tail) suffix
     (multiple-value-bind (arguments redirects)
         (when cmd-suffix-tail
@@ -599,6 +632,8 @@ The new-fd-fn argument is only intended to be used for testing."
       (values arguments redirects))))
 
 (defun simple-command-parts (sy)
+  "Given a simple-command, extract the assignments, command arguments,
+and io redirects."
   (let (assignments
         arguments
         redirects)
@@ -626,6 +661,7 @@ The new-fd-fn argument is only intended to be used for testing."
       (values (nreverse assignments) (nreverse arguments) (nreverse redirects)))))
 
 (defun evaluate-assignment-word (assignment-word)
+  "Modify the environment to include the given variable assignment."
   (with-accessors ((value assignment-word-value-word) (name assignment-word-name)) assignment-word
     (let ((expanded (expansion-for-word
                      value
@@ -635,6 +671,7 @@ The new-fd-fn argument is only intended to be used for testing."
       (setf (env (simple-word-text name)) expanded))))
 
 (defun evaluate-command-free (assignments redirects)
+  "Not all simple-commands have a command!"
   (dolist (assign assignments)
     (evaluate-assignment-word assign))
   (with-fd-scope ()
