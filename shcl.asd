@@ -13,7 +13,7 @@
                (:file "lexer" :depends-on ("packages" "utility"))
                (:file "parser" :depends-on ("packages" "utility" "lexer"))
                (:file "shell-grammar" :depends-on ("packages" "utility" "parser" "lexer"))
-               (:cffi-grovel-file "posix-types")
+               (:cffi-grovel-file "posix-types" :depends-on ("packages"))
                (:file "posix" :depends-on ("packages" "utility" "posix-types"))
                (:file "fork-exec" :depends-on ("packages" "utility" "shell-grammar" "posix"))
                (:file "environment" :depends-on ("packages" "utility" "posix"))
