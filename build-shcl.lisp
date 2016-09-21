@@ -2,10 +2,12 @@
 
 (let ((here (truename ".")))
   (push here asdf:*central-registry*))
-(handler-case
-    (progn
-      (asdf:compile-system :shcl)
-      (asdf:load-system :shcl)
-      (funcall (intern "OBSERVE-DUMP" (find-package "SHCL.UTILITY")))
-      (sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t))
-  (error (c) (format *error-output* "Fatal error: ~A~%" c)))
+(handler-bind
+    ((error
+      (lambda (c)
+        (format *error-output* "Fatal error: ~A~%" c)
+        (uiop:quit 1))))
+  (asdf:compile-system :shcl)
+  (asdf:load-system :shcl)
+  (funcall (intern "OBSERVE-DUMP" (find-package "SHCL.UTILITY")))
+  (sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL")) :executable t :save-runtime-options t :purify t))
