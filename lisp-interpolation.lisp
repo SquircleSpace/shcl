@@ -117,3 +117,28 @@
     (return-from enable-lisp-syntax 1))
   (enable-shell-splice-syntax)
   0)
+
+(defun return-to-shell ()
+  (throw 'return-to-shell t))
+
+(define-builtin lisp-repl (args)
+  (declare (ignore args))
+  (catch 'return-to-shell
+    (let ((*package* (find-package :cl-user)))
+      (labels
+          ((print-list (list)
+             (dolist (value list)
+               (format *standard-output* "~A~%" value))
+             (finish-output *standard-output*))
+           (rep ()
+             (fresh-line *standard-output*)
+             (format *standard-output* "shcl (lisp)> ")
+             (finish-output *standard-output*)
+             (print-list (multiple-value-list (eval (read))))))
+        (loop
+           (restart-case (rep)
+             (restart-lisp-repl ()
+               (fresh-line *standard-output*))
+             (exit-lisp-repl ()
+               (return-to-shell)))))))
+  0)
