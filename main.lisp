@@ -2,23 +2,19 @@
 
 (optimization-settings)
 
-#+sbcl
-(defclass echo (sb-gray:fundamental-character-output-stream)
+(defclass echo (trivial-gray-streams:fundamental-character-output-stream)
     ())
 
-#+sbcl
-(defmethod sb-gray:stream-write-char ((s echo) char)
+(defmethod trivial-gray-streams:stream-write-char ((s echo) char)
   (format *standard-output* "CHAR: ~W~%" char)
   char)
 
-#+sbcl
 (defparameter *echo-characters* nil)
 
 (defun debug-char-stream (stream)
-  (let* ((sbcl #+sbcl *echo-characters*))
-    (if sbcl
-        (make-echo-stream stream (make-instance 'echo))
-        stream)))
+  (if *echo-characters*
+      (make-echo-stream stream (make-instance 'echo))
+      stream))
 
 (defun main-token-iterator (stream form-queue)
   (lookahead-iterator-wrapper
@@ -80,7 +76,7 @@
 
 (defun main ()
   (observe-revival)
-  (with-options (sb-ext:*posix-argv*)
+  (with-options ((uiop:raw-command-line-arguments))
     (when *help*
       (cl-cli:help *options* nil :prog-name "shcl")
       (return-from main))
@@ -107,4 +103,4 @@
                   (debug-log 'status "RESULT ~A" result))
               (skip ()))
             (display-prompt *standard-input* *standard-output*))
-        (die () (sb-ext:exit :code 1))))))
+        (die () (exit 1))))))

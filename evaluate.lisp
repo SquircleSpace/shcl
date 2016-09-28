@@ -3,7 +3,7 @@
 (optimization-settings)
 
 (defparameter *umask*
-  (logior sb-posix:s-irusr sb-posix:s-iwusr sb-posix:s-irgrp sb-posix:s-iroth)
+  (logior s-irusr s-iwusr s-irgrp s-iroth)
   "The umask that should be used when creating new files.")
 
 (define-condition not-implemented (warning error)
@@ -82,7 +82,7 @@ locked."
   (let ((count (decf (gethash fd %fd-retain-count-table%))))
     (when (equal 0 count)
       (debug-log 'status "CLOSE ~A" fd)
-      (sb-posix:close fd)
+      (posix-close fd)
       (remhash fd %fd-retain-count-table%)))
   nil)
 
@@ -145,7 +145,7 @@ do nothing exept spawn a new process."
 atomically adds the new fd to the fd table and gives it a +1 retain
 count."
   (with-lock-held (%fd-retain-count-table-lock%)
-    (let ((fd (sb-posix:open pathname flags mode)))
+    (let ((fd (posix-open pathname flags mode)))
       (debug-log 'status "OPEN ~A = ~A" fd pathname)
       (%manage-new-fd fd))))
 
@@ -156,7 +156,7 @@ adds the new fds to the fd table and gives them +1 retain counts.
 Returns two values: the read-end of the pipe and the write end of the
 pipe."
   (with-lock-held (%fd-retain-count-table-lock%)
-    (multiple-value-bind (read-end write-end) (sb-posix:pipe)
+    (multiple-value-bind (read-end write-end) (shcl.posix:pipe)
       (debug-log 'status "PIPE ~A -> ~A" write-end read-end)
       (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
 
@@ -180,16 +180,16 @@ file descriptors."
 for the given redirect."))
 (defmethod open-args-for-redirect ((r less))
   (declare (ignore r))
-  (logior sb-posix:o-rdonly))
+  (logior o-rdonly))
 (defmethod open-args-for-redirect ((r great))
   (declare (ignore r))
-  (logior sb-posix:o-wronly sb-posix:o-creat sb-posix:o-trunc))
+  (logior o-wronly o-creat o-trunc))
 (defmethod open-args-for-redirect ((r dgreat))
   (declare (ignore r))
-  (logior sb-posix:o-wronly sb-posix:o-creat sb-posix:o-append))
+  (logior o-wronly o-creat o-append))
 (defmethod open-args-for-redirect ((r lessgreat))
   (declare (ignore r))
-  (logior sb-posix:o-rdwr sb-posix:o-creat))
+  (logior o-rdwr o-creat))
 
 (defgeneric fd-from-description (description)
   (:documentation
@@ -265,8 +265,8 @@ See `bind-fd'."
       (return-from get-fd binding)))
   (when (fd-managed-p fd)
     (error 'invalid-fd :fd fd))
-  (handler-case (sb-posix:fcntl fd sb-posix:f-getfd)
-    (sb-posix:syscall-error ()
+  (handler-case (fcntl fd f-getfd)
+    (syscall-error ()
       (error 'invalid-fd :fd fd)))
   fd)
 
@@ -706,18 +706,18 @@ and io redirects."
                              :managed-fds fds
                              :environment (linearized-exported-environment)))
               (debug-log 'status "PID ~A = ~A" pid arguments))
-            (setf status (nth-value 1 (sb-posix:waitpid pid sb-posix:wuntraced)))
+            (setf status (nth-value 1 (waitpid pid wuntraced)))
             (debug-log 'status "EXITED ~A" pid)
-            (when (sb-posix:wifstopped status)
+            (when (wifstopped status)
               (warn "Stopped jobs should get a job number, but they don't"))
 
             (exit-status :pid pid
-                         :exit-code (when (sb-posix:wifexited status)
-                                      (sb-posix:wexitstatus status))
-                         :exit-signal (when (sb-posix:wifsignaled status)
-                                        (sb-posix:wtermsig status))
-                         :stop-signal (when (sb-posix:wifstopped status)
-                                        (sb-posix:wstopsig status)))))))))
+                         :exit-code (when (wifexited status)
+                                      (wexitstatus status))
+                         :exit-signal (when (wifsignaled status)
+                                        (wtermsig status))
+                         :stop-signal (when (wifstopped status)
+                                        (wstopsig status)))))))))
 
 (define-condition not-an-exit-code (warning)
   ((actual-type

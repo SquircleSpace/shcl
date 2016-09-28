@@ -6,7 +6,7 @@
   :version "0.0.1"
   :author "Brad Jensen <brad@bradjensen.net>"
   :licence "All rights reserved."
-  :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel" "bordeaux-threads" "fset" "cl-unicode" "closer-mop" "cl-cli")
+  :depends-on ("alexandria" "trivial-garbage" "cl-fad" "cffi" "cffi-grovel" "bordeaux-threads" "fset" "cl-unicode" "closer-mop" "cl-cli" "trivial-gray-streams")
   :components ((:file "packages")
                (:file "utility" :depends-on ("packages"))
                (:file "thread" :depends-on ("packages" "utility"))

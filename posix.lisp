@@ -9,7 +9,13 @@
     :type integer)
    (function
     :initform nil
-    :accessor syscall-error-function)))
+    :initarg :function
+    :accessor syscall-error-function))
+  (:report (lambda (c s)
+             (format s "Encountered an error (~A) in ~A.  ~A"
+                     (syscall-error-errno c)
+                     (syscall-error-function c)
+                     (strerror (syscall-error-errno c))))))
 
 (defstruct gc-wrapper
   pointer)
@@ -40,18 +46,44 @@
   (declare (ignore value))
   t)
 
+(defun not-negative-p (number)
+  (not (minusp number)))
+
+(defun not-negative-1-p (number)
+  (not (equal -1 number)))
+
 (defmacro define-c-wrapper ((lisp-name c-name) (return-type &optional (error-checker ''pass)) &body arg-descriptions)
   (let ((lisp-impl-name (intern (concatenate 'string "%" (symbol-name lisp-name))))
-        (result (gensym "RESULT"))
-        (args (mapcar #'first arg-descriptions)))
-    `(progn
-       (defcfun (,lisp-impl-name ,c-name) ,return-type
-         ,@arg-descriptions)
-       (defun ,lisp-name (,@args)
-         (let ((,result (,lisp-impl-name ,@args)))
-           (unless (funcall ,error-checker ,result)
-             (error 'syscall-error :function ',lisp-name))
-           ,result)))))
+        (result (gensym "RESULT")))
+    (labels
+        ((defun-based ()
+           (let ((args (mapcar 'first arg-descriptions)))
+             `(defun ,lisp-name (,@args)
+                (let ((,result (,lisp-impl-name ,@args)))
+                  (unless (funcall ,error-checker ,result)
+                    (error 'syscall-error :function ',lisp-name))
+                  ,result))))
+         (macro-argify (thing)
+           (if (typep thing 'cons)
+               (list (first thing))
+               (list '&rest '#:rest)))
+         (macro-based ()
+           (let* ((whole (gensym "WHOLE"))
+                  (args (apply 'concatenate 'list (mapcar #'macro-argify arg-descriptions))))
+             `(defmacro ,lisp-name (&whole ,whole ,@args)
+                (declare (ignore ,@(remove '&rest args)))
+                `(let ((,',result (,',lisp-impl-name ,@(cdr ,whole))))
+                   (unless (funcall ,',error-checker ,',result)
+                     (error 'syscall-error :function ',',lisp-name))
+                   ,',result))))
+         (wrapper ()
+           (if (find '&rest arg-descriptions)
+               (macro-based)
+               (defun-based))))
+      `(progn
+         (defcfun (,lisp-impl-name ,c-name) ,return-type
+           ,@arg-descriptions)
+         ,(wrapper)))))
 
 (define-foreign-type string-table-type ()
   ((size
@@ -155,7 +187,7 @@
 (define-c-wrapper (closedir "closedir") (:int #'zerop)
   (dirp :pointer))
 
-(define-c-wrapper (dirfd "dirfd") (:int (lambda (x) (not (minusp x))))
+(define-c-wrapper (dirfd "dirfd") (:int #'not-negative-p)
   (dirp :pointer))
 
 (define-c-wrapper (%readdir "readdir") ((:pointer (:struct dirent))
@@ -207,7 +239,10 @@
 (define-c-wrapper (_exit "_exit") (:void)
   (status :int))
 
-(define-c-wrapper (%waitpid "waitpid") (pid-t (lambda (x) (not (equal -1 x))))
+(define-c-wrapper (exit "exit") (:void)
+  (status :int))
+
+(define-c-wrapper (%waitpid "waitpid") (pid-t #'not-negative-1-p)
   (pid pid-t)
   (wstatus (:pointer :int))
   (options :int))
@@ -228,8 +263,8 @@
           (unwind-protect
                (handler-case (progn ,@body)
                  (error (,e)
-                   (format sb-sys:*stderr* "ERROR: ~A~%" ,e)
-                   (finish-output sb-sys:*stderr*)
+                   (format *error-output* "ERROR: ~A~%" ,e)
+                   (finish-output *error-output*)
                    (_exit 1)))
             (_exit 0)))
          ((minusp ,pid)
@@ -237,5 +272,100 @@
           ;; for us
           (assert nil nil "This is impossible"))))))
 
-(define-c-wrapper (dup "dup") (:int (lambda (x) (not (equal -1 x))))
+(define-c-wrapper (dup "dup") (:int #'not-negative-1-p)
   (fd :int))
+
+(define-c-wrapper (getpid "getpid") (pid-t))
+
+(define-c-wrapper (%open "open") (:int #'not-negative-1-p)
+  (pathname :string)
+  (flags :int)
+  &rest)
+
+(defun posix-open (pathname flags &optional mode)
+  (if mode
+      (%open pathname flags mode-t mode)
+      (%open pathname flags)))
+
+(define-c-wrapper (%openat "openat") (:int #'not-negative-1-p)
+  (dirfd :int)
+  (pathname :string)
+  (flags :int)
+  &rest)
+
+(defun openat (dirfd pathname flags &optional mode)
+  (if mode
+      (%openat dirfd pathname flags mode-t mode)
+      (%openat dirfd pathname flags)))
+
+(define-c-wrapper (fcntl "fcntl") (:int #'not-negative-1-p)
+  (fildes :int)
+  (cmd :int)
+  &rest)
+
+(define-c-wrapper (%close "close") (:int #'not-negative-1-p)
+  (fd :int))
+
+(defun posix-close (fd)
+  (%close fd))
+
+(define-c-wrapper (%pipe "pipe") (:int #'not-negative-1-p)
+  (fildes (:pointer :int)))
+
+(defun pipe ()
+  (with-foreign-object (fildes :int 2)
+    (%pipe fildes)
+    (values
+     (mem-aref fildes :int 0)
+     (mem-aref fildes :int 1))))
+
+#-sbcl
+(progn
+  (eval-when (:compile-toplevel :load-toplevel :execute)
+    (define-foreign-library shcl-support
+        (:linux (:default "shcl-support"))))
+
+  (defcfun (%wifexited "wifexited" :library shcl-support) :int
+    (status :int))
+  (defun wifexited (status)
+    (not (zerop (%wifexited status))))
+
+  (defcfun (%wifstopped "wifstopped" :library shcl-support) :int
+    (status :int))
+  (defun wifstopped (status)
+    (not (zerop (%wifstopped status))))
+
+  (defcfun (%wifsignaled "wifsignaled" :library shcl-support) :int
+    (status :int))
+  (defun wifsignaled (status)
+    (not (zerop (%wifsignaled status))))
+
+  (defcfun (wexitstatus "wexitstatus" :library shcl-support) :int
+    (status :int))
+
+  (defcfun (wtermsig "wtermsig" :library shcl-support) :int
+    (status :int))
+
+  (defcfun (wstopsig "wstopsig" :library shcl-support) :int
+    (status :int)))
+
+#+sbcl
+(progn
+  (defmacro define-wrapper (symbol base)
+    `(setf (fdefinition ',symbol) (fdefinition ',base)))
+
+  (define-wrapper wifexited sb-posix:wifexited)
+  (define-wrapper wifstopped sb-posix:wifstopped)
+  (define-wrapper wifsignaled sb-posix:wifsignaled)
+  (define-wrapper wexitstatus sb-posix:wexitstatus)
+  (define-wrapper wtermsig sb-posix:wtermsig)
+  (define-wrapper wstopsig sb-posix:wstopsig))
+
+(define-c-wrapper (%strerror "strerror") (:string)
+  (err :int))
+
+(defvar *errno-lock* (make-lock))
+
+(defun strerror (err)
+  (with-lock-held (*errno-lock*)
+    (%strerror err)))
