@@ -83,18 +83,23 @@
 
 (defpackage :shcl.posix-types
   (:export
-   #:size-t #:ssize-t #:pid-t #:posix-spawn-file-actions-t #:posix-spawnattr-t
-   #:dirent #:d-name #:errno #:mode-t #:environ))
+   #:size-t #:ssize-t #:pid-t #:posix-spawn-file-actions-t
+   #:posix-spawnattr-t #:dirent #:d-name #:errno #:mode-t #:environ
+   #:s-irusr #:s-iwusr #:s-irgrp #:s-iroth #:o-rdonly #:o-wronly
+   #:o-rdwr #:o-creat #:o-trunc #:o-append #:f-getfd #:wuntraced))
 
 (defpackage :shcl.posix
-  (:use :common-lisp :cffi :trivial-garbage :shcl.posix-types :shcl.utility)
+  (:use :common-lisp :cffi :trivial-garbage :shcl.posix-types :shcl.utility
+        :bordeaux-threads)
   (:export
    #:posix-spawn-file-actions-init #:posix-spawn-file-actions-destroy
    #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
    #:with-posix-spawnattr #:environment-iterator #:open-fds
-   #:compiler-owned-fds #:fork #:_exit #:waitpid #:forked #:dup))
+   #:compiler-owned-fds #:fork #:_exit #:exit #:waitpid #:forked #:dup #:getpid
+   #:posix-open #:openat #:fcntl #:posix-close #:pipe #:syscall-error
+   #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig))
 
 (defpackage :shcl.fork-exec
   (:use :common-lisp :alexandria :cffi :shcl.utility :shcl.shell-grammar
@@ -125,8 +130,9 @@
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl.utility :shcl.shell-grammar :shcl.lexer :shcl.fork-exec
         :shcl.thread :shcl.expand :shcl.environment :shcl.builtin
-        :shcl.posix)
+        :shcl.posix :shcl.posix-types)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
+  (:shadowing-import-from :shcl.posix #:pipe)
   (:export #:evaluate))
 
 (defpackage :shcl.baking
@@ -142,4 +148,5 @@
 (defpackage :shcl
   (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility
         :shcl.evaluate :shcl.baking :shcl.thread :shcl.lisp-interpolation)
+  (:import-from :shcl.posix #:exit)
   (:export #:main))

@@ -282,7 +282,7 @@
 (define-make-load-form-for-class escaped-character)
 
 (defun make-escaped-character (char)
-  (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\backslash char)))
+  (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\\ char)))
 
 (defclass double-quote (a-word)
   ((parts :type vector
@@ -323,9 +323,9 @@
                 (take-literal)
                 (return-from read-double-quote (make-instance 'double-quote :parts parts :value token-value)))
 
-               ((equal #\Backslash next-char)
+               ((equal #\\ next-char)
                 (skip)
-                (if (find next-char '(#\$ #\` #\" #\Backslash #\Linefeed))
+                (if (find next-char '(#\$ #\` #\" #\\ #\Linefeed))
                     (keep)))
 
                ((equal #\` next-char)
@@ -831,7 +831,7 @@
                ((equal (next-char) #\')
                 (lexer-context-add-part context (read-single-quote stream))
                 (again))
-               ((equal (next-char) #\Backslash)
+               ((equal (next-char) #\\)
                 (lexer-context-consume-character context)
                 (unless (equal (next-char) #\Linefeed)
                   (lexer-context-add-part context (make-escaped-character (next-char))))
