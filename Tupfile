@@ -1,4 +1,8 @@
 : |> clang -shared support/macros.c -o %o |> libshcl-support.so
+ifdef CONFIG_BUILD_RULES_FILE
+include @(BUILD_RULES_FILE)
+else
 : |> @(LISP_LOAD) ./build-shcl.lisp |> shcl
+endif
 
 .gitignore

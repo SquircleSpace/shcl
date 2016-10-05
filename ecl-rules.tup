@@ -1,0 +1,3 @@
+: |> ecl -load build-shcl.lisp |> libshcl.a
+: |> gcc `ecl-config --cflags` -o %o -c support/ecl-main.c |> support/ecl-main.o
+: libshcl.a support/ecl-main.o |> gcc --verbose -o shcl -L$(TUP_CWD) support/ecl-main.o -lshcl -lecl -lc `ecl-config --ldflags` |> shcl
