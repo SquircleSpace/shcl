@@ -1,34 +1,35 @@
+(defpackage :shcl-test.environment
+  (:use :common-lisp :prove :shcl.environment))
 (in-package :shcl-test.environment)
-(in-suite environment)
 
 (defun contains-p (key)
   (nth-value 1 (env key)))
 
-(def-test basics (:compile-at :definition-time)
+(deftest basics
   (let ((*environment* *environment*))
     (clear-environment)
-    (is (not (contains-p "foo")))
+    (ok (not (contains-p "foo")))
 
     (setf (env "foo") "bar")
-    (is (equal (env "foo") "bar"))
-    (is (not (exported-p "foo")))
+    (ok (equal (env "foo") "bar"))
+    (ok (not (exported-p "foo")))
 
     (export-variable "foo")
-    (is (exported-p "foo"))
+    (ok (exported-p "foo"))
 
     (unexport-variable "foo")
-    (is (not (exported-p "foo")))
+    (ok (not (exported-p "foo")))
 
     (unset-env "foo")
-    (is (not (contains-p "foo")))
+    (ok (not (contains-p "foo")))
 
     (setf (env "not_exported") "value")
     (with-environment-scope ()
       (setf (env "bar") "baz")
-      (is (equal (env "bar") "baz"))
+      (ok (equal (env "bar") "baz"))
       (export-variable "not_exported"))
-    (is (not (contains-p "bar")))
-    (is (not (exported-p "not_exported")))
+    (ok (not (contains-p "bar")))
+    (ok (not (exported-p "not_exported")))
 
     (setf $path "path")
-    (is (equal $path "path"))))
+    (ok (equal $path "path"))))

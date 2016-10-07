@@ -27,10 +27,8 @@
   :version "0.0.1"
   :author "Brad Jensen <brad@bradjensen.net>"
   :licence "All rights reserved."
-  :depends-on ("fiveam")
-  :components ((:file "test/packages")
-               (:file "test/suites" :depends-on ("test/packages"))
-               (:file "test/lexer" :depends-on ("test/packages" "test/suites"))
-               (:file "test/utility" :depends-on ("test/packages" "test/suites"))
-               (:file "test/environment" :depends-on ("test/packages" "test/suites"))
-               (:file "test/posix" :depends-on ("test/packages" "test/suites"))))
+  :depends-on ("prove")
+  :components ((:file "test/lexer")
+               (:file "test/utility")
+               (:file "test/environment")
+               (:file "test/posix")))
