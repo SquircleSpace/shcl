@@ -149,4 +149,4 @@
   (:use :common-lisp :shcl.lexer :shcl.shell-grammar :shcl.utility
         :shcl.evaluate :shcl.baking :shcl.thread :shcl.lisp-interpolation)
   (:import-from :shcl.posix #:exit)
-  (:export #:main))
+  (:export #:main #:run-shell-commands-in-stream #:run-shell-commands-in-string))
