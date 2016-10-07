@@ -5,4 +5,6 @@ else
 : |> @(LISP_LOAD) ./make.lisp |> shcl
 endif
 
+: | shcl |> TEST_OUTPUT="%o" @(LISP_LOAD) ./test.lisp > /dev/null |> test-output.txt
+
 .gitignore

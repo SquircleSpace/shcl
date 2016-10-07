@@ -1,5 +1,6 @@
+(defpackage :shcl-test.posix
+  (:use :common-lisp :shcl.posix :prove))
 (in-package :shcl-test.posix)
-(in-suite posix)
 
 (defun verify-fds ()
   (let* ((exceptions (fset:union (fset:set 0 1 2)
@@ -15,7 +16,7 @@
        (finish-output *standard-output*)
        (_exit 1)))))
 
-(def-test fds (:compile-at :definition-time)
+(deftest fds
   (block fds
     (cl-fad:with-open-temporary-file (s)
       (let ((path (pathname s)))
@@ -24,12 +25,12 @@
                       (uiop:dump-image path :executable t)))
                (exit-status (nth-value 1 (waitpid pid 0))))
           (if (zerop exit-status)
-              (pass)
+              (pass "Was able to create test executable")
               (progn
-                (fail "Exit status was non-zero ~A" exit-status)
+                (fail (format nil "Exit status was non-zero ~A" exit-status))
                 (return-from fds))))
         (multiple-value-bind (output error-output exit-status) (uiop:run-program (list path) :output :string :error-output :output :ignore-error-status t)
           (declare (ignore error-output))
           (if (zerop exit-status)
-              (pass)
-              (fail "~A" output)))))))
+              (pass "No unaccounted fds")
+              (fail output)))))))
