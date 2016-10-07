@@ -26,7 +26,8 @@
     form-queue)))
 
 (defun display-prompt (input-stream output-stream)
-  (when (and (interactive-stream-p input-stream)
+  (when (and output-stream
+             (interactive-stream-p input-stream)
              (not (listen input-stream)))
     (format output-stream "shcl> ")
     (finish-output output-stream)))
@@ -74,6 +75,33 @@
        (progv ,vars ,values
          ,@body))))
 
+(defun run-shell-commands-in-stream (stream &key prompt-stream)
+  (let* ((form-queue (make-queue))
+         (commands (restartable-command-iterator stream form-queue))
+         last-result)
+    (display-prompt stream prompt-stream)
+    (restart-case
+        (do-iterator (tree commands)
+          (loop
+             (let* ((stop '#:stop)
+                    (form (dequeue-no-block form-queue stop)))
+               (when (eq stop form)
+                 (return))
+               (debug-log 'status "EVAL ~A" form)
+               (eval form)))
+          (debug-log 'status "TREE: ~A~%" tree)
+          (restart-case
+              (let ((result (evaluate tree)))
+                (setf last-result result)
+                (debug-log 'status "RESULT ~A" result))
+            (skip ()))
+          (display-prompt stream prompt-stream))
+      (die () (exit 1)))
+    last-result))
+
+(defun run-shell-commands-in-string (string)
+  (run-shell-commands-in-stream (make-string-input-stream string)))
+
 (defun main ()
   (observe-revival)
   (with-options ((uiop:raw-command-line-arguments))
@@ -84,23 +112,4 @@
     (when *enable-lisp-splice*
       (enable-shell-splice-syntax))
 
-    (let* ((form-queue (make-queue))
-           (commands (restartable-command-iterator *standard-input* form-queue)))
-      (display-prompt *standard-input* *standard-output*)
-      (restart-case
-          (do-iterator (tree commands)
-            (loop
-               (let* ((stop '#:stop)
-                      (form (dequeue-no-block form-queue stop)))
-                 (when (eq stop form)
-                   (return))
-                 (debug-log 'status "EVAL ~A" form)
-                 (eval form)))
-            (debug-log 'status "TREE: ~A~%" tree)
-            (restart-case
-                (let ((result (evaluate tree)))
-                  (declare (ignorable result))
-                  (debug-log 'status "RESULT ~A" result))
-              (skip ()))
-            (display-prompt *standard-input* *standard-output*))
-        (die () (exit 1))))))
+    (run-shell-commands-in-stream *standard-input* :prompt-stream *standard-output*)))
