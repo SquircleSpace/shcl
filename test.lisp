@@ -6,8 +6,9 @@
 (handler-bind
     ((error
       (lambda (c)
-        (format *error-output* "Fatal error: ~A~%" c)
-        (uiop:quit 1))))
+        (unless (interactive-stream-p *standard-output*)
+          (format *error-output* "Fatal error: ~A~%" c)
+          (uiop:quit 1)))))
   (asdf:compile-system :shcl)
   (asdf:load-system :shcl)
   (asdf:compile-system :shcl-test)
