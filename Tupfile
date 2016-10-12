@@ -5,6 +5,8 @@ else
 : |> @(LISP_LOAD) ./make.lisp |> shcl
 endif
 
+ifdef CONFIG_RUN_TESTS
 : | shcl |> TEST_OUTPUT="%o" @(LISP_LOAD) ./test.lisp > /dev/null |> test-output.txt
+endif
 
 .gitignore
