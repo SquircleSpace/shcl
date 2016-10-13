@@ -13,7 +13,7 @@
         (slots (gensym "SLOTS")))
     `(defmethod make-load-form ((,object ,class-name) &optional ,environment)
        (assert (eq ',class-name (class-name (class-of ,object))))
-       (let ((,slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-direct-slots (find-class ',class-name)))))
+       (let ((,slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (find-class ',class-name)))))
          (make-load-form-saving-slots ,object :slot-names ,slots :environment ,environment)))))
 
 (defclass token ()
