@@ -31,4 +31,5 @@
   :components ((:file "test/lexer")
                (:file "test/utility")
                (:file "test/environment")
-               (:file "test/posix")))
+               (:file "test/posix")
+               (:file "test/main")))
