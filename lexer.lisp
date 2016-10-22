@@ -178,42 +178,50 @@
       (format stream "#<LITERAL-TOKEN ~W>" (token-value literal-token))))
 (define-make-load-form-for-class literal-token)
 
-(defmacro define-literal-token (name string &optional superclasses)
+(defmacro define-literal-token (name string &optional superclasses slots &body options)
   `(progn
      (defclass ,name (,@superclasses literal-token)
        ((value :initform ,string)
-        (string :initform ,string)))
+        (string :initform ,string)
+        ,@slots)
+       ,@options)
      (define-make-load-form-for-class ,name)))
 
 (define-literal-token newline (string #\linefeed))
 (define-once-global +newline+ (make-instance 'newline))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *operators*
-    (fset:seq
-     '(and-if . "&&")
-     '(or-if . "||")
-     '(dsemi . ";;")
-     '(dless . "<<")
-     '(dgreat . ">>")
-     '(lessand . "<&")
-     '(greatand . ">&")
-     '(lessgreat . "<>")
-     '(dlessdash . "<<-")
-     '(clobber . ">|")
-     '(semi . ";")
-     '(par . "&")
-     '(pipe . "|")
-     '(lparen . "(")
-     '(rparen . ")")
-     '(great . ">")
-     '(less . "<"))))
+(defparameter *operators* (fset:empty-map))
+
+(defmacro define-operator (name string &optional superclasses slots &body options)
+  (check-type name symbol)
+  (check-type string string)
+  `(progn
+     (define-literal-token ,name ,string ,superclasses ,slots ,@options)
+     (fset:adjoinf *operators* ,string ',name)))
+
+(define-operator and-if "&&")
+(define-operator or-if "||")
+(define-operator dsemi ";;")
+(define-operator dless "<<")
+(define-operator dgreat ">>")
+(define-operator lessand "<&")
+(define-operator greatand ">&")
+(define-operator lessgreat "<>")
+(define-operator dlessdash "<<-")
+(define-operator clobber ">|")
+(define-operator semi ";")
+(define-operator par "&")
+(define-operator pipe "|")
+(define-operator lparen "(")
+(define-operator rparen ")")
+(define-operator great ">")
+(define-operator less "<")
 
 (defun make-operator (string raw)
-  (make-instance (car (fset:find string *operators* :test #'equal :key #'cdr)) :value raw))
+  (make-instance (fset:lookup *operators* string) :value raw))
 
 (defun operator-p (word)
-  (fset:find word *operators* :test #'equal :key #'cdr))
+  (fset:lookup *operators* word))
 
 (defun prefix-match-p (prefix-word whole-word)
   (when (> (length prefix-word) (length whole-word))
@@ -224,53 +232,41 @@
            (return-from prefix-match-p nil)))
   t)
 
-(defun operator-prefix-p (word)
-  (fset:find-if (lambda (o-word) (prefix-match-p word o-word)) *operators* :key #'cdr))
-
-(defmacro define-literal-tokens ()
-  (labels
-      ((transform (pair) `(define-literal-token ,(car pair) ,(cdr pair))))
-    `(progn ,@(fset:convert 'list (fset:image #'transform *operators*)))))
-(define-literal-tokens)
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *reserved-words*
-    (fset:seq
-     '(if-word . "if")
-     '(then . "then")
-     '(else . "else")
-     '(elif . "elif")
-     '(fi . "fi")
-     '(do-word . "do")
-     '(done . "done")
-     '(case-word . "case")
-     '(esac . "esac")
-     '(while . "while")
-     '(until . "until")
-     '(for . "for")
-     '(lbrace . "{")
-     '(rbrace . "}")
-     '(bang . "!")
-     '(in . "in"))))
-
-(defun make-reserved (string raw)
-  (make-instance (car (fset:find string *reserved-words* :test #'equal :key #'cdr)) :value raw))
+(defparameter *reserved-words* (fset:empty-map))
 
 (defclass reserved-word (a-word)
   ())
 (define-make-load-form-for-class reserved-word)
 
-(defmacro define-reserved-words ()
-  (labels
-      ((transform (pair) `(define-literal-token ,(car pair) ,(cdr pair) (reserved-word))))
-    `(progn ,@(fset:convert 'list (fset:image #'transform *reserved-words*)))))
-(define-reserved-words)
+(defmacro define-reserved-word (name string &optional superclasses slots &body options)
+  (check-type name symbol)
+  (check-type string string)
+  `(progn
+     (define-literal-token ,name ,string ,(cons 'reserved-word superclasses) ,slots ,@options)
+     (fset:adjoinf *reserved-words* ,string ',name)))
+
+(define-reserved-word if-word "if")
+(define-reserved-word then "then")
+(define-reserved-word else "else")
+(define-reserved-word elif "elif")
+(define-reserved-word fi "fi")
+(define-reserved-word do-word "do")
+(define-reserved-word done "done")
+(define-reserved-word case-word "case")
+(define-reserved-word esac "esac")
+(define-reserved-word while "while")
+(define-reserved-word until "until")
+(define-reserved-word for "for")
+(define-reserved-word lbrace "{")
+(define-reserved-word rbrace "}")
+(define-reserved-word bang "!")
+(define-reserved-word in "in")
+
+(defun make-reserved (string raw)
+  (make-instance (fset:lookup *reserved-words* string) :value raw))
 
 (defun reserved-p (word)
-  (fset:find word *reserved-words* :test #'equal :key #'cdr))
-
-(defun reserved-prefix-p (word)
-  (fset:find-if (lambda (r-word) (prefix-match-p word r-word)) *reserved-words*))
+  (fset:lookup *reserved-words* word))
 
 (define-condition eof-error (error)
   ((comment :initarg :comment
@@ -908,7 +904,7 @@
                ;; token (if any) shall be delimited. The current
                ;; character shall be used as the beginning of the next
                ;; (operator) token.
-               ((operator-prefix-p (string (next-char)))
+               ((operator-p (string (next-char)))
                 (unless (lexer-context-no-content-p context)
                   (delimit))
                 (lexer-context-extend-word context)
