@@ -178,9 +178,9 @@
       (format stream "#<LITERAL-TOKEN ~W>" (token-value literal-token))))
 (define-make-load-form-for-class literal-token)
 
-(defmacro define-literal-token (name string &optional superclasses slots &body options)
+(defmacro define-literal-token (name string &optional (superclasses '(literal-token)) slots &body options)
   `(progn
-     (defclass ,name (,@superclasses literal-token)
+     (defclass ,name ,superclasses
        ((value :initform ,string)
         (string :initform ,string)
         ,@slots)
@@ -192,7 +192,10 @@
 
 (defparameter *operators* (fset:empty-map))
 
-(defmacro define-operator (name string &optional superclasses slots &body options)
+(defclass operator (literal-token)
+  ())
+
+(defmacro define-operator (name string &optional (superclasses '(operator)) slots &body options)
   (check-type name symbol)
   (check-type string string)
   `(progn
@@ -234,15 +237,15 @@
 
 (defparameter *reserved-words* (fset:empty-map))
 
-(defclass reserved-word (a-word)
+(defclass reserved-word (a-word literal-token)
   ())
 (define-make-load-form-for-class reserved-word)
 
-(defmacro define-reserved-word (name string &optional superclasses slots &body options)
+(defmacro define-reserved-word (name string &optional (superclasses '(reserved-word)) slots &body options)
   (check-type name symbol)
   (check-type string string)
   `(progn
-     (define-literal-token ,name ,string ,(cons 'reserved-word superclasses) ,slots ,@options)
+     (define-literal-token ,name ,string ,superclasses ,slots ,@options)
      (fset:adjoinf *reserved-words* ,string ',name)))
 
 (define-reserved-word if-word "if")
