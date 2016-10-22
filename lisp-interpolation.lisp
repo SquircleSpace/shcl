@@ -1,4 +1,10 @@
-(in-package :shcl.lisp-interpolation)
+(defpackage :shcl/lisp-interpolation
+  (:use :common-lisp :shcl/utility :shcl/lexer :shcl/shell-grammar
+        :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin)
+  (:import-from :fset)
+  (:export
+   #:enable-shell-splice-syntax #:enable-reader-syntax))
+(in-package :shcl/lisp-interpolation)
 
 (defclass lisp-form (a-word)
   ((form

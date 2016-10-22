@@ -16,7 +16,7 @@
   (symbol-macrolet
       ((enable-colors (symbol-value (intern "*ENABLE-COLORS*" (find-package "PROVE"))))
        (test-result-output (symbol-value (intern "*TEST-RESULT-OUTPUT*" (find-package "PROVE"))))
-       (env-sym (intern "ENV" (find-package "SHCL.ENVIRONMENT")))
+       (env-sym (intern "ENV" (find-package "SHCL/ENVIRONMENT")))
        (run-test-all-sym (intern "RUN-TEST-ALL" (find-package "PROVE"))))
     (unless (interactive-stream-p *standard-output*)
       (setf enable-colors nil)

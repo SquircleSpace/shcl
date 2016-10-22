@@ -1,5 +1,5 @@
 (defpackage :shcl-test.environment
-  (:use :common-lisp :prove :shcl.environment))
+  (:use :common-lisp :prove :shcl/environment))
 (in-package :shcl-test.environment)
 
 (defun contains-p (key)

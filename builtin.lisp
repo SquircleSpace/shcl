@@ -1,4 +1,8 @@
-(in-package :shcl.builtin)
+(defpackage :shcl/builtin
+  (:use :common-lisp :shcl/utility)
+  (:import-from :fset)
+  (:export #:define-builtin #:lookup-builtin))
+(in-package :shcl/builtin)
 
 (optimization-settings)
 

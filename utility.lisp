@@ -1,4 +1,21 @@
-(in-package :shcl.utility)
+(defpackage :shcl/utility
+  (:use :common-lisp :alexandria :bordeaux-threads)
+  (:import-from :fset)
+  (:import-from :closer-mop)
+  (:shadow #:when-let #:when-let*)
+  (:export
+   #:define-once-global #:required #:required-argument-missing #:optimization-settings
+   #:when-let #:when-let* #:try #:debug-log #:logging-enabled-p #:status
+   #:make-extensible-vector
+   ;; Hooks
+   #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
+   #:observe-revival #:on-dump #:observe-dump
+   ;; Iterators
+   #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
+   #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
+   #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
+   #:iterator-values #:lookahead-iterator-wrapper))
+(in-package :shcl/utility)
 
 (defmacro optimization-settings ()
   "Declaims standard optimization settings.
@@ -21,7 +38,7 @@ initialized at most once.  Redefining the variable with
          (documentation (second (find :documentation options :key 'car)))
          (no-lock (second (find :no-lock options :key 'car)))
          (read-only (second (find :read-only options :key 'car)))
-         (lock-form (if no-lock '(progn) `(bordeaux-threads:with-lock-held (,lock)))))
+         (lock-form (if no-lock '(progn) `(with-lock-held (,lock)))))
 
     (check-type documentation (or null string))
     (when documentation

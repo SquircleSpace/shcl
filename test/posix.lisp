@@ -1,5 +1,5 @@
 (defpackage :shcl-test.posix
-  (:use :common-lisp :shcl.posix :prove))
+  (:use :common-lisp :shcl/posix :prove))
 (in-package :shcl-test.posix)
 
 (defun verify-fds ()

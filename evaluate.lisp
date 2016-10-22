@@ -1,4 +1,12 @@
-(in-package :shcl.evaluate)
+(defpackage :shcl/evaluate
+  (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
+        :shcl/utility :shcl/shell-grammar :shcl/lexer :shcl/fork-exec
+        :shcl/thread :shcl/expand :shcl/environment :shcl/builtin
+        :shcl/posix :shcl/posix-types)
+  (:shadowing-import-from :alexandria #:when-let #:when-let*)
+  (:shadowing-import-from :shcl/posix #:pipe)
+  (:export #:evaluate))
+(in-package :shcl/evaluate)
 
 (optimization-settings)
 
@@ -156,7 +164,7 @@ adds the new fds to the fd table and gives them +1 retain counts.
 Returns two values: the read-end of the pipe and the write end of the
 pipe."
   (with-lock-held (%fd-retain-count-table-lock%)
-    (multiple-value-bind (read-end write-end) (shcl.posix:pipe)
+    (multiple-value-bind (read-end write-end) (shcl/posix:pipe)
       (debug-log 'status "PIPE ~A -> ~A" write-end read-end)
       (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
 

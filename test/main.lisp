@@ -1,8 +1,8 @@
 (defpackage :shcl-test.main
-  (:use :common-lisp :shcl :prove))
+  (:use :common-lisp :shcl/main :shcl/builtin :prove))
 (in-package :shcl-test.main)
 
-(shcl.builtin:define-builtin testing-assert-equal (args)
+(define-builtin testing-assert-equal (args)
   (let ((set (fset:convert 'fset:set (fset:less-first args))))
     (unless (equal 1 (fset:size set))
       (error "Non-equal arguments: ~A" (fset:convert 'list set))))
