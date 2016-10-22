@@ -461,6 +461,10 @@ sucesfully."
   "Produce an exit code that indicates success."
   0)
 
+(defun falsey-exit-status ()
+  "Produce an exit code that indicates failure."
+  1)
+
 (defun exit-status (&key pid exit-code exit-signal stop-signal)
   "Produce an exit code that incorperates the given information."
   (declare (ignore pid))
@@ -503,19 +507,26 @@ The methods on this function are tightly coupled to the shell grammar."))
 (defmethod evaluate ((sy command-list-tail))
   (evaluate-command-list sy))
 
-(defun evaluate-and-or (sy)
-  (with-slots (pipeline and-or-tail) sy
-    (unless and-or-tail
-      (return-from evaluate-and-or (evaluate-synchronous-job pipeline)))
+(defun evaluate-and-or (previous-result sy)
+  (unless sy
+    (return-from evaluate-and-or previous-result))
 
-    (let ((result (evaluate-synchronous-job pipeline)))
-      (declare (ignore result))
-      (error 'not-implemented :message "&& and || are not implemented"))))
+  (with-slots (pipeline and-or-tail) sy
+    (let ((result
+           (cond
+             ((and (slot-boundp sy 'and-if) (exit-false-p previous-result))
+              (falsey-exit-status))
+             ((and (slot-boundp sy 'or-if) (exit-true-p previous-result))
+              previous-result)
+             (t
+              (evaluate-synchronous-job pipeline)))))
+
+      (evaluate-and-or result and-or-tail))))
 
 (defmethod evaluate ((sy and-or))
-  (evaluate-and-or sy))
-(defmethod evaluate ((sy and-or-tail))
-  (evaluate-and-or sy))
+  (with-slots (pipeline and-or-tail) sy
+    (let ((result (evaluate-synchronous-job pipeline)))
+      (evaluate-and-or result and-or-tail))))
 
 (defmethod evaluate ((sy pipeline))
   (with-slots (bang pipe-sequence) sy
