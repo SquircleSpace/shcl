@@ -1,4 +1,12 @@
-(in-package :shcl.environment)
+(defpackage :shcl/environment
+  (:use :common-lisp :shcl/utility :shcl/posix)
+  (:import-from :fset)
+  (:export
+   #:*environment* #:linearized-exported-environment #:with-environment-scope
+   #:env #:export-variable #:unexport-variable #:clear-environment #:exported-p
+   #:unset-env
+   #:$ifs #:$path #:$pwd #:$oldpwd))
+(in-package :shcl/environment)
 
 (optimization-settings)
 

@@ -1,4 +1,21 @@
-(in-package :shcl.shell-grammar)
+(defpackage :shcl/shell-grammar
+  (:use :common-lisp :shcl/parser :shcl/lexer :shcl/utility)
+  (:export
+   #:command-iterator
+   ;; nonterminals
+   #:complete-command #:command-list #:command-list-tail #:and-or #:and-or-tail
+   #:pipeline #:pipe-sequence #:pipe-sequence-tail #:command #:compound-command
+   #:subshell #:compound-list #:term #:term-tail #:for-clause #:name-nt #:in-nt
+   #:wordlist #:wordlist-tail #:case-clause #:case-list-ns #:case-list
+   #:case-list-tail #:case-item-ns #:case-item #:pattern #:pattern-tail
+   #:if-clause #:else-part #:while-clause #:until-clause #:function-definition
+   #:function-body #:fname #:brace-group #:do-group #:simple-command #:cmd-name
+   #:cmd-word #:cmd-prefix #:cmd-prefix-tail #:cmd-suffix #:cmd-suffix-tail
+   #:redirect-list #:redirect-list-tail #:io-redirect #:io-file #:filename
+   #:io-here #:here-end #:newline-list #:newline-list-tail #:linebreak
+   #:separator-op #:separator #:command-separator #:sequential-sep
+   #:wordly-word #:redirect #:fd-description))
+(in-package :shcl/shell-grammar)
 
 (optimization-settings)
 

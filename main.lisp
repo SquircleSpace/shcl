@@ -1,4 +1,12 @@
-(in-package :shcl)
+(defpackage :shcl/main
+  (:use :common-lisp :shcl/lexer :shcl/shell-grammar :shcl/utility
+        :shcl/evaluate :shcl/baking :shcl/thread :shcl/lisp-interpolation)
+  (:import-from :shcl/posix #:exit)
+  (:import-from :trivial-gray-streams)
+  (:import-from :cl-cli)
+  (:import-from :uiop)
+  (:export #:main #:run-shell-commands-in-stream #:run-shell-commands-in-string))
+(in-package :shcl/main)
 
 (optimization-settings)
 

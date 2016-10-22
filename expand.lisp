@@ -1,4 +1,10 @@
-(in-package :shcl.expand)
+(defpackage :shcl/expand
+  (:use :common-lisp :shcl/utility :shcl/lexer :shcl/environment)
+  (:import-from :fset)
+  (:export
+   #:expansion-for-word #:expansion-for-words #:set-alias #:unalias
+   #:expand #:make-string-fragment #:word-boundary))
+(in-package :shcl/expand)
 
 (optimization-settings)
 
