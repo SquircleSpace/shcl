@@ -2,6 +2,10 @@
   (:use :common-lisp :shcl/utility :shcl/lexer :shcl/shell-grammar
         :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin)
   (:import-from :fset)
+  (:import-from :shcl/evaluate)
+  (:import-from :shcl/posix)
+  (:import-from :shcl/thread)
+  (:import-from :bordeaux-threads)
   (:export
    #:enable-shell-splice-syntax #:enable-reader-syntax))
 (in-package :shcl/lisp-interpolation)
@@ -117,6 +121,74 @@
          `(progn
             ,@(coerce oven 'list)
             ,@(coerce evaluates 'list)))))))
+
+(define-condition exit-failure (error)
+  ((code
+    :type integer
+    :initarg :code
+    :reader exit-failure-code))
+  (:report (lambda (c s) (format s "Command exited with status ~A" (exit-failure-code c)))))
+
+(defun %check-result (shell-command-fn)
+  (let ((result (funcall shell-command-fn)))
+    (unless (shcl/evaluate::exit-true-p result)
+      (cerror "Ignore error" 'exit-failure :code (shcl/evaluate::exit-code result)))
+    result))
+
+(defmacro check-result (() shell-command)
+  `(%check-result (lambda () ,shell-command)))
+
+(defgeneric decode-stream-descriptor (descriptor))
+(defmethod decode-stream-descriptor ((descriptor integer))
+  descriptor)
+(defmethod decode-stream-descriptor ((stdout (eql :stdout)))
+  1)
+(defmethod decode-stream-descriptor ((stdout (eql :stderr)))
+  2)
+
+(defconstant +read-rate+ 4096)
+
+(defun consume (retained-fd output-buffer semaphore)
+  (unwind-protect
+       (let (part)
+         (loop :do
+            (progn
+              (setf part (shcl/posix:posix-read retained-fd +read-rate+))
+              (debug-log 'status "READ ~A BYTES" (length part))
+              (write-string part output-buffer))
+            :while (not (zerop (length part)))))
+    (shcl/evaluate::fd-release retained-fd)
+    (shcl/thread:semaphore-signal semaphore)))
+
+(defun %capture (streams shell-command-fn)
+  (shcl/evaluate::with-fd-scope ()
+    (let ((fds (mapcar 'decode-stream-descriptor streams))
+          (result-buffer (make-string-output-stream))
+          (semaphore (shcl/thread:make-semaphore)))
+      (multiple-value-bind (read-end write-end) (shcl/evaluate::pipe-retained)
+        (unwind-protect
+             (progn
+               (dolist (fd fds)
+                 (shcl/evaluate::bind-fd fd write-end))
+               (shcl/evaluate::fd-retain read-end)
+               (bordeaux-threads:make-thread (lambda () (consume read-end result-buffer semaphore)))
+
+               (funcall shell-command-fn)
+
+               (shcl/evaluate::fd-release write-end)
+               (setf write-end nil)
+               (shcl/thread:semaphore-wait semaphore)
+               (get-output-stream-string result-buffer))
+          (when read-end
+            (shcl/evaluate::fd-release read-end))
+          (when write-end
+            (shcl/evaluate::fd-release write-end)))))))
+
+(defmacro capture ((&rest streams) shell-command)
+  (setf shell-command `(check-result () ,shell-command))
+  (when (null streams)
+    (return-from capture `(progn ,shell-command "")))
+  `(%capture (list ,@streams) (lambda () ,shell-command)))
 
 (define-builtin enable-lisp-syntax (args)
   (unless (equal 1 (fset:size args))
