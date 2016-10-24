@@ -457,6 +457,9 @@ sucesfully."
       1
       0))
 
+(defun exit-code (exit-thing)
+  exit-thing)
+
 (defun truthy-exit-status ()
   "Produce an exit code that indicates success."
   0)
