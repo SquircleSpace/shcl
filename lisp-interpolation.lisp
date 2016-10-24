@@ -1,6 +1,6 @@
 (defpackage :shcl/lisp-interpolation
   (:use :common-lisp :shcl/utility :shcl/lexer :shcl/shell-grammar
-        :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin)
+        :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin :shcl/exit-info)
   (:import-from :fset)
   (:import-from :shcl/evaluate)
   (:import-from :shcl/posix)
@@ -123,16 +123,16 @@
             ,@(coerce evaluates 'list)))))))
 
 (define-condition exit-failure (error)
-  ((code
-    :type integer
-    :initarg :code
-    :reader exit-failure-code))
-  (:report (lambda (c s) (format s "Command exited with status ~A" (exit-failure-code c)))))
+  ((info
+    :type exit-info
+    :initarg :info
+    :reader exit-failure-info))
+  (:report (lambda (c s) (format s "Command exited with info ~A" (exit-failure-info c)))))
 
 (defun %check-result (shell-command-fn)
   (let ((result (funcall shell-command-fn)))
-    (unless (shcl/evaluate::exit-true-p result)
-      (cerror "Ignore error" 'exit-failure :code (shcl/evaluate::exit-code result)))
+    (unless (exit-info-true-p result)
+      (cerror "Ignore error" 'exit-failure :info result))
     result))
 
 (defmacro check-result (() shell-command)

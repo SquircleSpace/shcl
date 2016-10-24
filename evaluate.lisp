@@ -2,7 +2,7 @@
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl/utility :shcl/shell-grammar :shcl/lexer :shcl/fork-exec
         :shcl/thread :shcl/expand :shcl/environment :shcl/builtin
-        :shcl/posix :shcl/posix-types)
+        :shcl/posix :shcl/posix-types :shcl/exit-info)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/posix #:pipe)
   (:export #:evaluate))
@@ -401,7 +401,7 @@ The new-fd-fn argument is only intended to be used for testing."
 (defun evaluate-background-job (sy)
   (declare (ignore sy))
   (error 'not-implemented :message "Background jobs aren't implemented")
-  (truthy-exit-status))
+  (truthy-exit-info))
 
 (defun evaluate-synchronous-job (sy)
   "Evaluate the given syntax tree synchronously.
@@ -442,37 +442,6 @@ This function does not create an entry in the job table."
         (fd-retain fd))
       (make-thread #'async-eval))))
 
-(defun exit-true-p (exit-thing)
-  "Given an exit code, return t iff the program exited successfully."
-  (zerop exit-thing))
-
-(defun exit-false-p (exit-thing)
-  "Given an exit code, return t iff the program didn't exit
-sucesfully."
-  (not (exit-true-p exit-thing)))
-
-(defun invert-exit-status (exit-thing)
-  "Given an exit code, produce a similar code that indicates failure."
-  (if (exit-true-p exit-thing)
-      1
-      0))
-
-(defun exit-code (exit-thing)
-  exit-thing)
-
-(defun truthy-exit-status ()
-  "Produce an exit code that indicates success."
-  0)
-
-(defun falsey-exit-status ()
-  "Produce an exit code that indicates failure."
-  1)
-
-(defun exit-status (&key pid exit-code exit-signal stop-signal)
-  "Produce an exit code that incorperates the given information."
-  (declare (ignore pid))
-  (+ (if exit-code exit-code 0) (if exit-signal 128 0) (if stop-signal 128 0)))
-
 (defgeneric evaluate (syntax-tree)
   (:documentation
    "This is the main driver for evaluating shell expressions.
@@ -488,7 +457,7 @@ The methods on this function are tightly coupled to the shell grammar."))
   (with-slots (newline-list complete-command) sy
     (if (slot-boundp sy 'complete-command)
         (return-from evaluate (evaluate-synchronous-job complete-command))
-        (return-from evaluate (truthy-exit-status)))))
+        (return-from evaluate (truthy-exit-info)))))
 
 (defun evaluate-command-list (sy)
   (with-slots (and-or separator-op command-list-tail) sy
@@ -517,9 +486,9 @@ The methods on this function are tightly coupled to the shell grammar."))
   (with-slots (pipeline and-or-tail) sy
     (let ((result
            (cond
-             ((and (slot-boundp sy 'and-if) (exit-false-p previous-result))
-              (falsey-exit-status))
-             ((and (slot-boundp sy 'or-if) (exit-true-p previous-result))
+             ((and (slot-boundp sy 'and-if) (exit-info-false-p previous-result))
+              (falsey-exit-info))
+             ((and (slot-boundp sy 'or-if) (exit-info-true-p previous-result))
               previous-result)
              (t
               (evaluate-synchronous-job pipeline)))))
@@ -534,7 +503,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 (defmethod evaluate ((sy pipeline))
   (with-slots (bang pipe-sequence) sy
     (let ((result (evaluate-synchronous-job pipe-sequence)))
-      (return-from evaluate (invert-exit-status result)))))
+      (return-from evaluate (invert-exit-info result)))))
 
 (defconstant +pipe-read-fd+ 0)
 (defconstant +pipe-write-fd+ 1)
@@ -614,7 +583,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 
     (if term-tail
         (return-from evaluate-term (evaluate-synchronous-job term-tail))
-        (return-from evaluate-term (truthy-exit-status)))))
+        (return-from evaluate-term (truthy-exit-info)))))
 
 (defmethod evaluate ((sy term))
   (evaluate-term sy))
@@ -699,7 +668,7 @@ and io redirects."
   (with-fd-scope ()
     (dolist (redirect redirects)
       (handle-redirect redirect)))
-  (truthy-exit-status))
+  (truthy-exit-info))
 
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
@@ -720,7 +689,7 @@ and io redirects."
                  status)
             (when-let ((builtin (lookup-builtin (fset:first arguments))))
               (return-from evaluate
-                (exit-status :exit-code (funcall builtin arguments))))
+                (make-exit-info :exit-status (funcall builtin arguments))))
 
             (with-living-fds (fds)
               (setf pid (run arguments
@@ -733,31 +702,31 @@ and io redirects."
             (when (wifstopped status)
               (warn "Stopped jobs should get a job number, but they don't"))
 
-            (exit-status :pid pid
-                         :exit-code (when (wifexited status)
-                                      (wexitstatus status))
-                         :exit-signal (when (wifsignaled status)
-                                        (wtermsig status))
-                         :stop-signal (when (wifstopped status)
-                                        (wstopsig status)))))))))
+            (make-exit-info :pid pid
+                            :exit-status (when (wifexited status)
+                                         (wexitstatus status))
+                            :exit-signal (when (wifsignaled status)
+                                           (wtermsig status))
+                            :stop-signal (when (wifstopped status)
+                                           (wstopsig status)))))))))
 
-(define-condition not-an-exit-code (warning)
+(define-condition not-an-exit-info (warning)
   ((actual-type
     :initarg :actual-type
-    :accessor not-an-exit-code-actual-type
+    :accessor not-an-exit-info-actual-type
     :initform (required)
     :type symbol)
    (eval-target
     :initarg :eval-target
-    :accessor not-an-exit-code-eval-target
+    :accessor not-an-exit-info-eval-target
     :initform (required)))
-  (:report (lambda (c s) (format s "~A is not an exit code.  Given ~A~%"
-                                 (not-an-exit-code-actual-type c) (not-an-exit-code-eval-target c)))))
+  (:report (lambda (c s) (format s "~A is not an exit info.  Given ~A~%"
+                                 (not-an-exit-info-actual-type c) (not-an-exit-info-eval-target c)))))
 
 (defmethod evaluate :around (sy)
   (let ((result (call-next-method)))
-    (unless (typep result 'integer)
-      (warn 'not-an-exit-code :actual-type (class-name (class-of result)) :eval-target sy))
+    (unless (exit-info-p result)
+      (warn 'not-an-exit-info :actual-type (class-name (class-of result)) :eval-target sy))
     result))
 
 (defmethod evaluate ((s string))
