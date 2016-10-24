@@ -1,0 +1,4 @@
+#!/bin/sh
+
+! find . -iname '*.lisp' -exec grep "::" {} +
+exit $?
