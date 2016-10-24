@@ -8,9 +8,10 @@
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
    #:with-posix-spawnattr #:environment-iterator #:open-fds
-   #:compiler-owned-fds #:fork #:_exit #:exit #:waitpid #:forked #:dup #:getpid
-   #:posix-open #:openat #:fcntl #:posix-close #:pipe #:syscall-error
-   #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig))
+   #:compiler-owned-fds #:posix-read #:fork #:_exit #:exit #:waitpid #:forked
+   #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close #:pipe
+   #:syscall-error #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
+   #:wtermsig #:wstopsig))
 (in-package :shcl/posix)
 
 (optimization-settings)
@@ -244,6 +245,31 @@
   (progn
     (warn "Unsupported compiler.  Can't determine which fds the compiler owns.")
     #()))
+
+(define-c-wrapper (%posix-read "read") (ssize-t #'not-negative-1-p)
+  (fd :int)
+  (buf :pointer)
+  (count size-t))
+
+(defun posix-read (fd count &key binary)
+  (with-foreign-object (buf :char count)
+    (tagbody
+     retry
+       (handler-bind
+           ((syscall-error
+             (lambda (e)
+               (when (equal eintr (syscall-error-errno e))
+                 (go retry)))))
+         (let ((length (%posix-read fd buf count)))
+           (unless binary
+             (return-from posix-read
+               (if (zerop length)
+                   ""
+                   (nth-value 0 (foreign-string-to-lisp buf :max-chars length)))))
+           (let ((array (make-array length :element-type 'unsigned-byte)))
+             (loop :for index :below length :do
+                (setf (aref array index) (mem-aref buf :unsigned-char index)))
+             array))))))
 
 (defun fork ()
   #+sbcl (sb-posix:fork)

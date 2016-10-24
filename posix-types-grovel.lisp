@@ -31,3 +31,4 @@
 (constant (o-append "O_APPEND"))
 (constant (f-getfd "F_GETFD"))
 (constant (wuntraced "WUNTRACED"))
+(constant (eintr "EINTR"))
