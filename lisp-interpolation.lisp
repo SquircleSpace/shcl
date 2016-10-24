@@ -98,7 +98,7 @@
       (let ((form (bake-form-for-token token)))
         (when form
           (vector-push-extend form oven))))
-    (let* ((token-iter (list-iterator tokens))
+    (let* ((token-iter (lookahead-iterator-wrapper (list-iterator tokens)))
            (commands (command-iterator token-iter))
            (evaluates (make-extensible-vector)))
       (do-iterator (command commands)
