@@ -2,7 +2,7 @@
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl/utility :shcl/shell-grammar :shcl/lexer :shcl/fork-exec
         :shcl/thread :shcl/expand :shcl/environment :shcl/builtin
-        :shcl/posix :shcl/posix-types :shcl/exit-info)
+        :shcl/posix :shcl/posix-types :shcl/exit-info :shcl/fd-table)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/posix #:pipe)
   (:export #:evaluate))
@@ -25,163 +25,6 @@
    "A condition indicating that a feature hasn't been implemented
 yet."))
 
-(define-once-global %fd-retain-count-table% (make-hash-table)
-  (:documentation
-   "This table tracks how many outstanding retains each file
-descriptor has."))
-(define-once-global %fd-retain-count-table-lock% (make-lock)
-  (:documentation
-   "This lock protects `%fd-retain-count-table-lock%'."))
-(defparameter *autorelease-fd-scope* nil
-  "The collection of file descriptors that should be released when the
-current fd scope exits.
-
-This is bound by `with-fd-scope'.")
-
-(defun fd-managed-p (fd)
-  "Returns t iff the given fd is being managed with retain/release."
-  (with-lock-held (%fd-retain-count-table-lock%)
-    (not (not (gethash fd %fd-retain-count-table%)))))
-
-(define-condition fd-already-managed (error)
-  ((fd
-    :initarg :fd
-    :initform (required)
-    :accessor fd-already-managed-fd))
-  (:report (lambda (c s) (format s "Can't enter FD ~A into retain/release management again" (fd-already-managed-fd c)))))
-
-(defun %manage-new-fd (fd)
-  "Enter the given fd into the retain/release table."
-  (when (gethash fd %fd-retain-count-table%)
-    (error 'fd-already-managed :fd fd))
-  (setf (gethash fd %fd-retain-count-table%) 1)
-  fd)
-
-(define-condition fd-not-managed (error)
-  ((fd
-    :initarg :fd
-    :initform (required)
-    :accessor fd-not-managed-fd))
-  (:report (lambda (c s) (format s "Can't retain unmanaged FD ~A" (fd-not-managed-fd c)))))
-
-(defun fd-retain (fd)
-  "Increment the retain count for the given fd.
-
-The given fd will not be closed in the shell process until the retain
-count reaches 0.  See `fd-release'."
-  (with-lock-held (%fd-retain-count-table-lock%)
-    (unless (gethash fd %fd-retain-count-table%)
-      (error 'fd-not-managed :fd fd))
-    (incf (gethash fd %fd-retain-count-table%))
-    fd))
-
-(define-condition fd-over-release (error)
-  ((fd
-    :initarg :fd
-    :initform (required)
-    :accessor fd-over-release-fd))
-  (:report (lambda (c s) (format s "FD ~A was over released" (fd-over-release-fd c)))))
-
-(defun %fd-release (fd)
-  "Do the work of `fd-release', but assume the table is already
-locked."
-  (unless (gethash fd %fd-retain-count-table%)
-    (error 'fd-over-release :fd fd))
-  (let ((count (decf (gethash fd %fd-retain-count-table%))))
-    (when (equal 0 count)
-      (debug-log 'status "CLOSE ~A" fd)
-      (posix-close fd)
-      (remhash fd %fd-retain-count-table%)))
-  nil)
-
-(defun fd-release (fd)
-  "Decrement the retain count for the given fd.
-
-If the retain count reaches 0, then it will be closed immediately."
-  (with-lock-held (%fd-retain-count-table-lock%)
-    (%fd-release fd)))
-
-(define-condition fd-autorelease-without-scope (error)
-  ((fd
-    :initarg :fd
-    :initform (required)
-    :accessor fd-autorelease-without-scope-fd))
-  (:report (lambda (c s) (format s "FD ~A was autoreleased without an FD scope in place" (fd-autorelease-without-scope-fd c)))))
-
-(defun fd-autorelease (fd)
-  "Release the given fd when the current fd scope exits."
-  (unless *autorelease-fd-scope*
-    (error 'fd-autorelease-without-scope :fd fd))
-  (vector-push-extend fd *autorelease-fd-scope*)
-  fd)
-
-(defmacro with-fd-scope (() &body body)
-  "Introduce an fd scope.
-
-Calls to `fd-autorelease' while this fd scope is active will not
-decrement fd retain counts until control leaves this fd scope.
-
-Additionally, any manipulations to the fd table `*fd-bindings*' will
-be reverted when this scope exits."
-  (let ((fd (gensym "FD")))
-    `(let ((*fd-bindings* (or *fd-bindings* (fset:empty-map)))
-           (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
-       (unwind-protect (progn ,@body)
-         (with-lock-held (%fd-retain-count-table-lock%)
-           (loop :for ,fd :across *autorelease-fd-scope* :do
-              (%fd-release ,fd)))))))
-
-(defmacro with-living-fds ((fd-list-sym) &body body)
-  "Lock the fd table and list all managed file descriptors.
-
-Since this locks the fd table, it is very important to minimize the
-amount of work done in the body of this macro.  Ideally, you would
-do nothing exept spawn a new process."
-  `(with-lock-held (%fd-retain-count-table-lock%)
-     (let ((,fd-list-sym (hash-table-keys %fd-retain-count-table%)))
-       (declare (dynamic-extent ,fd-list-sym))
-       ,@body)))
-
-(defun dup-retained (fd)
-  (with-lock-held (%fd-retain-count-table-lock%)
-    (let ((new-fd (dup fd)))
-      (debug-log 'status "DUP ~A = ~A" new-fd fd)
-      (%manage-new-fd new-fd))))
-
-(defun open-retained (pathname flags mode)
-  "This is a wrapper around the posix open function which
-atomically adds the new fd to the fd table and gives it a +1 retain
-count."
-  (with-lock-held (%fd-retain-count-table-lock%)
-    (let ((fd (posix-open pathname flags mode)))
-      (debug-log 'status "OPEN ~A = ~A" fd pathname)
-      (%manage-new-fd fd))))
-
-(defun pipe-retained ()
-  "This is a wrapper around the posix pipe function which atomically
-adds the new fds to the fd table and gives them +1 retain counts.
-
-Returns two values: the read-end of the pipe and the write end of the
-pipe."
-  (with-lock-held (%fd-retain-count-table-lock%)
-    (multiple-value-bind (read-end write-end) (shcl/posix:pipe)
-      (debug-log 'status "PIPE ~A -> ~A" write-end read-end)
-      (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
-
-(defmacro with-pipe ((read-end write-end) &body body)
-  "Introduce a pipe into the retain table (as if with `pipe-retained')
-with a +0 retain count.
-
-That is, you do not need to release the file descriptors produced by
-this macro.  You must balance any retains you perform on the given
-file descriptors."
-  (let ((raw-read-end (gensym "RAW-READ-END"))
-        (raw-write-end (gensym "RAW-WRITE-END")))
-    `(multiple-value-bind (,raw-read-end ,raw-write-end) (pipe-retained)
-       (let ((,read-end (fd-autorelease ,raw-read-end))
-             (,write-end (fd-autorelease ,raw-write-end)))
-         ,@body))))
-
 (defgeneric open-args-for-redirect (redirect)
   (:documentation
    "Returns the flags that should be passed to the posix open function
@@ -203,7 +46,7 @@ for the given redirect."))
   (:documentation
    "Given a description of a place, produce a file descriptor for that place.
 
-This function implements part of `bind-fd' and should not be called
+This function implements part of `bind-fd-description' and should not be called
 directly."))
 (defmethod fd-from-description ((fd integer))
   fd)
@@ -215,29 +58,10 @@ directly."))
                              *umask*)))
       (fd-autorelease fd))))
 
-(defparameter *fd-bindings* nil
-  "This variable contains information about how fds should be bound
-when a new process is spawned.
-
-This variable should not be accessed directly.  You should add
-bindings with `bind-fd' and query bindings with `get-fd'.")
-
-(defun bind-fd (fd description)
-  "Extend `*fd-bindings*' to include a binding for `fd' to the thing
-implied by `description'.
-
-Note: `description' is interpreted by the `fd-from-description'
-generic function.
-
-This function doesn't actually modify the given fd in the current
-process.  Instead, it will simply store information about what the
-named fd should be bound to in spawned processes.  This may involve
-allocating a new fd in this process."
-  (unless *fd-bindings*
-    (error "Cannot bind without an fd-scope"))
+(defun bind-fd-description (fd description)
+  "Bind `fd' to the fd implied by `description'."
   (let ((from-fd (fd-from-description description)))
-    (fset:adjoinf *fd-bindings* fd from-fd)
-    (debug-log 'status "BIND ~A = ~A (~A)" fd from-fd *fd-bindings*)))
+    (bind-fd fd from-fd)))
 
 (defun separator-par-p (separator)
   "Return non-nil iff the given separator non-terminal describes a
@@ -246,37 +70,6 @@ allocating a new fd in this process."
   (with-slots (separator-op) separator
     (when (slot-boundp separator 'separator-op)
       (typep separator-op 'par))))
-
-(define-condition invalid-fd (error)
-  ((fd
-    :type integer
-    :initarg :fd
-    :accessor invalid-fd-fd
-    :initform (required)))
-  (:report (lambda (c s) (format s "Redirect from invalid fd: ~A~%" (invalid-fd-fd c))))
-  (:documentation
-   "A condition that indicates that an invalid fd has been
-requested.
-
-This represents an error in the shell expression.
-
-An fd is considered invalid if it hasn't been bound by the shell
-expression."))
-
-(defun get-fd (fd)
-  "Return the fd (in this process) will be dup'd into to the given
-fd (in a spawned subprocesses).
-
-See `bind-fd'."
-  (let ((binding (fset:lookup *fd-bindings* fd)))
-    (when binding
-      (return-from get-fd binding)))
-  (when (fd-managed-p fd)
-    (error 'invalid-fd :fd fd))
-  (handler-case (fcntl fd f-getfd)
-    (syscall-error ()
-      (error 'invalid-fd :fd fd)))
-  fd)
 
 (defgeneric handle-redirect (redirect &optional fd-override)
   (:documentation
@@ -311,25 +104,25 @@ See `bind-fd'."
     (with-slots (redirect filename fd-description) r
       (etypecase redirect
         (less
-         (bind-fd (fd 0) r))
+         (bind-fd-description (fd 0) r))
 
         (lessand
-         (bind-fd (fd 0) (get-fd (to-int fd-description))))
+         (bind-fd-description (fd 0) (get-fd (to-int fd-description))))
 
         (great
-         (bind-fd (fd 1) r))
+         (bind-fd-description (fd 1) r))
 
         (greatand
-         (bind-fd (fd 1) (get-fd (to-int fd-description))))
+         (bind-fd-description (fd 1) (get-fd (to-int fd-description))))
 
         (dgreat
-         (bind-fd (fd 1) r))
+         (bind-fd-description (fd 1) r))
 
         (lessgreat
-         (bind-fd (fd 0) r))
+         (bind-fd-description (fd 0) r))
 
         (clobber
-         (bind-fd (fd 1) r))))))
+         (bind-fd-description (fd 1) r))))))
 
 (defmethod handle-redirect ((r io-here) &optional fd-override)
   (declare (ignore fd-override))
@@ -352,51 +145,6 @@ See `bind-fd'."
     (handle-redirect io-redirect)
     (when redirect-list-tail
       (handle-redirect redirect-list-tail))))
-
-(defun simplify-fd-bindings-default-new-fd-fn (fd)
-  (fd-autorelease (dup-retained fd)))
-
-(defun simplify-fd-bindings (&key (fd-bindings *fd-bindings*) (new-fd-fn #'simplify-fd-bindings-default-new-fd-fn))
-  "Transform the given bindings so that there is no overlap between
-fds that will be bound in the child process and the source fds in this
-process.
-
-The goal is to make it so that we can naively use dup2 to create the
-desired state in the child process.  The requirement specified
-above (no overlap) is stricter than necessary, but also easier to
-implement.
-
-While the return value of this function is safe to bind to
-`*fd-bindings*', there is very little reason to do that.
-
-The new-fd-fn argument is only intended to be used for testing."
-  ;; An alternative approach would be to identify cycles in the
-  ;; dependency graph implied by fd-bindings.  Then, the dependency
-  ;; cycles could be broken using dup.
-  (debug-log 'status "SIMPLIFY ~A" fd-bindings)
-  (let* ((ours (fset:empty-set))
-         (theirs (fset:empty-set))
-         (conflict (fset:empty-set)))
-    (fset:do-map (key value fd-bindings)
-      (fset:adjoinf theirs key)
-      (fset:adjoinf ours value))
-    (setf conflict (fset:intersection ours theirs))
-    (when (zerop (fset:size conflict))
-      (debug-log 'status "SIMPLIFIED")
-      (return-from simplify-fd-bindings fd-bindings))
-
-    (let ((translation (make-hash-table)))
-      (fset:do-set (conflicted-fd conflict)
-        (let (new-fd)
-          (loop :do (setf new-fd (funcall new-fd-fn))
-             :while (fset:lookup theirs new-fd))
-          (setf (gethash conflicted-fd translation) new-fd)))
-      (fset:do-map (key value fd-bindings)
-        (let ((new-value (gethash value translation)))
-          (when new-value
-            (fset:adjoinf fd-bindings key new-value))))
-      (debug-log 'status "SIMPLIFIED ~A" fd-bindings)
-      fd-bindings)))
 
 (defun evaluate-background-job (sy)
   (declare (ignore sy))
@@ -421,25 +169,15 @@ threads to evaluate a syntax tree asynchronously (both for
 This function does not create an entry in the job table."
   (let* ((symbols *special-variables-to-preserve-during-async*)
          (symbol-values (mapcar #'symbol-value symbols))
-         (fd-bindings *fd-bindings*)
-         (fds-to-retain (fset:empty-set)))
-    (fset:do-map (theirs ours fd-bindings)
-      (declare (ignore theirs))
-      (fset:adjoinf fds-to-retain ours))
-
+         (fd-bindings (copy-fd-bindings)))
     (labels
         ((async-eval ()
            (progv symbols symbol-values
-             (with-fd-scope ()
-               (setf *fd-bindings* fd-bindings)
-               (fset:do-set (fd fds-to-retain)
-                 (fd-autorelease fd))
-
+             (with-fd-scope (:take fd-bindings)
                (let* ((result (evaluate sy)))
+                 ;; TODO: What if there is an error in evaluate!?
                  (funcall completion-handler result))))
            (debug-log 'status "Thread exit ~A" sy)))
-      (fset:do-set (fd fds-to-retain)
-        (fd-retain fd))
       (make-thread #'async-eval))))
 
 (defgeneric evaluate (syntax-tree)
@@ -526,9 +264,9 @@ The methods on this function are tightly coupled to the shell grammar."))
          (run-command (index read-end write-end)
            (with-fd-scope ()
              (when read-end
-               (bind-fd +pipe-read-fd+ read-end))
+               (bind-fd-description +pipe-read-fd+ read-end))
              (when write-end
-               (bind-fd +pipe-write-fd+ write-end))
+               (bind-fd-description +pipe-write-fd+ write-end))
              (evaluate-async-job (aref vector index)
                                  (lambda (result) (store index result))))))
       ;; Produce a vector containing all the elements of the pipeline
