@@ -1,6 +1,6 @@
-(defpackage :shcl-test.main
+(defpackage :shcl-test/main
   (:use :common-lisp :shcl/main :shcl/builtin :prove))
-(in-package :shcl-test.main)
+(in-package :shcl-test/main)
 
 (define-builtin testing-assert-equal (args)
   (let ((set (fset:convert 'fset:set (fset:less-first args))))

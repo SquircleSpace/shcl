@@ -1,7 +1,8 @@
 (declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
 
 (let ((here (truename ".")))
-  (push here asdf:*central-registry*))
+  (push here asdf:*central-registry*)
+  (push (merge-pathnames #P"test/" here) asdf:*central-registry*))
 
 (handler-bind
     ((error
@@ -9,9 +10,6 @@
         (unless (interactive-stream-p *standard-output*)
           (format *error-output* "Fatal error: ~A~%" c)
           (uiop:quit 1)))))
-  (asdf:compile-system :shcl)
-  (asdf:load-system :shcl)
-  (asdf:compile-system :shcl-test)
   (asdf:load-system :shcl-test)
   (symbol-macrolet
       ((enable-colors (symbol-value (intern "*ENABLE-COLORS*" (find-package "PROVE"))))
