@@ -1,4 +1,9 @@
 #!/bin/sh
 
-! find . -iname '*.lisp' -exec grep "::" {} +
-exit $?
+MATCHES="$(! find . -iname '*.lisp' -exec grep "::" {} +)" && {
+    exit 0
+}
+
+echo "Private symbol access found"
+echo "$MATCHES"
+exit 1
