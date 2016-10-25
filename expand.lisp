@@ -3,7 +3,8 @@
   (:import-from :fset)
   (:export
    #:expansion-for-word #:expansion-for-words #:set-alias #:unalias
-   #:expand #:make-string-fragment #:word-boundary))
+   #:expand #:make-string-fragment #:word-boundary #:*split-fields*
+   #:split))
 (in-package :shcl/expand)
 
 (optimization-settings)
@@ -195,9 +196,6 @@
              (unless (word-boundary-p sub-part)
                (write-string (string-fragment-string sub-part) result)))))
       (fset:seq (make-string-fragment (get-output-stream-string result) :quoted t)))))
-
-(defmethod expand ((thing command-word))
-  (error "not implemented"))
 
 (defmethod expand ((thing variable-expansion-word))
   (let* ((variable (variable-expansion-word-variable thing))

@@ -14,7 +14,8 @@
    #:token-value #:simple-word-text #:compound-word-parts
    #:assignment-word-name #:assignment-word-value-word #:io-number-fd
    #:literal-token-string #:single-quote-contents #:double-quote-parts
-   #:command-word-tokens #:variable-expansion-word-variable
+   #:command-word-tokens #:command-word-evaluate-fn
+   #:variable-expansion-word-variable
 
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
@@ -391,7 +392,10 @@
     :initarg :tokens
     :initform (required)
     :type vector
-    :accessor command-word-tokens)))
+    :accessor command-word-tokens)
+   (evaluate-fn
+    :initform nil
+    :accessor command-word-evaluate-fn)))
 (defmethod print-object ((command-word command-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
 (define-make-load-form-for-class command-word)
