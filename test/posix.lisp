@@ -1,6 +1,6 @@
-(defpackage :shcl-test.posix
+(defpackage :shcl-test/posix
   (:use :common-lisp :shcl/posix :prove))
-(in-package :shcl-test.posix)
+(in-package :shcl-test/posix)
 
 (defun verify-fds ()
   (let* ((exceptions (fset:union (fset:set 0 1 2)

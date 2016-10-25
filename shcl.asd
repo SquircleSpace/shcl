@@ -11,15 +11,3 @@
   :author "Brad Jensen <brad@bradjensen.net>"
   :licence "All rights reserved."
   :depends-on ("shcl/main"))
-
-(defsystem "shcl-test"
-  :description "Shcl tests, tests for a lisp shell"
-  :version "0.0.1"
-  :author "Brad Jensen <brad@bradjensen.net>"
-  :licence "All rights reserved."
-  :depends-on ("prove")
-  :components ((:file "test/lexer")
-               (:file "test/utility")
-               (:file "test/environment")
-               (:file "test/posix")
-               (:file "test/main")))

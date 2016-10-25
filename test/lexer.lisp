@@ -1,6 +1,6 @@
-(defpackage :shcl-test.lexer
+(defpackage :shcl-test/lexer
   (:use :common-lisp :prove :shcl/lexer))
-(in-package :shcl-test.lexer)
+(in-package :shcl-test/lexer)
 
 (defun lexes-to-token-types (string &rest tokens)
   (let ((real-tokens (tokenize string)))

@@ -1,6 +1,6 @@
-(defpackage :shcl-test.utility
+(defpackage :shcl-test/utility
   (:use :common-lisp :prove :shcl/utility))
-(in-package :shcl-test.utility)
+(in-package :shcl-test/utility)
 
 (defparameter *value* 0)
 (define-once-global test-global (incf *value*))
