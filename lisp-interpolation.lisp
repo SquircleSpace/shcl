@@ -1,6 +1,7 @@
 (defpackage :shcl/lisp-interpolation
   (:use :common-lisp :shcl/utility :shcl/lexer :shcl/shell-grammar
-        :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin :shcl/exit-info)
+        :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin :shcl/exit-info
+        :shcl/fd-table)
   (:import-from :fset)
   (:import-from :shcl/evaluate)
   (:import-from :shcl/posix)
@@ -157,32 +158,34 @@
               (debug-log 'status "READ ~A BYTES" (length part))
               (write-string part output-buffer))
             :while (not (zerop (length part)))))
-    (shcl/evaluate::fd-release retained-fd)
+    (fd-release retained-fd)
     (shcl/thread:semaphore-signal semaphore)))
 
 (defun %capture (streams shell-command-fn)
-  (shcl/evaluate::with-fd-scope ()
+  (with-fd-scope ()
     (let ((fds (mapcar 'decode-stream-descriptor streams))
           (result-buffer (make-string-output-stream))
           (semaphore (shcl/thread:make-semaphore)))
-      (multiple-value-bind (read-end write-end) (shcl/evaluate::pipe-retained)
+      (multiple-value-bind (read-end write-end) (pipe-retained)
         (unwind-protect
              (progn
-               (dolist (fd fds)
-                 (shcl/evaluate::bind-fd fd write-end))
-               (shcl/evaluate::fd-retain read-end)
-               (bordeaux-threads:make-thread (lambda () (consume read-end result-buffer semaphore)))
+               (with-fd-scope ()
+                 (dolist (fd fds)
+                   (bind-fd fd write-end))
+                 (fd-retain read-end)
+                 (bordeaux-threads:make-thread
+                  (lambda () (consume read-end result-buffer semaphore)))
 
-               (funcall shell-command-fn)
+                 (funcall shell-command-fn))
 
-               (shcl/evaluate::fd-release write-end)
+               (fd-release write-end)
                (setf write-end nil)
                (shcl/thread:semaphore-wait semaphore)
                (get-output-stream-string result-buffer))
           (when read-end
-            (shcl/evaluate::fd-release read-end))
+            (fd-release read-end))
           (when write-end
-            (shcl/evaluate::fd-release write-end)))))))
+            (fd-release write-end)))))))
 
 (defmacro capture ((&rest streams) shell-command)
   (setf shell-command `(check-result () ,shell-command))
