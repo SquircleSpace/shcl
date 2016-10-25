@@ -223,3 +223,15 @@
              (exit-lisp-repl ()
                (return-to-shell)))))))
   0)
+
+(defmethod bake-form-for-token ((command-word command-word))
+  `(setf (command-word-evaluate-fn ,command-word)
+         (lambda ()
+           (capture (:stdout)
+             (parse-token-sequence ,(coerce (command-word-tokens command-word) 'list))))))
+
+(defmethod expand ((command-word command-word))
+  (let ((s (funcall (command-word-evaluate-fn command-word))))
+    (if *split-fields*
+        (split s)
+        (fset:seq (make-string-fragment s)))))
