@@ -10,4 +10,5 @@
                "shcl-test/utility"
                "shcl-test/environment"
                "shcl-test/posix"
+               "shcl-test/lisp-interpolation"
                "shcl-test/main"))
