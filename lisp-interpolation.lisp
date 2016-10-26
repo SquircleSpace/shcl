@@ -8,7 +8,8 @@
   (:import-from :shcl/thread)
   (:import-from :bordeaux-threads)
   (:export
-   #:enable-shell-splice-syntax #:enable-reader-syntax))
+   #:enable-shell-splice-syntax #:enable-reader-syntax #:evaluate-shell-string
+   #:exit-failure #:check-result #:capture))
 (in-package :shcl/lisp-interpolation)
 
 (defclass lisp-form (a-word)
@@ -96,6 +97,18 @@
 (defun enable-shell-splice-syntax ()
   (make-shell-dispatch-character #\, :default-handler 'read-lisp-form)
   (set-shell-dispatch-character #\, #\@ 'read-lisp-splice-form))
+
+(defmacro evaluate-constant-shell-string (string)
+  (assert (typep string 'string) (string) "Only constant shell strings can be evaluated by this macro")
+  `(parse-token-sequence ,(coerce (tokens-in-string string) 'list)))
+
+(defun evaluate-shell-string (string)
+  (eval `(evaluate-constant-shell-string ,string)))
+
+(define-compiler-macro evaluate-shell-string (&whole form string)
+  (if (typep string 'string)
+      `(evaluate-constant-shell-string ,string)
+      form))
 
 (defmacro parse-token-sequence (tokens)
   (let ((oven (make-extensible-vector)))
