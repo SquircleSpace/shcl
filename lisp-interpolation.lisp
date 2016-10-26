@@ -39,7 +39,7 @@
              (let ((,seq ,(slot-value lisp-form 'form))
                    (,result (fset:empty-seq)))
                (do-iterator (,thing (iterator ,seq))
-                 (fset:push-last ,result (make-string-fragment (format nil "~A" thing) :quoted t))
+                 (fset:push-last ,result (make-string-fragment (format nil "~A" ,thing) :quoted t))
                  (fset:push-last ,result (word-boundary)))
                (setf ,result (fset:less-last ,result))
                ,result)))))
