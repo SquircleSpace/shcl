@@ -30,8 +30,8 @@ Put this at the top of every file!"
     `(eval-when (,@times)
        (defvar ,once-token)
        (unless (boundp ',once-token)
-         (setf ,once-token (progn ,@body)))
-       ,once-token)))
+         (setf (symbol-value ',once-token) (progn ,@body)))
+       (symbol-value ',once-token))))
 
 (defmacro define-once-global (name initform &body options)
   "Define a global variable.
