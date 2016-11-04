@@ -77,43 +77,48 @@
     :initform nil)))
 
 (defmethod closer-mop:finalize-inheritance :after ((class data-class))
-  (eval
-   `(defmethod clone ((object ,(class-name class)))
-        (clone-slots ,(mapcar #'closer-mop:slot-definition-name (closer-mop:class-slots class))
-         object
-         (make-instance ',(class-name class)))))
+  (let ((slot-names (mapcar 'closer-mop:slot-definition-name
+                            (closer-mop:class-slots class))))
+    (eval
+     `(defmethod clone ((object ,(class-name class)))
+          (clone-slots ,slot-names
+           object
+           (make-instance ',(class-name class)))))
 
-  (eval
-   `(defmethod fset:compare ((first ,(class-name class)) (second ,(class-name class)))
-        (let ((result (fset:compare-slots
-                       first second
-                       ,@(mapcar (lambda (s) `',(closer-mop:slot-definition-name s))
-                                 (closer-mop:class-slots class)))))
-          (cond
-            ;; If they are :equal, then we need to make sure we
-            ;; considered all the slots.
-            ((not (eq :equal result)))
+    (eval
+     `(defmethod fset:compare ((first ,(class-name class)) (second ,(class-name class)))
+          (let ((result (fset:compare-slots
+                         first second
+                         ,@(mapcar (lambda (s) `',s) slot-names))))
+            (cond
+              ;; If they are :equal, then we need to make sure we
+              ;; considered all the slots.
+              ((not (eq :equal result)))
 
-            ;; If they are the same class, then we considered all the
-            ;; slots.  We don't have to worry about subclasses because
-            ;; subclasses would have their own method on compare.
-            ((eq (class-of first) (class-of second))
-             (assert (eq (find-class ',(class-name class)) (class-of first))))
+              ;; If they are the same class, then we considered all the
+              ;; slots.  We don't have to worry about subclasses because
+              ;; subclasses would have their own method on compare.
+              ((eq (class-of first) (class-of second))
+               (assert (eq (find-class ',(class-name class)) (class-of first))))
 
-            ;; If second is a derived type, then first is less
-            ((typep second (type-of first))
-             (setf result :less))
+              ;; If second is a derived type, then first is less
+              ((typep second (type-of first))
+               (setf result :less))
 
-            ;; If first is a derived type, then first is greater
-            ((typep first (type-of second))
-             (setf result :greater))
+              ;; If first is a derived type, then first is greater
+              ((typep first (type-of second))
+               (setf result :greater))
 
-            ;; They are both derived types!  We've compared all their
-            ;; common slots and didn't find an order, so they are
-            ;; unequal.
-            (t
-             (setf result :unequal)))
-          result))))
+              ;; They are both derived types!  We've compared all their
+              ;; common slots and didn't find an order, so they are
+              ;; unequal.
+              (t
+               (setf result :unequal)))
+            result)))
+
+    (eval
+     `(defmethod make-load-form ((object ,(class-name class)) &optional environment)
+          (make-load-form-saving-slots object :slot-names ',slot-names :environment environment)))))
 
 (defmethod initialize-instance :around ((slot direct-data-slot) &rest initargs)
   (declare (ignore initargs))
