@@ -2,6 +2,29 @@
   (:use :common-lisp :prove :shcl/utility))
 (in-package :shcl-test/utility)
 
+(defparameter *once-eval-when-value* 0)
+(eval-once-when (:compile-toplevel :load-toplevel :execute)
+  (incf *once-eval-when-value*))
+
+(defparameter *once-when-fn-value* 0)
+
+;; So we don't get warnings
+(defun once-when-in-function ()
+  *once-when-fn-value*)
+
+(deftest once-when
+  (is 1 *once-eval-when-value*)
+  (setf *once-when-fn-value* 0)
+  ;; Redefine the function so that we get a new once token
+  (eval '(defun once-when-in-function ()
+          (eval-once-when (:execute)
+           (incf *once-when-fn-value*))
+          *once-when-fn-value*))
+  (once-when-in-function)
+  (is 1 *once-when-fn-value*)
+  (once-when-in-function)
+  (is 1 *once-when-fn-value*))
+
 (defparameter *value* 0)
 (define-once-global test-global (incf *value*))
 
