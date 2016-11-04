@@ -7,14 +7,6 @@
 
 (optimization-settings)
 
-(defmacro eval-once-when ((&rest times) &body body)
-  (let ((once-token (gensym "ONCE-TOKEN")))
-    `(eval-when (,@times)
-       (defvar ,once-token)
-       (unless (boundp ',once-token)
-         (setf ,once-token (progn ,@body)))
-       ,once-token)))
-
 (defmacro define-cloning-accessor (name &key slot-name accessor)
   (unless (and (or slot-name accessor) (not (and slot-name accessor)))
     (error "define-cloning-accessor requires either a slot-name xor an accessor function"))

@@ -4,9 +4,9 @@
   (:import-from :closer-mop)
   (:shadow #:when-let #:when-let*)
   (:export
-   #:define-once-global #:required #:required-argument-missing #:optimization-settings
-   #:when-let #:when-let* #:try #:debug-log #:logging-enabled-p #:status
-   #:make-extensible-vector
+   #:eval-once-when #:define-once-global #:required #:required-argument-missing
+   #:optimization-settings #:when-let #:when-let* #:try #:debug-log
+   #:logging-enabled-p #:status #:make-extensible-vector
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
    #:observe-revival #:on-dump #:observe-dump
@@ -24,6 +24,14 @@ Put this at the top of every file!"
   `(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0))))
 
 (optimization-settings)
+
+(defmacro eval-once-when ((&rest times) &body body)
+  (let ((once-token (gensym "ONCE-TOKEN")))
+    `(eval-when (,@times)
+       (defvar ,once-token)
+       (unless (boundp ',once-token)
+         (setf ,once-token (progn ,@body)))
+       ,once-token)))
 
 (defmacro define-once-global (name initform &body options)
   "Define a global variable.
