@@ -1,7 +1,7 @@
 (defpackage :shcl/lisp-interpolation
   (:use :common-lisp :shcl/utility :shcl/lexer :shcl/shell-grammar
         :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin :shcl/exit-info
-        :shcl/fd-table)
+        :shcl/fd-table :shcl/shell-readtable)
   (:import-from :fset)
   (:import-from :shcl/evaluate)
   (:import-from :shcl/posix)
@@ -9,7 +9,8 @@
   (:import-from :bordeaux-threads)
   (:export
    #:enable-shell-splice-syntax #:enable-reader-syntax #:evaluate-shell-string
-   #:exit-failure #:check-result #:capture))
+   #:evaluate-constant-shell-string #:exit-failure #:check-result #:capture
+   #:*splice-table*))
 (in-package :shcl/lisp-interpolation)
 
 (defclass lisp-form (a-word)
@@ -64,51 +65,57 @@
   (lexer-context-mark-end-of-token context)
   t)
 
+(define-shell-readtable *splice-table*
+  (with-dispatch-character ",")
+  (with-default-handler "," 'read-lisp-form)
+  (with-handler ",@" 'read-lisp-splice-form))
+
+(define-shell-readtable *exit-reader-macro-table*
+  (with-dispatch-character "#")
+  (with-default-handler "#" 'hash-default-handler)
+  (with-handler "#$" 'end-shell-parse))
+
+(define-shell-readtable *interpolation-table*
+  (use-table *splice-table*)
+  (use-table *exit-reader-macro-table*))
+
+(defvar *proper-end-found* nil)
+
+(defun end-shell-parse (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-mark-end-of-token context)
+  (setf *proper-end-found* t)
+  t)
+
 (defun read-shell-command (stream subchar arg)
   (declare (ignore subchar arg))
-  (let ((*shell-readtable* *shell-readtable*)
-        proper-end-found)
-    (make-shell-dispatch-character #\# :default-handler 'hash-default-handler)
-    (labels
-        ((end-shell-parse (s is context)
-           (declare (ignore s is))
-           (lexer-context-mark-end-of-token context)
-           (setf proper-end-found t)
-           t))
-      (set-shell-dispatch-character #\# #\$ #'end-shell-parse))
-    (enable-shell-splice-syntax)
-    (let* ((raw-token-iter (token-iterator stream))
+  (let ((*proper-end-found* nil))
+    (let* ((raw-token-iter (token-iterator stream :readtable *interpolation-table*))
            (token-iter
             (make-iterator ()
-              (when proper-end-found
+              (when *proper-end-found*
                 (stop))
               (multiple-value-bind (value more) (next raw-token-iter)
                 (if more
                     (emit value)
                     (stop)))))
            (tokens (iterator-values token-iter)))
-      (unless proper-end-found
+      (unless *proper-end-found*
         (error "Expected #$ before EOF"))
       `(parse-token-sequence ,(coerce tokens 'list)))))
 
 (defun enable-reader-syntax ()
   (set-dispatch-macro-character #\# #\$ 'read-shell-command))
 
-(defun enable-shell-splice-syntax ()
-  (make-shell-dispatch-character #\, :default-handler 'read-lisp-form)
-  (set-shell-dispatch-character #\, #\@ 'read-lisp-splice-form))
-
-(defmacro evaluate-constant-shell-string (string)
+(defmacro evaluate-constant-shell-string (string &key (readtable *interpolation-table*))
   (assert (typep string 'string) (string) "Only constant shell strings can be evaluated by this macro")
-  `(parse-token-sequence ,(coerce (tokens-in-string string) 'list)))
+  (let ((table (typecase readtable
+                 (symbol (symbol-value readtable))
+                 (t readtable))))
+    `(parse-token-sequence ,(coerce (tokens-in-string string :readtable table) 'list))))
 
-(defun evaluate-shell-string (string)
-  (eval `(evaluate-constant-shell-string ,string)))
-
-(define-compiler-macro evaluate-shell-string (&whole form string)
-  (if (typep string 'string)
-      `(evaluate-constant-shell-string ,string)
-      form))
+(defun evaluate-shell-string (string &key (readtable *splice-table*))
+  (eval `(evaluate-constant-shell-string ,string ,@(when readtable `(:readtable ,readtable)))))
 
 (defmacro parse-token-sequence (tokens)
   (let ((oven (make-extensible-vector)))
@@ -205,12 +212,6 @@
   (when (null streams)
     (return-from capture `(progn ,shell-command "")))
   `(%capture (list ,@streams) (lambda () ,shell-command)))
-
-(define-builtin enable-lisp-syntax (args)
-  (unless (equal 1 (fset:size args))
-    (return-from enable-lisp-syntax 1))
-  (enable-shell-splice-syntax)
-  0)
 
 (defun return-to-shell ()
   (throw 'return-to-shell t))

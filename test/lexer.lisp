@@ -1,5 +1,5 @@
 (defpackage :shcl-test/lexer
-  (:use :common-lisp :prove :shcl/lexer))
+  (:use :common-lisp :prove :shcl/lexer :shcl/shell-readtable))
 (in-package :shcl-test/lexer)
 
 (defun lexes-to-token-types (string &rest tokens)
@@ -51,10 +51,9 @@
   (make-instance 'form-token :form value))
 
 (deftest extensible-reading
-  (let* ((*shell-readtable* *shell-readtable*)
+  (let* ((readtable +standard-shell-readtable+)
          (stream (make-string-input-stream "[(+ 1 2 3)#,\"asdf\"#.stuff"))
          s-reader-ran)
-    (reset-shell-readtable)
     (labels
         (([-reader (s i c)
            (declare (ignore i c))
@@ -65,40 +64,44 @@
          (default-s-reader (s i c)
            (declare (ignore s i c))
            (setf s-reader-ran t)
-           "s"))
+           "s")
+         (r ()
+           (lexer-context-shell-extensible-read-from-stream stream readtable)))
       ;; Simple reader
-      (set-character-handler #\[ #'[-reader)
+      (setf readtable (with-handler readtable "[" #'[-reader))
       (is
        '(+ 1 2 3)
-       (form-token-form (shell-extensible-read stream))
+       (form-token-form (r))
        :test #'equal)
 
       ;; Dispatch reader
-      (make-shell-dispatch-character #\# :default-handler (constantly t))
-      (set-shell-dispatch-character #\# #\, #'comma-reader)
+      (setf readtable (with-dispatch-character readtable "#"))
+      (setf readtable (with-default-handler readtable "#" (constantly t)))
+      (setf readtable (with-handler readtable "#," #'comma-reader))
       ;; two-character sequence
       (is
        "asdf"
-       (form-token-form (shell-extensible-read stream))
+       (form-token-form (r))
        :test #'equal)
 
       ;; Dispatch char fallback (and commenting)
       (is
        t
-       (shell-extensible-read stream))
+       (r))
 
       ;; Ultimate fallback (No matches at all)
       (is
        nil
-       (shell-extensible-read stream))
+       (r))
 
       (is (read-char stream nil :eof) #\.
           :test #'equal)
 
       ;; Dispatch char fallback (normal case)
-      (make-shell-dispatch-character #\s :default-handler #'default-s-reader)
+      (setf readtable (with-dispatch-character readtable "s"))
+      (setf readtable (with-default-handler readtable "s" #'default-s-reader))
       (is
        "s"
-       (shell-extensible-read stream)
+       (r)
        :test #'equal)
       (ok s-reader-ran))))

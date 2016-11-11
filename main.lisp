@@ -1,6 +1,7 @@
 (defpackage :shcl/main
   (:use :common-lisp :shcl/lexer :shcl/shell-grammar :shcl/utility
-        :shcl/evaluate :shcl/baking :shcl/thread :shcl/lisp-interpolation)
+        :shcl/evaluate :shcl/baking :shcl/thread :shcl/lisp-interpolation
+        :shcl/shell-readtable :shcl/builtin)
   (:import-from :shcl/posix #:exit)
   (:import-from :trivial-gray-streams)
   (:import-from :cl-cli)
@@ -9,6 +10,8 @@
 (in-package :shcl/main)
 
 (optimization-settings)
+
+(defparameter *shell-readtable* +standard-shell-readtable+)
 
 (defclass echo (trivial-gray-streams:fundamental-character-output-stream)
     ())
@@ -27,10 +30,12 @@
 (defun main-token-iterator (stream form-queue)
   (lookahead-iterator-wrapper
    (bake-tokens
-    (map-iterator (token-iterator stream)
-                  (lambda (x)
-                    (debug-log 'status "TOKEN: ~A~%" x)
-                    x))
+    (make-iterator ()
+      (let ((token (next-token stream :readtable *shell-readtable*)))
+        (debug-log 'status "TOKEN: ~A~%" token)
+        (when (typep token 'eof)
+          (stop))
+        (emit token)))
     form-queue)))
 
 (defun display-prompt (input-stream output-stream)
@@ -110,6 +115,12 @@
 (defun run-shell-commands-in-string (string)
   (run-shell-commands-in-stream (make-string-input-stream string)))
 
+(define-builtin enable-lisp-syntax (args)
+  (unless (equal 1 (fset:size args))
+    (return-from enable-lisp-syntax 1))
+  (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
+  0)
+
 (defun main ()
   (observe-revival)
   (with-options ((uiop:raw-command-line-arguments))
@@ -118,6 +129,6 @@
       (return-from main))
 
     (when *enable-lisp-splice*
-      (enable-shell-splice-syntax))
+      (setf *shell-readtable* *splice-table*))
 
     (run-shell-commands-in-stream *standard-input* :prompt-stream *standard-output*)))
