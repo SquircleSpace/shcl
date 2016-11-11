@@ -126,3 +126,14 @@
     (is 0 count :test #'equal)
     (is nil (next fork) :test #'equal)
     (is 0 count :test #'equal)))
+
+(deftest threading-macros
+  (is-expand (-> 0 (+ 1) (abs) #'-)
+             (as-> 0 $ (+ $ 1) (abs $) (funcall #'- $))
+             "-> works")
+  (is-expand (->> 0 (+ 1) (abs) #'-)
+             (as-> 0 $ (+ 1 $) (abs $) (funcall #'- $))
+             "->> works")
+  (is-expand (as-> 0 v (+ 1 v) (abs v) (funcall #'- v))
+             (funcall #'- (abs (+ 1 0)))
+             "as-> works"))
