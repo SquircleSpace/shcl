@@ -18,7 +18,7 @@
 (deftest check-result
   (exit-ok (shell "true"))
   (exit-fail (shell "false"))
-  (exit-ok (check-result (shell "true")))
+  (exit-ok (check-result () (shell "true")))
   (exit-fail
    (let (signaled)
      (handler-bind
@@ -27,7 +27,7 @@
              (setf signaled t)
              (pass "exit-failure signal is expected")
              (continue c))))
-       (let ((result (check-result (shell "false"))))
+       (let ((result (check-result () (shell "false"))))
          (unless signaled
            (fail "exit-failure signal is expected"))
          result)))))
@@ -39,3 +39,19 @@
   (is (capture (:stdout :stderr 3) (shell "echo foo && echo bar >&2 ; echo baz >&3"))
       (format nil "foo~%bar~%baz~%")
       :test #'equal))
+
+(deftest splice
+  (let ((lexical-variable "ABC"))
+    (is (capture (:stdout) (evaluate-constant-shell-string "echo ,lexical-variable" :readtable *splice-table*))
+        (format nil "ABC~%")
+        :test #'equal))
+
+  (let ((lexical-vector #("A " "b")))
+    (is (capture (:stdout) (evaluate-constant-shell-string "echo ,@lexical-vector" :readtable *splice-table*))
+        (format nil "A  b~%")
+        :test #'equal))
+
+  (let ((lexical-seq (fset:seq "A " "b")))
+    (is (capture (:stdout) (evaluate-constant-shell-string "echo ,@lexical-seq" :readtable *splice-table*))
+        (format nil "A  b~%")
+        :test #'equal)))

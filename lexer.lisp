@@ -1,5 +1,5 @@
 (defpackage :shcl/lexer
-  (:use :common-lisp :shcl/utility)
+  (:use :common-lisp :shcl/utility :shcl/shell-readtable)
   (:import-from :fset)
   (:import-from :closer-mop)
   (:import-from :cl-unicode)
@@ -28,29 +28,14 @@
 
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream
+   #:next-token
 
    ;; Extensible reading
-   #:set-character-handler #:make-shell-dispatch-character
-   #:set-shell-dispatch-character #:*shell-readtable*
-   #:shell-extensible-read #:reset-shell-readtable
-   #:lexer-context-mark-end-of-token))
+   #:lexer-context-mark-end-of-token
+   #:lexer-context-shell-extensible-read-from-stream))
 (in-package :shcl/lexer)
 
 (optimization-settings)
-
-(define-once-global +empty-shell-readtable+ (fset:empty-map))
-(defparameter *shell-readtable* +empty-shell-readtable+)
-(defun reset-shell-readtable ()
-  (setf *shell-readtable* +empty-shell-readtable+))
-
-(defmacro define-make-load-form-for-class (class-name)
-  (let ((object (gensym "OBJECT"))
-        (environment (gensym "ENVIRONMENT"))
-        (slots (gensym "SLOTS")))
-    `(defmethod make-load-form ((,object ,class-name) &optional ,environment)
-       (assert (eq ',class-name (class-name (class-of ,object))))
-       (let ((,slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (find-class ',class-name)))))
-         (make-load-form-saving-slots ,object :slot-names ,slots :environment ,environment)))))
 
 (defclass token ()
   ((value :type (or null string)
@@ -59,13 +44,14 @@
           :initarg :value)))
 (defmethod print-object ((token token) stream)
   (format stream "#<~A ~W>" (class-name (class-of token)) (token-value token)))
-(define-make-load-form-for-class token)
+(defmethod make-load-form ((token token) &optional environment)
+  (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of token)))))
+    (make-load-form-saving-slots token :slot-names slots :environment environment)))
 
 (defclass eof (token)
   ((value :initform "<EOF>")))
 (defmethod print-object ((eof eof) stream)
   (format stream "#<EOF>"))
-(define-make-load-form-for-class eof)
 (define-once-global +eof+ (make-instance 'eof))
 
 (defun plusify (symbol)
@@ -73,7 +59,6 @@
 
 (defclass a-word (token)
   ())
-(define-make-load-form-for-class a-word)
 
 (defclass simple-word (a-word)
   ((text
@@ -83,7 +68,6 @@
     :type string)))
 (defmethod print-object ((simple-word simple-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of simple-word)) (simple-word-text simple-word)))
-(define-make-load-form-for-class simple-word)
 
 (defclass compound-word (a-word)
   ((parts :type vector
@@ -92,7 +76,6 @@
           :initarg :parts)))
 (defmethod print-object ((compound-word compound-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of compound-word)) (compound-word-parts compound-word)))
-(define-make-load-form-for-class compound-word)
 
 (defclass assignment-word (a-word)
   ((name
@@ -107,7 +90,6 @@
     :accessor assignment-word-value-word)))
 (defmethod print-object ((word assignment-word) stream)
   (format stream "#<~A ~S = ~S>" (class-name (class-of word)) (assignment-word-name word) (assignment-word-value-word word)))
-(define-make-load-form-for-class assignment-word)
 
 (defun make-assignment-word-from-parts (parts raw)
   (let* ((first-part (aref parts 0))
@@ -131,7 +113,6 @@
 
 (defclass name (simple-word)
   ())
-(define-make-load-form-for-class name)
 
 (defclass io-number (token)
   ((fd
@@ -141,7 +122,6 @@
     :initarg :fd)))
 (defmethod print-object ((io-number io-number) stream)
   (format stream "#<~A ~S>" (class-name (class-of io-number)) (io-number-fd io-number)))
-(define-make-load-form-for-class io-number)
 
 (defun name-p (word)
   (labels ((first-okay (char)
@@ -177,7 +157,6 @@
   (if *print-literals-by-name*
       (format stream "#<~A>" (class-name (class-of literal-token)))
       (format stream "#<LITERAL-TOKEN ~W>" (token-value literal-token))))
-(define-make-load-form-for-class literal-token)
 
 (defmacro define-literal-token (name string &optional (superclasses '(literal-token)) slots &body options)
   `(progn
@@ -185,8 +164,7 @@
        ((value :initform ,string)
         (string :initform ,string)
         ,@slots)
-       ,@options)
-     (define-make-load-form-for-class ,name)))
+       ,@options)))
 
 (define-literal-token newline (string #\linefeed))
 (define-once-global +newline+ (make-instance 'newline))
@@ -240,7 +218,6 @@
 
 (defclass reserved-word (a-word literal-token)
   ())
-(define-make-load-form-for-class reserved-word)
 
 (defmacro define-reserved-word (name string &optional (superclasses '(reserved-word)) slots &body options)
   (check-type name symbol)
@@ -287,7 +264,6 @@
     :accessor single-quote-contents)))
 (defmethod print-object ((single-quote single-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of single-quote)) (single-quote-contents single-quote)))
-(define-make-load-form-for-class single-quote)
 
 (defun read-single-quote (stream)
   (let* ((all-chars-stream (make-string-output-stream))
@@ -314,7 +290,6 @@
 
 (defclass escaped-character (single-quote)
   ())
-(define-make-load-form-for-class escaped-character)
 
 (defun make-escaped-character (char)
   (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\\ char)))
@@ -326,7 +301,6 @@
           :initarg :parts)))
 (defmethod print-object ((double-quote double-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
-(define-make-load-form-for-class double-quote)
 
 (defun read-double-quote (stream)
   (let ((token-value (make-extensible-vector :element-type 'character))
@@ -398,7 +372,6 @@
     :accessor command-word-evaluate-fn)))
 (defmethod print-object ((command-word command-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
-(define-make-load-form-for-class command-word)
 
 (defun read-dollar-paren (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -468,7 +441,6 @@
     :type string)))
 (defmethod print-object ((word variable-expansion-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of word)) (variable-expansion-word-variable word)))
-(define-make-load-form-for-class variable-expansion-word)
 
 (defun read-dollar-curly (stream)
   (declare (ignore stream))
@@ -517,9 +489,9 @@
 (defun blank-p (char)
   (cl-unicode:has-binary-property char "White_Space"))
 
-(defun token-iterator (stream)
+(defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
-    (let ((token (next-token stream)))
+    (let ((token (next-token stream :readtable readtable)))
       (when (typep token 'eof)
         (stop))
       (emit token))))
@@ -532,12 +504,12 @@
 (defmethod tokenize ((string string))
   (tokens-in-string string))
 
-(defun tokens-in-string (string)
-  (tokens-in-stream (make-string-input-stream string)))
+(defun tokens-in-string (string &key (readtable +standard-shell-readtable+))
+  (tokens-in-stream (make-string-input-stream string) :readtable readtable))
 
-(defun tokens-in-stream (stream)
+(defun tokens-in-stream (stream &key (readtable +standard-shell-readtable+))
   (let ((result (make-extensible-vector)))
-    (do-iterator (value (token-iterator stream))
+    (do-iterator (value (token-iterator stream :readtable readtable))
       (vector-push-extend value result))
     result))
 
@@ -565,9 +537,9 @@
 (defmethod shared-initialize :around ((instance lexer-context) slots &rest args &key &allow-other-keys)
   (declare (ignore args))
   (with-slots (all-chars-stream stream raw-stream) instance
-    (let ((before (if (slot-boundp instance 'raw-stream) raw-stream (gensym)))
+    (let ((before (if (slot-boundp instance 'raw-stream) raw-stream '#:before))
           (result (call-next-method))
-          (after (if (slot-boundp instance 'raw-stream) raw-stream (gensym))))
+          (after (if (slot-boundp instance 'raw-stream) raw-stream '#:after)))
       (unless (eq before after)
         (setf stream (make-echo-stream raw-stream all-chars-stream)))
       result)))
@@ -672,134 +644,19 @@
             (t
              (error "All cases should be covered above"))))))
 
-(defclass dispatch-char ()
-  ((table
-    :type fset:map
-    :initform (fset:empty-map)
-    :initarg :table
-    :reader dispatch-char-table)
-   (fallback
-    :type (or null symbol function)
-    :initform nil
-    :initarg :fallback
-    :reader dispatch-char-fallback)))
-
-(define-once-global +default-dispatch-char+ (make-instance 'dispatch-char))
-
-(defun make-dispatch-char-description
-    (&key (based-on +default-dispatch-char+)
-       (table nil table-p) (fallback nil fallback-p))
-  (unless (or table-p fallback-p)
-    (return-from make-dispatch-char-description based-on))
-
-  (make-instance
-   'dispatch-char
-   :table (if table-p table (dispatch-char-table based-on))
-   :fallback (if fallback-p fallback (dispatch-char-fallback based-on))))
-
-(define-condition character-already-set (error)
-  ((char
-    :accessor character-already-set-char
-    :initarg :char
-    :type character
-    :initform (required))
-   (value
-    :accessor character-already-set-value
-    :initarg :value
-    :initform (required)))
-  (:report (lambda (c s) (format s "~W is already set to ~A" (character-already-set-char c) (character-already-set-value c)))))
-
-(define-condition character-not-dispatch (error)
-  ((char
-    :accessor character-not-dispatch-char
-    :initform (required)
-    :initarg :char
-    :type character))
-  (:report (lambda (c s) (format s "~W is not a dispatch character" (character-not-dispatch-char c)))))
-
-(defun error-if-exists (character map)
-  (multiple-value-bind (old-value found) (fset:lookup map character)
-    (when found
-      (cerror "Continue and replace" 'character-already-set :char character :value old-value))))
-
-(defun set-character-handler (character fn &key (if-exists :error))
-  (assert (find if-exists #(:error :replace)))
-  (when (eq if-exists :error)
-    (error-if-exists character *shell-readtable*))
-  (setf *shell-readtable* (fset:with *shell-readtable* character fn)))
-
-(defun make-shell-dispatch-character (first-character &key (if-exists :error) (default-handler nil default-handler-p))
-  (assert (find if-exists #(:error :replace)))
-  (when (eq if-exists :error)
-    (error-if-exists first-character *shell-readtable*))
-  (multiple-value-bind (value found) (fset:lookup *shell-readtable* first-character)
-    (when (and found 'dispatch-char)
-      (when default-handler-p
-        (let ((replacement (make-dispatch-char-description
-                            :based-on value :fallback default-handler)))
-          (setf (fset:lookup *shell-readtable* first-character) replacement)))
-      (return-from make-shell-dispatch-character))
-    (setf (fset:lookup *shell-readtable* first-character) (make-dispatch-char-description :fallback default-handler))))
-
-(defun set-shell-dispatch-character (first-character second-character fn &key (if-exists :error))
-  (assert (find if-exists #(:error :replace)))
-  (macrolet
-      ((first-entry () '(fset:lookup *shell-readtable* first-character)))
-    (multiple-value-bind (first found) (first-entry)
-      (when (and found (not (typep first 'dispatch-char)))
-        (error 'character-not-dispatch :char first-character))
-      (when (eq if-exists :error)
-        (error-if-exists second-character (dispatch-char-table first)))
-      (let ((new-sub-table (fset:with (dispatch-char-table first) second-character fn)))
-        (setf (first-entry) (make-dispatch-char-description :based-on first :table new-sub-table))
-        t))))
-
-(defun %shell-extensible-read (stream map initiation-sequence fallback context)
-  (let ((next-char (peek-char nil stream nil :eof)))
-    (vector-push-extend next-char initiation-sequence)
-    (multiple-value-bind (value found) (fset:lookup map next-char)
-      (when (not found)
-        (return-from %shell-extensible-read (funcall fallback stream initiation-sequence context)))
-
-    (read-char stream nil :eof)
-    (let ((result
-           (typecase value
-             (dispatch-char
-              (let ((inner-fallback (dispatch-char-fallback value)))
-                (%shell-extensible-read stream
-                                        (dispatch-char-table value)
-                                        initiation-sequence
-                                        (if inner-fallback
-                                            inner-fallback
-                                            (lambda (s i c)
-                                              (declare (ignore s c))
-                                              (error "Unhandled dispatch character sequence ~A" i)))
-                                        context)))
-
-             (t
-              (funcall value stream initiation-sequence context)))))
-
-      (unless (or (eq result t) (typep result '(or string token)))
-        (error "Lexer extensions must return a token, got ~A" result))
-      result))))
-
-(defun shell-extensible-read-ingest (context)
+(defun lexer-context-shell-extensible-read (context readtable)
   (with-slots (stream) context
-    (labels
-        ((fallback (s initiation-sequence c)
-           (declare (ignore s c))
-           (assert (equal 1 (length initiation-sequence)) nil
-                   "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
-           (return-from shell-extensible-read-ingest nil)))
-      (%shell-extensible-read stream *shell-readtable* (make-extensible-vector) #'fallback context))))
+    (let ((result (shell-extensible-read stream context readtable)))
+      (unless (or (eq result nil) (eq result t) (typep result '(or string token)))
+        (error "Lexer extensions must return a token, got ~A" result))
+      result)))
 
-(defun shell-extensible-read (stream)
+(defun lexer-context-shell-extensible-read-from-stream (stream readtable)
   (let ((c (make-instance 'lexer-context :stream stream)))
-    (declare (dynamic-extent c))
-    (shell-extensible-read-ingest c)))
+    (lexer-context-shell-extensible-read c readtable)))
 
-(defun handle-extensible-syntax (context)
-  (let ((value (shell-extensible-read-ingest context)))
+(defun handle-extensible-syntax (context readtable)
+  (let ((value (lexer-context-shell-extensible-read context readtable)))
     (unless value
       (return-from handle-extensible-syntax nil))
     (when (eq t value)
@@ -810,7 +667,7 @@
       (token (lexer-context-add-part context value))))
   t)
 
-(defun next-token (stream)
+(defun next-token (stream &key (readtable +standard-shell-readtable+))
   (let* ((context (make-instance 'lexer-context :stream stream)))
     (labels ((next-char () (lexer-context-next-char context)))
 
@@ -869,7 +726,7 @@
                ((equal (next-char) #\')
                 (lexer-context-add-part context (read-single-quote stream))
                 (again))
-               ((equal (next-char) #\\)
+               ((equal (next-char) #\\ )
                 (lexer-context-consume-character context)
                 (unless (equal (next-char) #\Linefeed)
                   (lexer-context-add-part context (make-escaped-character (next-char))))
@@ -934,7 +791,7 @@
                 (lexer-context-consume-character context)
                 (again))
 
-               ((handle-extensible-syntax context)
+               ((handle-extensible-syntax context readtable)
                 (again))
 
                ;; If the previous character was part of a word, the
