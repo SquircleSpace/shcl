@@ -1,5 +1,6 @@
 (defpackage :shcl/parser
   (:use :common-lisp :alexandria :shcl/lexer :shcl/utility)
+  (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:define-parser #:syntax-iterator #:parse #:no-parse))
 (in-package :shcl/parser)
@@ -46,6 +47,10 @@
   ((raw-matches
     :initform nil
     :accessor raw-matches)))
+
+(defmethod make-load-form ((sy syntax-tree) &optional environment)
+  (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of sy)))))
+    (make-load-form-saving-slots sy :slot-names slots :environment environment)))
 
 (defmethod print-object ((st syntax-tree) stream)
   (format stream "~A" (cons (class-name (class-of st)) (slot-value st 'raw-matches))))
