@@ -2,6 +2,8 @@
   (:use :common-lisp :shcl/posix :prove))
 (in-package :shcl-test/posix)
 
+(plan 1)
+
 (defun verify-fds ()
   (let* ((exceptions (fset:union (fset:set 0 1 2)
                                  (fset:convert 'fset:set (compiler-owned-fds))))

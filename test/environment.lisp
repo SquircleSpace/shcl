@@ -2,6 +2,8 @@
   (:use :common-lisp :prove :shcl/environment))
 (in-package :shcl-test/environment)
 
+(plan 1)
+
 (defun contains-p (key)
   (nth-value 1 (env key)))
 
