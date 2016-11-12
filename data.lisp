@@ -146,7 +146,7 @@
     (error "metaclass option is forbidden"))
   ;; We need to eval the class definition now so that the updater
   ;; functions are generated.
-  `(eval-once-when (:compile-toplevel :load-toplevel :execute)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
      (defclass ,name ,direct-superclasses ,direct-slots
        (:metaclass data-class)
        ,@options)))

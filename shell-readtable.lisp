@@ -29,7 +29,7 @@
   (print-unreadable-object (table stream)
     (format stream "~A" (dispatch-table-characters table))))
 
-(eval-once-when (:compile-toplevel :load-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defparameter *empty-shell-readtable* (make-instance 'dispatch-table))
   (define-symbol-macro +standard-shell-readtable+ *empty-shell-readtable*))
 
@@ -322,7 +322,7 @@ The result of this macro is equivalent to
 
 (defmacro define-shell-readtable (name &body body)
   "Define a table suitable for use at compile time."
-  `(eval-once-when (:compile-toplevel :load-toplevel :execute)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
      (defparameter ,name (build-shell-readtable ,@body))))
 
 (defun %shell-extensible-read (stream readtable initiation-sequence fallback context)
