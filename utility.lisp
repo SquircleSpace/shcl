@@ -4,7 +4,7 @@
   (:import-from :closer-mop)
   (:shadow #:when-let #:when-let*)
   (:export
-   #:eval-once-when #:as-> #:-> #:->> #:define-once-global #:required
+   #:as-> #:-> #:->> #:define-once-global #:required
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:logging-enabled-p #:status #:make-extensible-vector
    ;; Hooks
@@ -24,14 +24,6 @@ Put this at the top of every file!"
   `(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0))))
 
 (optimization-settings)
-
-(defmacro eval-once-when ((&rest times) &body body)
-  (let ((once-token (gensym "ONCE-TOKEN")))
-    `(eval-when (,@times)
-       (defvar ,once-token)
-       (unless (boundp ',once-token)
-         (setf (symbol-value ',once-token) (progn ,@body)))
-       (symbol-value ',once-token))))
 
 (defmacro as-> (value sigil &body forms)
   (let ((form value))
