@@ -106,7 +106,8 @@
                (send-to (place form) `(push ,form ,place)))
       (multiple-value-bind (options nonterminals) (take-while #'grammar-option-form-p body)
         (let ((start-symbol (grammar-lookup-option :start-symbol options))
-              (terminals (grammar-lookup-option :terminals options)))
+              (terminals (grammar-lookup-option :terminals options))
+              (eof-symbol (grammar-lookup-option :eof-symbol options)))
 
           (unless (and start-symbol terminals)
             (error "Start symbol and terminals are required"))
@@ -129,6 +130,14 @@
                          (no-parse "Token mismatch" ',term)))
 
                      (next iter))))
+
+          (when eof-symbol
+            (send `(defmethod parse ((type (eql ',eof-symbol)) (iter lookahead-iterator))
+                     (multiple-value-bind (value more) (peek-lookahead-iterator iter)
+                       (declare (ignore value))
+                       (when more
+                         (no-parse "expected EOF" ',eof-symbol))
+                       ',eof-symbol))))
 
           ;; Now the nonterminals
           (dolist (nonterm nonterminals)
