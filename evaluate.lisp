@@ -192,10 +192,14 @@ The methods on this function are tightly coupled to the shell grammar."))
   (error 'not-implemented :message (format nil "Cannot eval ~A" (class-name (class-of sy)))))
 
 (defmethod evaluate ((sy complete-command))
-  (with-slots (newline-list complete-command) sy
-    (if (slot-boundp sy 'complete-command)
-        (return-from evaluate (evaluate-synchronous-job complete-command))
-        (return-from evaluate (truthy-exit-info)))))
+  (with-slots (newline-list complete-command command-list) sy
+    (cond
+      ((slot-boundp sy 'complete-command)
+       (return-from evaluate (evaluate-synchronous-job complete-command)))
+      ((slot-boundp sy 'command-list)
+       (return-from evaluate (evaluate-synchronous-job command-list)))
+      (t
+       (return-from evaluate (truthy-exit-info))))))
 
 (defun evaluate-command-list (sy)
   (with-slots (and-or separator-op command-list-tail) sy

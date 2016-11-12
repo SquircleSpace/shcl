@@ -21,6 +21,7 @@
 
 (define-parser *shell-grammar*
   (:start-symbol start)
+  (:eof-symbol eof)
   (:terminals
    (token a-word simple-word assignment-word name newline io-number and-if
           or-if dsemi dless dgreat lessand greatand lessgreat dlessdash
@@ -33,7 +34,11 @@
   (complete-command
    (newline-list complete-command)
    (newline-list)
-   command-list)
+   (command-list command-end))
+
+  (command-end
+   eof
+   newline)
 
   (command-list
    (and-or separator-op command-list-tail)
