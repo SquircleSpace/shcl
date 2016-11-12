@@ -1,5 +1,5 @@
 (defpackage :shcl-test/main
-  (:use :common-lisp :shcl/main :shcl/builtin :prove))
+  (:use :common-lisp :shcl/main :shcl/builtin :shcl/exit-info :prove))
 (in-package :shcl-test/main)
 
 (define-builtin testing-assert-equal (args)
@@ -14,7 +14,8 @@
 
 (deftest main
   (labels
-      ((run (s) (is (run-shell-commands-in-string s) 0
-                    :test #'equal)))
+      ((run (s) (ok (exit-info-true-p
+                     (run-shell-commands-in-string s))
+                    (format nil "Command exited with code 0: ~A" s))))
     (run "testing-assert-equal 0 0")
     (run "FOO=123 ; testing-assert-equal $FOO 123")))
