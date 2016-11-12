@@ -2,6 +2,8 @@
   (:use :common-lisp :prove :shcl/lisp-interpolation :shcl/exit-info))
 (in-package :shcl-test/lisp-interpolation)
 
+(plan 3)
+
 (defun shell (str)
   (evaluate-shell-string str))
 

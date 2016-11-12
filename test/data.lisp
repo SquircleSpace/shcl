@@ -3,6 +3,8 @@
   (:import-from :fset))
 (in-package :shcl-test/data)
 
+(plan 3)
+
 (define-data base ()
   ((a
     :initarg :a

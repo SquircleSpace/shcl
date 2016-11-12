@@ -2,6 +2,8 @@
   (:use :common-lisp :prove :shcl/lexer :shcl/shell-readtable))
 (in-package :shcl-test/lexer)
 
+(plan 3)
+
 (defun lexes-to-token-types (string &rest tokens)
   (let ((real-tokens (tokenize string)))
     (unless (equal (length real-tokens) (length tokens))
