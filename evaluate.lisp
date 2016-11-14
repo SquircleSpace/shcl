@@ -470,7 +470,3 @@ and io redirects."
     (unless (exit-info-p result)
       (warn 'not-an-exit-info :actual-type (class-name (class-of result)) :eval-target sy))
     result))
-
-(defmethod evaluate ((s string))
-  (do-iterator (command (command-iterator (token-iterator (make-string-input-stream s))))
-    (evaluate command)))
