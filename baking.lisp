@@ -38,3 +38,19 @@ are evaluated before the syntax tree is passed to `evaluate'.  See
            (enqueue form bakery-queue))
          token))
     (map-iterator token-iter #'bake)))
+
+(defun bake-form-for-parts (parts)
+  (let ((result (make-extensible-vector)))
+    (loop :for part :across parts :do
+       (let ((expansion (bake-form-for-token part)))
+         (when expansion
+           (vector-push-extend expansion result))))
+    (unless (zerop (length result))
+      `(progn
+         ,@(coerce result 'list)))))
+
+(defmethod bake-form-for-token ((token compound-word))
+  (bake-form-for-parts (compound-word-parts token)))
+
+(defmethod bake-form-for-token ((token double-quote))
+  (bake-form-for-parts (double-quote-parts token)))
