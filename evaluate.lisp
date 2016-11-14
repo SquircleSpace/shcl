@@ -320,17 +320,50 @@ The methods on this function are tightly coupled to the shell grammar."))
 
 (defun evaluate-term (sy)
   (with-slots (and-or separator term-tail) sy
-    (when (separator-par-p separator)
-      (evaluate-background-job and-or))
+    (let ((result
+           (if (separator-par-p separator)
+               (evaluate-background-job and-or)
+               (evaluate-synchronous-job and-or))))
 
-    (if term-tail
+      (if term-tail
         (return-from evaluate-term (evaluate-synchronous-job term-tail))
-        (return-from evaluate-term (truthy-exit-info)))))
+        (return-from evaluate-term result)))))
 
 (defmethod evaluate ((sy term))
   (evaluate-term sy))
 (defmethod evaluate ((sy term-tail))
   (evaluate-term sy))
+
+(defun wordlist-words (wordlist)
+  (let ((result (make-extensible-vector)))
+    (labels
+        ((handle (x)
+           (with-slots (a-word wordlist-tail) x
+             (vector-push-extend a-word result)
+             (when wordlist-tail
+               (handle wordlist-tail)))))
+      (handle wordlist)
+      result)))
+
+(defmethod evaluate ((sy for-clause))
+  (with-slots (name-nt in-nt wordlist sequential-sep do-group) sy
+    (unless (slot-boundp sy 'sequential-sep)
+      (error "Not implemented")) ;; We're supposed to treat it as implicitly in "$@"
+
+    (let* ((wordlist (if (slot-boundp sy 'wordlist)
+                        (wordlist-words wordlist)
+                        #()))
+           (words (expansion-for-words wordlist :expand-pathname t))
+           (name (simple-word-text (slot-value name-nt 'name)))
+           result)
+      (do-iterator (word (iterator words))
+        (setf (env name) word)
+        (setf result (evaluate-synchronous-job do-group)))
+      result)))
+
+(defmethod evaluate ((sy do-group))
+  (with-slots (compound-list) sy
+    (return-from evaluate (evaluate-synchronous-job compound-list))))
 
 (defun cmd-prefix-parts (prefix)
   "Given a cmd-prefix, separate it into the 2 things it
