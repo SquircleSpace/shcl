@@ -347,19 +347,21 @@ The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod evaluate ((sy for-clause))
   (with-slots (name-nt in-nt wordlist sequential-sep do-group) sy
-    (unless (slot-boundp sy 'sequential-sep)
-      (error "Not implemented")) ;; We're supposed to treat it as implicitly in "$@"
-
-    (let* ((wordlist (if (slot-boundp sy 'wordlist)
-                        (wordlist-words wordlist)
-                        #()))
+    (let* ((wordlist
+            (cond
+              ((not (slot-boundp sy 'sequential-sep))
+               `#(,(make-instance 'double-quote :parts `#(,(make-instance 'variable-expansion-word :variable "@")))))
+              ((slot-boundp sy 'wordlist)
+               (wordlist-words wordlist))
+              (t
+               #())))
            (words (expansion-for-words wordlist :expand-pathname t))
            (name (simple-word-text (slot-value name-nt 'name)))
            result)
       (do-iterator (word (iterator words))
         (setf (env name) word)
         (setf result (evaluate-synchronous-job do-group)))
-      result)))
+      (or result (make-exit-info :exit-status 0)))))
 
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
