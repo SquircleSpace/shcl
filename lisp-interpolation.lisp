@@ -263,7 +263,10 @@
              (parse-token-sequence ,(coerce (command-word-tokens command-word) 'list))))))
 
 (defmethod expand ((command-word command-word))
-  (let ((s (funcall (command-word-evaluate-fn command-word))))
+  (let* ((fn (command-word-evaluate-fn command-word))
+         (s (if fn
+                (funcall fn)
+                (error "command-word is missing its fn ~A" command-word))))
     (if *split-fields*
         (split s)
         (fset:seq (make-string-fragment s)))))
