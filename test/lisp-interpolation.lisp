@@ -2,7 +2,7 @@
   (:use :common-lisp :prove :shcl/lisp-interpolation :shcl/exit-info :shcl/builtin))
 (in-package :shcl-test/lisp-interpolation)
 
-(plan 6)
+(plan 7)
 
 (defun shell (str)
   (evaluate-shell-string str))
@@ -122,3 +122,27 @@ do
 echo $VAR
 done)"
        "For loops over non-empty lists work"))
+
+(deftest if
+  (exit-fail
+   (shell "if true ; then true ; false ; fi")
+   "Last exit code of then block is exit code of if")
+
+  (exit-ok
+   (shell "if true ; then true ; true ; fi")
+   "Last exit code of then block is exit code of if")
+
+  (is (capture (:stdout) (shell "if echo condition ; then echo truthy ; else echo falsey ; fi"))
+      (format nil "condition~%truthy~%")
+      :test #'equal
+      "Only the true branch runs")
+
+  (is (capture (:stdout) (shell "if echo condition && false ; then echo truthy ; else echo falsey ; fi"))
+      (format nil "condition~%falsey~%")
+      :test #'equal
+      "Only the else branch runs")
+
+  (is (capture (:stdout) (shell "if echo condition && false ; then echo truthy ; elif echo condition2 ; then echo elif-branch ; fi"))
+      (format nil "condition~%condition2~%elif-branch~%")
+      :test #'equal
+      "Only the elif branch runs"))

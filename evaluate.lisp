@@ -363,6 +363,23 @@ The methods on this function are tightly coupled to the shell grammar."))
         (setf result (evaluate-synchronous-job do-group)))
       (or result (make-exit-info :exit-status 0)))))
 
+(defun evaluate-if-clause (sy)
+  (check-type sy (or if-clause else-part))
+  (with-slots (condition body else-part) sy
+    (unless (slot-boundp sy 'condition)
+      (return-from evaluate-if-clause (evaluate body)))
+
+    (let ((condition-result (evaluate-synchronous-job condition)))
+      (when (exit-info-true-p condition-result)
+        (return-from evaluate-if-clause (evaluate-synchronous-job body)))
+
+      (if (slot-boundp sy 'else-part)
+          (return-from evaluate-if-clause (evaluate-if-clause else-part))
+          (return-from evaluate-if-clause (truthy-exit-info))))))
+
+(defmethod evaluate ((sy if-clause))
+  (evaluate-if-clause sy))
+
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
     (return-from evaluate (evaluate-synchronous-job compound-list))))

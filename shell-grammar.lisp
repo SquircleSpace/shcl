@@ -14,7 +14,7 @@
    #:redirect-list #:redirect-list-tail #:io-redirect #:io-file #:filename
    #:io-here #:here-end #:newline-list #:newline-list-tail #:linebreak
    #:separator-op #:separator #:command-separator #:sequential-sep
-   #:wordly-word #:redirect #:fd-description))
+   #:wordly-word #:redirect #:fd-description #:condition #:body))
 (in-package :shcl/shell-grammar)
 
 (optimization-settings)
@@ -153,13 +153,13 @@
    ())
 
   (if-clause
-   (if-word compound-list then compound-list fi)
-   (if-word compound-list then compound-list else-part fi))
+   (if-word (condition compound-list) then (body compound-list) fi)
+   (if-word (condition compound-list) then (body compound-list) else-part fi))
 
   (else-part
-   (elif compound-list then compound-list else-part)
-   (elif compound-list then compound-list)
-   (else compound-list))
+   (elif (condition compound-list) then (body compound-list) else-part)
+   (elif (condition compound-list) then (body compound-list))
+   (else (body compound-list)))
 
   (while-clause
    (while compound-list do-group))
