@@ -7,15 +7,15 @@
 (defun shell (str)
   (evaluate-shell-string str))
 
-(defun exit-ok (thing)
+(defun exit-ok (thing &optional description)
   (ok (and (typep thing 'exit-info)
            (exit-info-true-p thing))
-      "Expecting truthy status"))
+      (or description "Expecting truthy status")))
 
-(defun exit-fail (thing)
+(defun exit-fail (thing &optional description)
   (ok (and (typep thing 'exit-info)
            (exit-info-false-p thing))
-      "Expecting falsey status"))
+      (or description "Expecting falsey status")))
 
 (define-builtin testing-assert-equal (args)
   (let ((set (fset:convert 'fset:set (fset:less-first args))))
@@ -43,9 +43,15 @@
       (or description (format nil "Command exited with code 0: ~A" s))))
 
 (deftest check-result
-  (exit-ok (shell "true"))
-  (exit-fail (shell "false"))
-  (exit-ok (check-result () (shell "true")))
+  (exit-ok
+   (shell "true")
+   "True is true")
+  (exit-fail
+   (shell "false")
+   "False is false")
+  (exit-ok
+   (check-result () (shell "true"))
+   "check-result doesn't interfere with true")
   (exit-fail
    (let (signaled)
      (handler-bind
@@ -62,26 +68,31 @@
 (deftest capture
   (is (capture (:stdout) (shell "echo   \f'o'\"o\"   "))
       (format nil "foo~%")
-      :test #'equal)
+      :test #'equal
+      "Capturing works for basic strings")
   (is (capture (:stdout :stderr 3) (shell "echo foo && echo bar >&2 ; echo baz >&3"))
       (format nil "foo~%bar~%baz~%")
-      :test #'equal))
+      :test #'equal
+      "Capturing works for slightly more complex strings"))
 
 (deftest splice
   (let ((lexical-variable "ABC"))
     (is (capture (:stdout) (evaluate-constant-shell-string "echo ,lexical-variable" :readtable *splice-table*))
         (format nil "ABC~%")
-        :test #'equal))
+        :test #'equal
+        "Splicing a lexical string works"))
 
   (let ((lexical-vector #("A " "b")))
     (is (capture (:stdout) (evaluate-constant-shell-string "echo ,@lexical-vector" :readtable *splice-table*))
         (format nil "A  b~%")
-        :test #'equal))
+        :test #'equal
+        "Splicing a lexical vector works"))
 
   (let ((lexical-seq (fset:seq "A " "b")))
     (is (capture (:stdout) (evaluate-constant-shell-string "echo ,@lexical-seq" :readtable *splice-table*))
         (format nil "A  b~%")
-        :test #'equal)))
+        :test #'equal
+        "Splicing a lexical seq works")))
 
 (deftest test-infrastructure
   (run "testing-assert-equal 0 0"
