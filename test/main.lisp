@@ -1,5 +1,5 @@
 (defpackage :shcl-test/main
-  (:use :common-lisp :shcl/main :shcl/builtin :shcl/exit-info :prove))
+  (:use :common-lisp :shcl/builtin :shcl/exit-info :prove :shcl/lisp-interpolation))
 (in-package :shcl-test/main)
 
 (plan 1)
@@ -24,37 +24,34 @@
           (fail (format nil "Strings match ~A" args))
           1))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (require :sb-sprof))
+(defun run (s &optional description)
+  (ok (exit-info-true-p
+       (evaluate-shell-string s))
+      (or description (format nil "Command exited with code 0: ~A" s))))
 
 (deftest main
-  (labels
-      ((run (s &optional description)
-         (ok (exit-info-true-p
-              (run-shell-commands-in-string s))
-             (or description (format nil "Command exited with code 0: ~A" s)))))
-    (run "testing-assert-equal 0 0"
-         "Equality comparison works")
-    (run "testing-assert-unequal 1 0"
-         "Inequality comparison works")
+  (run "testing-assert-equal 0 0"
+       "Equality comparison works")
+  (run "testing-assert-unequal 1 0"
+       "Inequality comparison works")
 
-    (run "FOO=123 ; testing-assert-equal $FOO 123"
-         "Variable expansion works")
+  (run "FOO=123 ; testing-assert-equal $FOO 123"
+       "Variable expansion works")
 
-    (run "testing-assert-equal '' \"$(for VAR in ; do
+  (run "testing-assert-equal '' \"$(for VAR in ; do
 echo $VAR
 done)\""
-         "For loops over empty lists work")
-    (run "testing-assert-equal '1
+       "For loops over empty lists work")
+  (run "testing-assert-equal '1
 2
 3
 ' \"$(for VAR in 1 2 3
 do
 echo $VAR
 done)\""
-         "For loops over non-empty lists work")
-    (run "testing-assert-unequal $(for VAR in 1 2 3
+       "For loops over non-empty lists work")
+  (run "testing-assert-unequal $(for VAR in 1 2 3
 do
 echo $VAR
 done)"
-         "For loops over non-empty lists work")))
+       "For loops over non-empty lists work"))
