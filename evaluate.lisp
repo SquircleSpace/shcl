@@ -380,6 +380,13 @@ The methods on this function are tightly coupled to the shell grammar."))
 (defmethod evaluate ((sy if-clause))
   (evaluate-if-clause sy))
 
+(defmethod evaluate ((sy while-clause))
+  (with-slots (compound-list do-group) sy
+    (let (result)
+      (loop :while (exit-info-true-p (evaluate-synchronous-job compound-list)) :do
+         (setf result (evaluate-synchronous-job do-group)))
+      (or result (truthy-exit-info)))))
+
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
     (return-from evaluate (evaluate-synchronous-job compound-list))))

@@ -146,3 +146,10 @@ done)"
       (format nil "condition~%condition2~%elif-branch~%")
       :test #'equal
       "Only the elif branch runs"))
+
+(deftest while
+    (let ((count 0))
+      (is (capture (:stdout) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
+          (format nil "1~%2~%3~%")
+          :test #'equal
+          "Basic while loop test")))
