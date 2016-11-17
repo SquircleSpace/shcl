@@ -6,7 +6,7 @@
   (:export
    #:as-> #:-> #:->> #:define-once-global #:required
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
-   #:try #:debug-log #:logging-enabled-p #:status #:make-extensible-vector
+   #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
    #:observe-revival #:on-dump #:observe-dump
@@ -98,31 +98,77 @@ initialized at most once.  Redefining the variable with
                 ,setter-value))))
        (define-symbol-macro ,name (,name)))))
 
-(defparameter *debug-stream* *error-output*
-  "The stream where log lines are sent.")
-(defparameter *debug-stream-lock* (make-lock)
-  "The lock that protects `*debug-stream*'.")
+(defparameter *log-buffer* (make-array 1 :initial-element (make-array 0 :element-type 'string :fill-pointer t :adjustable t)
+                                       :adjustable t :fill-pointer t))
+(defconstant +maximum-log-lines-in-chunk+ 4096)
+(defparameter *log-buffer-lock* (make-lock)
+  "The lock that protects `*log-buffer*'.")
 
-(defparameter *log-levels*
-  (alist-hash-table
-   '((error . t)
-     (warning . t)
-     (status . t)))
-  "The hash table that dictates which log levels are enabled and which
-are not.")
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *log-components* (make-hash-table))
+  (defparameter *log-levels* (make-hash-table))
 
-(defun logging-enabled-p (level)
-  "Returns t iff the given log level is enabled."
-  (gethash level *log-levels*))
+  (defstruct log-component)
+  (defstruct log-level))
+
+(defmacro define-log-level (name &body options)
+  (check-type name symbol)
+  (when options
+    (error "No options are valid for `define-log-level'"))
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     (setf (gethash ',name *log-levels*) (make-log-level))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun ensure-log-component (name)
+    (let ((entry (gethash name *log-components*)))
+      (unless entry
+        (setf entry (make-log-component))
+        (setf (gethash name *log-components*) entry))
+      entry)))
+
+(define-log-level error)
+(define-log-level warning)
+(define-log-level status)
+
+(defstruct log-line
+  level
+  component
+  timestamp
+  message)
 
 (defmacro debug-log (level message &rest format-args)
   "Emit a log line."
-  (let ((level-val (gensym "LEVEL-VAL")))
-    `(with-lock-held (*debug-stream-lock*)
-       (let ((,level-val ,level))
-         (when (logging-enabled-p ,level-val)
-           (format *debug-stream* ,message ,@format-args)
-           (fresh-line *debug-stream*))))))
+  (let ((level-info (gethash level *log-levels*))
+        (component-info (ensure-log-component *package*))
+        (line (gensym "LINE"))
+        (last (gensym "LAST")))
+    (declare (ignore component-info))
+    (unless level-info
+      (error "No level known by the name ~A" level))
+    `(let ((,line (make-log-line :level ',level
+                                 :component ,*package*
+                                 :timestamp (/ (coerce (get-internal-real-time) 'double-float) internal-time-units-per-second)
+                                 :message (format nil ,message ,@format-args))))
+       (with-lock-held (*log-buffer-lock*)
+         (symbol-macrolet
+             ((,last (aref *log-buffer* (- (length *log-buffer*) 1))))
+           (when (<= +maximum-log-lines-in-chunk+ (+ 1 (length ,last)))
+             (vector-push-extend (make-array 0 :element-type 'string :fill-pointer t :adjustable t)
+                                 *log-buffer*))
+           (vector-push-extend ,line ,last)
+           (values))))))
+
+(defun dump-logs (&optional (output-stream *standard-output*))
+  (with-lock-held (*log-buffer-lock*)
+    (loop :for chunk :across *log-buffer* :do
+       (loop :for line :across chunk :do
+          (format output-stream "[~A|~A/~A] "
+                  (log-line-timestamp line)
+                  (package-name (log-line-component line))
+                  (symbol-name (log-line-level line)))
+          (write-string (log-line-message line) output-stream)
+          (format output-stream "~%")))
+    (values)))
 
 (defstruct hook
   (functions (fset:empty-set)))

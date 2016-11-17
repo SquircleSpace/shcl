@@ -1,6 +1,7 @@
 (defpackage :shcl/builtin
   (:use :common-lisp :shcl/utility)
   (:import-from :fset)
+  (:shadow #:dump-logs)
   (:export #:define-builtin #:lookup-builtin))
 (in-package :shcl/builtin)
 
@@ -30,3 +31,8 @@ the provided string name.
 
 Returns nil if there is no builtin by the given name."
   (fset:lookup *builtin-table* name))
+
+(define-builtin dump-logs (args)
+  (declare (ignore args))
+  (shcl/utility:dump-logs)
+  0)

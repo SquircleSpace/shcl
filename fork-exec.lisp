@@ -17,7 +17,7 @@
       numbers)))
 
 (defun take-fd-map (alist managed-fd-list file-actions)
-  (debug-log 'status "FETAKE ~A~%" alist)
+  (debug-log status "FETAKE ~A" alist)
 
   (let ((managed-fds (make-hash-table)))
     (dolist (fd managed-fd-list)
@@ -26,11 +26,11 @@
     (dolist (pair alist)
       (destructuring-bind (target-fd . value-fd) pair
         (remhash target-fd managed-fds)
-        (debug-log 'status "FEDUP2 ~A -> ~A (~A = ~A)~%" value-fd target-fd target-fd value-fd)
+        (debug-log status "FEDUP2 ~A -> ~A (~A = ~A)" value-fd target-fd target-fd value-fd)
         (posix-spawn-file-actions-adddup2 file-actions value-fd target-fd)))
 
     (loop :for fd :in (hash-table-keys managed-fds) :do
-       (debug-log 'status "FECLOSE ~A~%" fd)
+       (debug-log status "FECLOSE ~A" fd)
        (posix-spawn-file-actions-addclose file-actions fd))))
 
 (defun run (command &key fd-alist managed-fds (environment (fset:empty-seq)))

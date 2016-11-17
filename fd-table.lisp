@@ -126,7 +126,7 @@ locked."
     (error 'fd-over-release :fd fd))
   (let ((count (decf (gethash fd %fd-retain-count-table%))))
     (when (equal 0 count)
-      (debug-log 'status "CLOSE ~A" fd)
+      (debug-log status "CLOSE ~A" fd)
       (posix-close fd)
       (remhash fd %fd-retain-count-table%)))
   nil)
@@ -216,7 +216,7 @@ do nothing exept spawn a new process."
 (defun dup-retained (fd)
   (with-lock-held (%fd-retain-count-table-lock%)
     (let ((new-fd (dup fd)))
-      (debug-log 'status "DUP ~A = ~A" new-fd fd)
+      (debug-log status "DUP ~A = ~A" new-fd fd)
       (%manage-new-fd new-fd))))
 
 (defun open-retained (pathname flags mode)
@@ -225,7 +225,7 @@ atomically adds the new fd to the fd table and gives it a +1 retain
 count."
   (with-lock-held (%fd-retain-count-table-lock%)
     (let ((fd (posix-open pathname flags mode)))
-      (debug-log 'status "OPEN ~A = ~A" fd pathname)
+      (debug-log status "OPEN ~A = ~A" fd pathname)
       (%manage-new-fd fd))))
 
 (defun pipe-retained ()
@@ -236,7 +236,7 @@ Returns two values: the read-end of the pipe and the write end of the
 pipe."
   (with-lock-held (%fd-retain-count-table-lock%)
     (multiple-value-bind (read-end write-end) (shcl/posix:pipe)
-      (debug-log 'status "PIPE ~A -> ~A" write-end read-end)
+      (debug-log status "PIPE ~A -> ~A" write-end read-end)
       (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
 
 (defmacro with-pipe ((read-end write-end) &body body)
@@ -266,7 +266,7 @@ named fd should be bound to in spawned processes."
   (check-type fd-value integer)
   (unless *fd-bindings*
     (error "Cannot bind without an fd-scope"))
-  (debug-log 'status "BIND ~A = ~A (~A)" fd fd-value *fd-bindings*)
+  (debug-log status "BIND ~A = ~A (~A)" fd fd-value *fd-bindings*)
   (with-lock-held (%fd-retain-count-table-lock%)
     (let ((old-value (fset:lookup *fd-bindings* fd)))
       (setf (fset:lookup *fd-bindings* fd) fd-value)
@@ -327,7 +327,7 @@ The new-fd-fn argument is only intended to be used for testing."
   ;; An alternative approach would be to identify cycles in the
   ;; dependency graph implied by fd-bindings.  Then, the dependency
   ;; cycles could be broken using dup.
-  (debug-log 'status "SIMPLIFY ~A" fd-bindings)
+  (debug-log status "SIMPLIFY ~A" fd-bindings)
   (let* ((ours (fset:empty-set))
          (theirs (fset:empty-set))
          (conflict (fset:empty-set)))
@@ -336,7 +336,7 @@ The new-fd-fn argument is only intended to be used for testing."
       (fset:adjoinf ours value))
     (setf conflict (fset:intersection ours theirs))
     (when (zerop (fset:size conflict))
-      (debug-log 'status "SIMPLIFIED")
+      (debug-log status "SIMPLIFIED")
       (return-from simplify-fd-bindings fd-bindings))
 
     (let ((translation (make-hash-table)))
@@ -349,5 +349,5 @@ The new-fd-fn argument is only intended to be used for testing."
         (let ((new-value (gethash value translation)))
           (when new-value
             (fset:adjoinf fd-bindings key new-value))))
-      (debug-log 'status "SIMPLIFIED ~A" fd-bindings)
+      (debug-log status "SIMPLIFIED ~A" fd-bindings)
       fd-bindings)))

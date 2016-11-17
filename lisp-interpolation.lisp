@@ -175,7 +175,7 @@
          (loop :do
             (progn
               (setf part (shcl/posix:posix-read retained-fd +read-rate+))
-              (debug-log 'status "READ ~A BYTES" (length part))
+              (debug-log status "READ ~A BYTES" (length part))
               (write-string part output-buffer))
             :while (not (zerop (length part)))))
     (fd-release retained-fd)
