@@ -177,7 +177,7 @@ This function does not create an entry in the job table."
                (let* ((result (evaluate sy)))
                  ;; TODO: What if there is an error in evaluate!?
                  (funcall completion-handler result))))
-           (debug-log 'status "Thread exit ~A" sy)))
+           (debug-log status "Thread exit ~A" sy)))
       (make-thread #'async-eval))))
 
 (defgeneric evaluate (syntax-tree)
@@ -474,7 +474,7 @@ and io redirects."
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
-      (debug-log 'status "EXEC: ~A ~A ~A~%" assignments arguments redirects)
+      (debug-log status "EXEC: ~A ~A ~A" assignments arguments redirects)
       (when (zerop (length arguments))
         (return-from evaluate (evaluate-command-free assignments redirects)))
 
@@ -497,9 +497,9 @@ and io redirects."
                              :fd-alist (fset:convert 'list bindings)
                              :managed-fds fds
                              :environment (linearized-exported-environment)))
-              (debug-log 'status "PID ~A = ~A" pid arguments))
+              (debug-log status "PID ~A = ~A" pid arguments))
             (setf status (nth-value 1 (waitpid pid wuntraced)))
-            (debug-log 'status "EXITED ~A" pid)
+            (debug-log status "EXITED ~A" pid)
             (when (wifstopped status)
               (warn "Stopped jobs should get a job number, but they don't"))
 
