@@ -8,9 +8,9 @@
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
    #:with-posix-spawnattr #:environment-iterator #:open-fds
-   #:compiler-owned-fds #:posix-read #:fork #:_exit #:exit #:waitpid #:forked
-   #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close #:pipe
-   #:syscall-error #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
+   #:compiler-owned-fds #:posix-read #:posix-write #:fork #:_exit #:exit
+   #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
+   #:pipe #:syscall-error #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
    #:wtermsig #:wstopsig))
 (in-package :shcl/posix)
 
@@ -270,6 +270,47 @@
              (loop :for index :below length :do
                 (setf (aref array index) (mem-aref buf :unsigned-char index)))
              array))))))
+
+(define-c-wrapper (strlen "strlen") (size-t)
+  (s :string))
+
+(define-c-wrapper (%posix-write "write") (ssize-t #'not-negative-1-p)
+  (fd :int)
+  (buf :pointer)
+  (count size-t))
+
+(defun posix-write-foreign (fd ptr count)
+  (let ((original-count count))
+    (tagbody
+     retry
+       (handler-bind
+           ((syscall-error
+             (lambda (e)
+               (when (equal eintr (syscall-error-errno e))
+                 (go retry)))))
+         (let* ((written (%posix-write fd ptr count)))
+           (decf count written)
+           (incf-pointer ptr written)
+           (when (zerop count)
+             (return-from posix-write-foreign original-count))
+           (assert (plusp count)))))))
+
+(defun posix-write-string (fd string)
+  (with-foreign-string (ptr string)
+    (posix-write-foreign fd ptr (strlen ptr))))
+
+(defun posix-write-bytes (fd bytes)
+  (with-foreign-object (ptr :unsigned-char (length bytes))
+    (loop :for index :below (length bytes) :do
+       (setf (mem-aref ptr :unsigned-char index) (aref bytes index)))
+    (posix-write-foreign fd ptr (length bytes))))
+
+(defun posix-write (fd buffer)
+  (etypecase buffer
+    (string
+     (posix-write-string fd buffer))
+    ((array (unsigned-byte 8))
+     (posix-write-bytes fd buffer))))
 
 (defun fork ()
   #+sbcl (sb-posix:fork)
