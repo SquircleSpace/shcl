@@ -1,11 +1,11 @@
 (defpackage :shcl/fd-table
-  (:use :common-lisp :alexandria :bordeaux-threads :shcl/utility :shcl/posix :shcl/posix-types)
+  (:use :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams :shcl/utility :shcl/posix :shcl/posix-types)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export
    #:fd-retain #:copy-fd-bindings #:fd-release #:fd-autorelease
    #:with-fd-scope #:with-living-fds :dup-retained #:open-retained
    #:pipe-retained #:with-pipe #:bind-fd
-   #:get-fd :simplify-fd-bindings))
+   #:get-fd :simplify-fd-bindings #:with-fd-streams))
 (in-package :shcl/fd-table)
 
 (optimization-settings)
@@ -292,7 +292,7 @@ This represents an error in the shell expression.
 An fd is considered invalid if it hasn't been bound by the shell
 expression."))
 
-(defun get-fd (fd)
+(defun get-fd (fd &key (error-on-closed-fd t))
   "Return the fd (in this process) will be dup'd into to the given
 fd (in a spawned subprocesses).
 
@@ -302,9 +302,10 @@ See `bind-fd'."
       (return-from get-fd binding)))
   (when (fd-managed-p fd)
     (error 'invalid-fd :fd fd))
-  (handler-case (fcntl fd f-getfd)
-    (syscall-error ()
-      (error 'invalid-fd :fd fd)))
+  (when error-on-closed-fd
+    (handler-case (fcntl fd f-getfd)
+      (syscall-error ()
+        (error 'invalid-fd :fd fd))))
   fd)
 
 (defun simplify-fd-bindings-default-new-fd-fn (fd)
@@ -351,3 +352,126 @@ The new-fd-fn argument is only intended to be used for testing."
             (fset:adjoinf fd-bindings key new-value))))
       (debug-log status "SIMPLIFIED ~A" fd-bindings)
       fd-bindings)))
+
+(defclass fd-stream (fundamental-stream)
+  ((fd
+    :initarg :fd
+    :type (or integer null)
+    :initform (required))
+   (symbolic
+    :initarg :symbolic
+    :initform nil)))
+
+(defgeneric fd-stream-fd (stream))
+(defmethod fd-stream-fd ((stream fd-stream))
+  (with-slots (symbolic fd) stream
+    (if symbolic
+        (get-fd fd :error-on-closed-fd nil)
+        fd)))
+
+(defclass fd-input-stream (fd-stream fundamental-input-stream)
+  ((buffer
+    :initform (make-array 0))
+   (buffer-offset
+    :initform 0)
+   (buffer-maximum-size
+    :accessor fd-input-stream-buffer-maximum-size
+    :initform 1)))
+
+(defclass fd-output-stream (fd-stream fundamental-output-stream)
+  ())
+
+(defclass fd-character-input-stream (fd-input-stream fundamental-character-input-stream)
+  ())
+
+(defclass fd-character-output-stream (fd-output-stream fundamental-character-input-stream)
+  ())
+
+(defclass fd-character-input-output-stream (fd-character-input-stream fd-character-output-stream)
+  ())
+
+(defclass fd-binary-input-stream (fd-input-stream fundamental-binary-input-stream)
+  ())
+
+(defclass fd-binary-output-stream (fd-output-stream fundamental-binary-input-stream)
+  ())
+
+(defclass fd-binary-input-output-stream (fd-binary-input-stream fd-binary-output-stream)
+  ())
+
+(defun fd-stream-read (stream binary-p)
+  (with-slots (buffer buffer-offset buffer-maximum-size) stream
+    (with-accessors ((fd fd-stream-fd)) stream
+      (let ((last-char (unless (zerop (length buffer))
+                         (aref buffer (- (length buffer) 1)))))
+        (when (>= buffer-offset (length buffer))
+          (setf buffer (posix-read fd buffer-maximum-size :binary binary-p))
+          (setf buffer-offset 0))
+
+        (when (>= buffer-offset (length buffer))
+          (setf buffer (string last-char))
+          (setf buffer-offset 1)
+          (return-from fd-stream-read :eof)))
+
+      (let ((result (aref buffer buffer-offset)))
+        (incf buffer-offset)
+        result))))
+
+(defun fd-stream-unread (stream thing)
+  (with-slots (buffer buffer-offset) stream
+    (when (zerop buffer-offset)
+      (error "Can't unread without reading first"))
+    (unless (equal (aref buffer (- buffer-offset 1)) thing)
+      (error "Can't unread a different thing from what was read"))
+    (decf buffer-offset)
+    nil))
+
+(defmethod stream-read-char ((stream fd-character-input-stream))
+  (fd-stream-read stream nil))
+
+(defmethod stream-unread-char ((stream fd-character-input-stream) character)
+  (fd-stream-unread stream character))
+
+(defmethod stream-read-char-no-hang ((stream fd-character-input-stream))
+  ;; This is perfectly valid, but not ideal.  We just can't know in
+  ;; general whether we can read without blocking.
+  nil)
+
+(defmethod stream-read-byte ((stream fd-binary-input-stream))
+  (fd-stream-read stream t))
+
+(defmethod stream-write-char ((stream fd-character-output-stream) character)
+  (with-accessors ((fd fd-stream-fd)) stream
+    (posix-write fd (string character))))
+
+(defmethod stream-line-column ((stream fd-character-output-stream))
+  nil)
+
+(defmethod stream-start-line-p ((stream fd-character-output-stream))
+  nil)
+
+(defmethod stream-fresh-line ((stream fd-character-output-stream)))
+
+(defmethod stream-write-string ((stream fd-character-output-stream) string &optional start end)
+  (with-accessors ((fd fd-stream-fd)) stream
+    (when (or (not (or start end))
+              (and (equal 0 start)
+                   (equal (length string) end)))
+      (return-from stream-write-string (posix-write fd string)))
+
+    (unless start
+      (setf start 0))
+    (unless end
+      (setf end (length string)))
+
+    (posix-write fd (make-array (- end start) :element-type (array-element-type string) :displaced-to string :displaced-index-offset start))))
+
+(defmethod stream-write-byte ((stream fd-binary-output-stream) byte)
+  (with-accessors ((fd fd-stream-fd)) stream
+    (posix-write fd (make-array 1 :initial-element byte :element-type '(unsigned-byte 8)))))
+
+(defmacro with-fd-streams (() &body body)
+  `(let ((*standard-input* (make-instance 'fd-character-input-stream :fd 0 :symbolic t))
+         (*standard-output* (make-instance 'fd-character-output-stream :fd 1 :symbolic t))
+         (*error-output* (make-instance 'fd-character-output-stream :fd 2 :symbolic t)))
+     ,@body))
