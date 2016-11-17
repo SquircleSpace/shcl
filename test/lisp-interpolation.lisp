@@ -1,5 +1,6 @@
 (defpackage :shcl-test/lisp-interpolation
-  (:use :common-lisp :prove :shcl/lisp-interpolation :shcl/exit-info :shcl/builtin))
+  (:use :common-lisp :prove :shcl/lisp-interpolation :shcl/exit-info :shcl/builtin)
+  (:shadow #:run))
 (in-package :shcl-test/lisp-interpolation)
 
 (plan 7)
