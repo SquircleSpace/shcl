@@ -136,6 +136,18 @@ initialized at most once.  Redefining the variable with
   timestamp
   message)
 
+(defparameter *log-stream* nil)
+
+(defun emit-log-line (line output-stream)
+  (let ((line-stream (make-string-output-stream)))
+    (format line-stream "[~A|~A/~A] "
+            (log-line-timestamp line)
+            (package-name (log-line-component line))
+            (symbol-name (log-line-level line)))
+    (write-string (log-line-message line) line-stream)
+    (format line-stream "~%")
+    (write-string (get-output-stream-string line-stream) output-stream)))
+
 (defmacro debug-log (level message &rest format-args)
   "Emit a log line."
   (let ((level-info (gethash level *log-levels*))
@@ -150,6 +162,8 @@ initialized at most once.  Redefining the variable with
                                  :timestamp (/ (coerce (get-internal-real-time) 'double-float) internal-time-units-per-second)
                                  :message (format nil ,message ,@format-args))))
        (with-lock-held (*log-buffer-lock*)
+         (when *log-stream*
+           (emit-log-line ,line *log-stream*))
          (symbol-macrolet
              ((,last (aref *log-buffer* (- (length *log-buffer*) 1))))
            (when (<= +maximum-log-lines-in-chunk+ (+ 1 (length ,last)))
@@ -162,12 +176,7 @@ initialized at most once.  Redefining the variable with
   (with-lock-held (*log-buffer-lock*)
     (loop :for chunk :across *log-buffer* :do
        (loop :for line :across chunk :do
-          (format output-stream "[~A|~A/~A] "
-                  (log-line-timestamp line)
-                  (package-name (log-line-component line))
-                  (symbol-name (log-line-level line)))
-          (write-string (log-line-message line) output-stream)
-          (format output-stream "~%")))
+          (emit-log-line line output-stream)))
     (values)))
 
 (defstruct hook
