@@ -7,7 +7,7 @@
    #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
-   #:with-posix-spawnattr #:environment-iterator #:open-fds
+   #:with-posix-spawnattr #:environment-iterator #:fchdir #:open-fds
    #:compiler-owned-fds #:posix-read #:posix-write #:fork #:_exit #:exit
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:syscall-error #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
@@ -213,6 +213,19 @@
 (defun readdir (dirp)
   (setf errno 0)
   (%readdir dirp))
+
+(define-c-wrapper (%fchdir "fchdir") (:int #'not-negative-1-p)
+  (fildes :int))
+
+(defun fchdir (fildes)
+  (tagbody
+   retry
+     (handler-bind
+         ((syscall-error
+           (lambda (e)
+             (when (equal eintr (syscall-error-errno e))
+               (go retry)))))
+       (%fchdir fildes))))
 
 (defun open-fds ()
   (let ((result (make-extensible-vector :element-type 'integer))

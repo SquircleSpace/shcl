@@ -4,7 +4,7 @@
   (:export
    #:fd-retain #:copy-fd-bindings #:fd-release #:fd-autorelease
    #:with-fd-scope #:with-living-fds :dup-retained #:open-retained
-   #:pipe-retained #:with-pipe #:bind-fd
+   #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
    #:get-fd :simplify-fd-bindings #:with-fd-streams))
 (in-package :shcl/fd-table)
 
@@ -219,13 +219,19 @@ do nothing exept spawn a new process."
       (debug-log status "DUP ~A = ~A" new-fd fd)
       (%manage-new-fd new-fd))))
 
-(defun open-retained (pathname flags mode)
+(defun open-retained (pathname flags &optional mode)
   "This is a wrapper around the posix open function which
 atomically adds the new fd to the fd table and gives it a +1 retain
 count."
   (with-lock-held (%fd-retain-count-table-lock%)
     (let ((fd (posix-open pathname flags mode)))
       (debug-log status "OPEN ~A = ~A" fd pathname)
+      (%manage-new-fd fd))))
+
+(defun openat-retained (dir-fd pathname flags &optional mode)
+  (with-lock-held (%fd-retain-count-table-lock%)
+    (let ((fd (openat dir-fd pathname flags mode)))
+      (debug-log status "OPENAT ~A, ~A = ~A" dir-fd fd pathname)
       (%manage-new-fd fd))))
 
 (defun pipe-retained ()

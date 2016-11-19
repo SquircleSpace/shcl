@@ -1,5 +1,5 @@
 (defpackage :shcl/builtin
-  (:use :common-lisp :shcl/utility #:shcl/fd-table)
+  (:use :common-lisp :shcl/utility :shcl/fd-table :shcl/working-directory :shcl/environment)
   (:import-from :fset)
   (:import-from :alexandria)
   (:shadow #:dump-logs)
@@ -40,4 +40,18 @@ Returns nil if there is no builtin by the given name."
 (define-builtin dump-logs (args)
   (declare (ignore args))
   (shcl/utility:dump-logs)
+  0)
+
+(define-builtin (builtin-cd "cd") (args)
+  ;; Cut off command name
+  (setf args (fset:less-first args))
+  (when (zerop (fset:size args))
+    (let ((home (env "HOME")))
+      (when (zerop (length home))
+        (format *error-output* "cd: Could not locate home")
+        (return-from builtin-cd 1))
+
+      (fset:push-last args home)))
+
+  (cd (fset:last args))
   0)
