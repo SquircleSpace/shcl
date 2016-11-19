@@ -2,7 +2,8 @@
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
         :shcl/utility :shcl/shell-grammar :shcl/lexer :shcl/fork-exec
         :shcl/thread :shcl/expand :shcl/environment :shcl/builtin
-        :shcl/posix :shcl/posix-types :shcl/exit-info :shcl/fd-table)
+        :shcl/posix :shcl/posix-types :shcl/exit-info :shcl/fd-table
+        :shcl/working-directory)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/posix #:pipe)
   (:export #:evaluate))
@@ -169,14 +170,17 @@ threads to evaluate a syntax tree asynchronously (both for
 This function does not create an entry in the job table."
   (let* ((symbols *special-variables-to-preserve-during-async*)
          (symbol-values (mapcar #'symbol-value symbols))
-         (fd-bindings (copy-fd-bindings)))
+         (fd-bindings (copy-fd-bindings))
+         (wd-history (preserve-working-directory-history)))
     (labels
         ((async-eval ()
            (progv symbols symbol-values
              (with-fd-scope (:take fd-bindings)
-               (let* ((result (evaluate sy)))
-                 ;; TODO: What if there is an error in evaluate!?
-                 (funcall completion-handler result))))
+               (with-alternate-working-directory-history
+                   wd-history (:destroy t)
+                 (let* ((result (evaluate sy)))
+                   ;; TODO: What if there is an error in evaluate!?
+                   (funcall completion-handler result)))))
            (debug-log status "Thread exit ~A" sy)))
       (make-thread #'async-eval))))
 
@@ -492,12 +496,13 @@ and io redirects."
               (return-from evaluate
                 (make-exit-info :exit-status (funcall builtin arguments))))
 
-            (with-living-fds (fds)
-              (setf pid (run arguments
-                             :fd-alist (fset:convert 'list bindings)
-                             :managed-fds fds
-                             :environment (linearized-exported-environment)))
-              (debug-log status "PID ~A = ~A" pid arguments))
+            (with-process-working-directory-changed ()
+              (with-living-fds (fds)
+                (setf pid (run arguments
+                               :fd-alist (fset:convert 'list bindings)
+                               :managed-fds fds
+                               :environment (linearized-exported-environment)))
+                (debug-log status "PID ~A = ~A" pid arguments)))
             (setf status (nth-value 1 (waitpid pid wuntraced)))
             (debug-log status "EXITED ~A" pid)
             (when (wifstopped status)
