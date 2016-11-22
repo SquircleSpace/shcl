@@ -1,0 +1,51 @@
+#+TITLE: SHCL: Shell Meets Common Lisp
+#+AUTHOR: Brad Jensen
+
+SHCL is
+1. a shell powered by secret alien technology, and
+2. a Common Lisp library that makes it very convenient to create new processes.
+
+The POSIX shell language is very limited.  It is primarily focused on
+manipulating strings and running programs.  While it does a great job
+at both of those tasks, it doesn't have any complex data structures or
+numeric types.  Admittedly, most shell scripts don't need those
+features, and they are very rarely needed when using a shell
+interactively.  If you find yourself in one of those uncommon
+situations, the usual solution is to rewrite your script in a
+different language.  Unfortunately, this often results in the inverse
+problem: your scripting language lacks convenient features for
+spawning complex jobs.  Sure, it has a function that takes an array of
+strings, but things get messy if you want to set up a pipeline or a
+pipemill.
+
+SHCL tries to bridge the gap between shell scripts and scripting
+languages by blurring the distinction between them.
+
+* The Shell
+
+The goal is for SHCL to be fully POSIX compliant.  Its still got a
+long way to go, but we'll get there one day.
+
+To mitigate some of the deficiencies of the POSIX shell language, SHCL
+supports embedding lisp expressions inside your shell expressions.
+Granted, the following example would be clearer if it was written in
+standard POSIX shell, but it does show off the ability to splice in
+lisp forms.
+
+#+BEGIN_SRC shell-script
+echo ,(defparameter *counter* 0) >/dev/null
+while [ ,*counter* != 3 ]; do
+    echo ,(incf *counter*)
+done
+#+END_SRC
+
+* The Library
+
+The API for SHCL isn't yet set-in-stone, so don't be surprised if it
+changes tomorrow.  However, the goal is to provide a fluent way to
+launch programs.  The API will probably include
+- a function similar to ~UIOP:RUN-PROGRAM~
+- a reader macro that reads shell expressions (especially ones that
+  have embedded lisp expressions!)
+- a function analogous to the POSIX ~system~ function
+- a declarative macro interface for describing complex pipelines
