@@ -1,6 +1,6 @@
 (defpackage :shcl/posix
   (:use :common-lisp :cffi :trivial-garbage :shcl/posix-types :shcl/utility
-        :bordeaux-threads)
+        :shcl/support/support :bordeaux-threads)
   (:import-from :fset)
   (:export
    #:posix-spawn-file-actions-init #:posix-spawn-file-actions-destroy
@@ -98,42 +98,6 @@
          (defcfun (,lisp-impl-name ,c-name) ,return-type
            ,@arg-descriptions)
          ,(wrapper)))))
-
-(define-foreign-type string-table-type ()
-  ((size
-    :initarg :size
-    :initform nil))
-  (:actual-type :pointer)
-  (:simple-parser string-table))
-
-(defmethod translate-to-foreign ((sequence fset:seq) (type string-table-type))
-  (with-slots (size inner-type) type
-    (let ((seq-size (fset:size sequence))
-          table
-          side-table)
-      (when size
-        (assert (equal seq-size size)))
-      (let (success)
-        (unwind-protect
-             (let ((index 0))
-               (setf table (foreign-alloc :string :initial-element (null-pointer) :count seq-size :null-terminated-p t))
-               (setf side-table (make-array seq-size :initial-element nil))
-               (fset:do-seq (thing sequence)
-                 (multiple-value-bind (converted-value param) (convert-to-foreign thing :string)
-                   (setf (mem-aref table :string index) converted-value)
-                   (setf (aref side-table index) param)
-                   (incf index)))
-               (setf success t)
-               (values table side-table))
-          (unless success
-            (if side-table
-                (free-translated-object table type side-table)
-                (foreign-free table))))))))
-
-(defmethod free-translated-object (translated (type string-table-type) param)
-  (loop :for index :below (length param) :do
-     (free-converted-object (mem-aref translated :pointer index) :string (aref param index)))
-  (foreign-free translated))
 
 (define-c-wrapper (posix-spawnp "posix_spawnp") (:int #'zerop)
   (pid (:pointer pid-t))
@@ -411,48 +375,6 @@
     (values
      (mem-aref fildes :int 0)
      (mem-aref fildes :int 1))))
-
-#-sbcl
-(progn
-  (eval-when (:compile-toplevel :load-toplevel :execute)
-    (define-foreign-library shcl-support
-        (:linux (:default "shcl-support"))))
-
-  (defcfun (%wifexited "wifexited" :library shcl-support) :int
-    (status :int))
-  (defun wifexited (status)
-    (not (zerop (%wifexited status))))
-
-  (defcfun (%wifstopped "wifstopped" :library shcl-support) :int
-    (status :int))
-  (defun wifstopped (status)
-    (not (zerop (%wifstopped status))))
-
-  (defcfun (%wifsignaled "wifsignaled" :library shcl-support) :int
-    (status :int))
-  (defun wifsignaled (status)
-    (not (zerop (%wifsignaled status))))
-
-  (defcfun (wexitstatus "wexitstatus" :library shcl-support) :int
-    (status :int))
-
-  (defcfun (wtermsig "wtermsig" :library shcl-support) :int
-    (status :int))
-
-  (defcfun (wstopsig "wstopsig" :library shcl-support) :int
-    (status :int)))
-
-#+sbcl
-(progn
-  (defmacro define-wrapper (symbol base)
-    `(setf (fdefinition ',symbol) (fdefinition ',base)))
-
-  (define-wrapper wifexited sb-posix:wifexited)
-  (define-wrapper wifstopped sb-posix:wifstopped)
-  (define-wrapper wifsignaled sb-posix:wifsignaled)
-  (define-wrapper wexitstatus sb-posix:wexitstatus)
-  (define-wrapper wtermsig sb-posix:wtermsig)
-  (define-wrapper wstopsig sb-posix:wstopsig))
 
 (define-c-wrapper (%strerror "strerror") (:string)
   (err :int))
