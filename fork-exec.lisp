@@ -1,6 +1,6 @@
 (defpackage :shcl/fork-exec
   (:use :common-lisp :alexandria :cffi :shcl/utility :shcl/shell-grammar
-        :shcl/posix-types :shcl/posix)
+        :shcl/posix-types :shcl/posix :shcl/support/support)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
   (:export #:run))
@@ -16,7 +16,7 @@
            (numbers (map 'vector #'extract-fd paths)))
       numbers)))
 
-(defun take-fd-map (alist managed-fd-list file-actions)
+(defun take-fd-map (alist managed-fd-list fd-actions)
   (debug-log status "FETAKE ~A" alist)
 
   (let ((managed-fds (make-hash-table)))
@@ -27,17 +27,14 @@
       (destructuring-bind (target-fd . value-fd) pair
         (remhash target-fd managed-fds)
         (debug-log status "FEDUP2 ~A -> ~A (~A = ~A)" value-fd target-fd target-fd value-fd)
-        (posix-spawn-file-actions-adddup2 file-actions value-fd target-fd)))
+        (fd-actions-add-dup2 fd-actions value-fd target-fd)))
 
     (loop :for fd :in (hash-table-keys managed-fds) :do
        (debug-log status "FECLOSE ~A" fd)
-       (posix-spawn-file-actions-addclose file-actions fd))))
+       (fd-actions-add-close fd-actions fd))))
 
-(defun run (command &key fd-alist managed-fds (environment (fset:empty-seq)))
+(defun run (command &key fd-alist managed-fds (environment (fset:empty-seq)) working-directory-fd)
   (setf command (fset:convert 'fset:seq command))
-  (with-posix-spawn-file-actions (file-actions)
-    (take-fd-map fd-alist managed-fds file-actions)
-    (with-posix-spawnattr (attr)
-      (with-foreign-object (pid 'pid-t)
-        (posix-spawnp pid (fset:first command) file-actions attr command environment)
-        (return-from run (mem-ref pid 'pid-t))))))
+  (let ((fd-actions (make-fd-actions)))
+    (take-fd-map fd-alist managed-fds fd-actions)
+    (shcl-spawn (fset:first command) t working-directory-fd fd-actions command environment)))

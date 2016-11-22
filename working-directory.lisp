@@ -2,7 +2,7 @@
   (:use :common-lisp :trivial-garbage :bordeaux-threads :shcl/utility
         :shcl/fd-table :shcl/posix-types :shcl/posix)
   (:export #:cd #:push-working-directory #:pop-working-directory
-           #:with-process-working-directory-changed #:preserve-working-directory-history
+           #:current-working-directory-fd #:preserve-working-directory-history
            #:with-alternate-working-directory-history))
 (in-package :shcl/working-directory)
 
@@ -20,6 +20,10 @@
 
 (defun %current-working-directory-fd ()
   (first *working-directory-fds*))
+
+(defun current-working-directory-fd ()
+  (with-lock-held (*working-directory-lock*)
+    (%current-working-directory-fd)))
 
 (defstruct wrapper
   object)
@@ -98,14 +102,3 @@
              (%push-working-directory-fd dir-fd)
              (values))
         (fd-release dir-fd)))))
-
-(defmacro with-process-working-directory-changed (() &body body)
-  (let ((saved (gensym "SAVED")))
-    `(with-recursive-lock-held (*process-working-directory-lock*)
-       (let ((,saved (process-working-directory-retained)))
-         (unwind-protect
-              (progn
-                (fchdir (with-lock-held (*working-directory-lock*) (%current-working-directory-fd)))
-                ,@body)
-           (fchdir ,saved)
-           (fd-release ,saved))))))

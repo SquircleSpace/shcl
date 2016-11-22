@@ -1,0 +1,5 @@
+/shcl
+*.o
+*.fasl
+*~
+/libshcl-support.so

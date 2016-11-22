@@ -496,13 +496,13 @@ and io redirects."
               (return-from evaluate
                 (make-exit-info :exit-status (funcall builtin arguments))))
 
-            (with-process-working-directory-changed ()
-              (with-living-fds (fds)
-                (setf pid (run arguments
-                               :fd-alist (fset:convert 'list bindings)
-                               :managed-fds fds
-                               :environment (linearized-exported-environment)))
-                (debug-log status "PID ~A = ~A" pid arguments)))
+            (with-living-fds (fds)
+              (setf pid (run arguments
+                             :fd-alist (fset:convert 'list bindings)
+                             :managed-fds fds
+                             :environment (linearized-exported-environment)
+                             :working-directory-fd (current-working-directory-fd)))
+              (debug-log status "PID ~A = ~A" pid arguments))
             (setf status (nth-value 1 (waitpid pid wuntraced)))
             (debug-log status "EXITED ~A" pid)
             (when (wifstopped status)
