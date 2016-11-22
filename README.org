@@ -49,3 +49,10 @@ launch programs.  The API will probably include
   have embedded lisp expressions!)
 - a function analogous to the POSIX ~system~ function
 - a declarative macro interface for describing complex pipelines
+
+Currently, you can do things like the following.
+
+#+BEGIN_SRC lisp
+(defvar *str* "abc")
+(defvar *text* (capture (:stdout) #$ if [ ,*str* == abc ]; then echo woo ; fi #$ ))
+#+END_SRC
