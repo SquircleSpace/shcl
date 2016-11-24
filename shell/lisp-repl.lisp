@@ -17,7 +17,7 @@
 :shell to return to SHCL
 "))
 
-(define-builtin lisp-repl (args)
+(define-builtin shcl-repl (args)
   (declare (ignore args))
   (catch 'return-to-shell
     (let ((eof-value '#:eof-value)
