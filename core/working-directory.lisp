@@ -19,7 +19,8 @@
 (on-revival initialize-working-directory-fds)
 
 (defun %current-working-directory-fd ()
-  (first *working-directory-fds*))
+  (or (first *working-directory-fds*)
+      (fd-autorelease (process-working-directory-retained))))
 
 (defun current-working-directory-fd ()
   (with-lock-held (*working-directory-lock*)
