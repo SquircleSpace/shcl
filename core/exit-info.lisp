@@ -62,8 +62,8 @@ sucesfully."
 (defun invert-exit-info (exit-info)
   "Given an exit info, produce a similar info that indicates the logical inverse."
   (if (exit-info-true-p exit-info)
-      (make-exit-info :exit-code 1)
-      (make-exit-info :exit-code 0)))
+      (make-exit-info :exit-status 1)
+      (make-exit-info :exit-status 0)))
 
 (defun exit-info-code (exit-info)
   "Turn an exit-info into an integer.  This probably isn't something you want."
