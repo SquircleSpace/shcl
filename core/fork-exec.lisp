@@ -1,10 +1,10 @@
-(defpackage :shcl/fork-exec
-  (:use :common-lisp :alexandria :cffi :shcl/utility :shcl/shell-grammar
-        :shcl/posix-types :shcl/posix :shcl/support/support)
+(defpackage :shcl/core/fork-exec
+  (:use :common-lisp :alexandria :cffi :shcl/core/utility :shcl/core/shell-grammar
+        :shcl/core/posix-types :shcl/core/posix :shcl/core/support)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
   (:export #:run))
-(in-package :shcl/fork-exec)
+(in-package :shcl/core/fork-exec)
 
 (defun determine-open-fds ()
   (labels

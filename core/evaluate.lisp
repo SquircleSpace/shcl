@@ -1,13 +1,13 @@
-(defpackage :shcl/evaluate
+(defpackage :shcl/core/evaluate
   (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
-        :shcl/utility :shcl/shell-grammar :shcl/lexer :shcl/fork-exec
-        :shcl/thread :shcl/expand :shcl/environment :shcl/builtin
-        :shcl/posix :shcl/posix-types :shcl/exit-info :shcl/fd-table
-        :shcl/working-directory)
+        :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer :shcl/core/fork-exec
+        :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/builtin
+        :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
+        :shcl/core/working-directory)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
-  (:shadowing-import-from :shcl/posix #:pipe)
+  (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluate))
-(in-package :shcl/evaluate)
+(in-package :shcl/core/evaluate)
 
 (optimization-settings)
 

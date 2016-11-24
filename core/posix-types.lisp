@@ -1,4 +1,4 @@
-(defpackage :shcl/posix-types
+(defpackage :shcl/core/posix-types
   (:use :common-lisp :cffi-grovel)
   (:export
    #:size-t #:ssize-t #:pid-t #:posix-spawn-file-actions-t

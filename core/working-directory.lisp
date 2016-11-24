@@ -1,10 +1,10 @@
-(defpackage :shcl/working-directory
-  (:use :common-lisp :trivial-garbage :bordeaux-threads :shcl/utility
-        :shcl/fd-table :shcl/posix-types :shcl/posix)
+(defpackage :shcl/core/working-directory
+  (:use :common-lisp :trivial-garbage :bordeaux-threads :shcl/core/utility
+        :shcl/core/fd-table :shcl/core/posix-types :shcl/core/posix)
   (:export #:cd #:push-working-directory #:pop-working-directory
            #:current-working-directory-fd #:preserve-working-directory-history
            #:with-alternate-working-directory-history))
-(in-package :shcl/working-directory)
+(in-package :shcl/core/working-directory)
 
 (defvar *process-working-directory-lock* (make-recursive-lock))
 

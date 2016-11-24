@@ -1,4 +1,4 @@
-(defpackage :shcl/utility
+(defpackage :shcl/core/utility
   (:use :common-lisp :alexandria :bordeaux-threads)
   (:import-from :fset)
   (:import-from :closer-mop)
@@ -15,7 +15,7 @@
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
    #:iterator-values #:lookahead-iterator-wrapper))
-(in-package :shcl/utility)
+(in-package :shcl/core/utility)
 
 (defmacro optimization-settings ()
   "Declaims standard optimization settings.

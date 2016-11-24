@@ -1,9 +1,9 @@
-(defpackage :shcl/parser
-  (:use :common-lisp :alexandria :shcl/lexer :shcl/utility)
+(defpackage :shcl/core/parser
+  (:use :common-lisp :alexandria :shcl/core/lexer :shcl/core/utility)
   (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export #:define-parser #:syntax-iterator #:parse #:no-parse))
-(in-package :shcl/parser)
+(in-package :shcl/core/parser)
 
 (optimization-settings)
 

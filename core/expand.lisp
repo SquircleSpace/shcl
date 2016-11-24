@@ -1,11 +1,11 @@
-(defpackage :shcl/expand
-  (:use :common-lisp :shcl/utility :shcl/lexer :shcl/environment)
+(defpackage :shcl/core/expand
+  (:use :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/environment)
   (:import-from :fset)
   (:export
    #:expansion-for-word #:expansion-for-words #:set-alias #:unalias
    #:expand #:make-string-fragment #:word-boundary #:*split-fields*
    #:split))
-(in-package :shcl/expand)
+(in-package :shcl/core/expand)
 
 (optimization-settings)
 

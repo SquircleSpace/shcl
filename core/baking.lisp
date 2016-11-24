@@ -1,7 +1,7 @@
-(defpackage :shcl/baking
-  (:use :common-lisp :shcl/utility :shcl/lexer :shcl/thread)
+(defpackage :shcl/core/baking
+  (:use :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/thread)
   (:export #:bake-form-for-token #:bake-tokens))
-(in-package :shcl/baking)
+(in-package :shcl/core/baking)
 
 (optimization-settings)
 

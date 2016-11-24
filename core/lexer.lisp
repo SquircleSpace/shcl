@@ -1,5 +1,5 @@
-(defpackage :shcl/lexer
-  (:use :common-lisp :shcl/utility :shcl/shell-readtable)
+(defpackage :shcl/core/lexer
+  (:use :common-lisp :shcl/core/utility :shcl/core/shell-readtable)
   (:import-from :fset)
   (:import-from :closer-mop)
   (:import-from :cl-unicode)
@@ -33,7 +33,7 @@
    ;; Extensible reading
    #:lexer-context-mark-end-of-token
    #:lexer-context-shell-extensible-read-from-stream))
-(in-package :shcl/lexer)
+(in-package :shcl/core/lexer)
 
 (optimization-settings)
 

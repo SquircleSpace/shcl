@@ -1,9 +1,9 @@
-(defpackage :shcl/debug
-  (:use :common-lisp :shcl/utility)
+(defpackage :shcl/core/debug
+  (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export #:graph-class-hierarchy))
-(in-package :shcl/debug)
+(in-package :shcl/core/debug)
 
 (optimization-settings)
 

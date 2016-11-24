@@ -1,12 +1,12 @@
-(defpackage :shcl/fd-table
-  (:use :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams :shcl/utility :shcl/posix :shcl/posix-types)
+(defpackage :shcl/core/fd-table
+  (:use :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams :shcl/core/utility :shcl/core/posix :shcl/core/posix-types)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export
    #:fd-retain #:copy-fd-bindings #:fd-release #:fd-autorelease
    #:with-fd-scope #:with-living-fds :dup-retained #:open-retained
    #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
    #:get-fd :simplify-fd-bindings #:with-fd-streams))
-(in-package :shcl/fd-table)
+(in-package :shcl/core/fd-table)
 
 (optimization-settings)
 
@@ -241,7 +241,7 @@ adds the new fds to the fd table and gives them +1 retain counts.
 Returns two values: the read-end of the pipe and the write end of the
 pipe."
   (with-recursive-lock-held (%fd-retain-count-table-lock%)
-    (multiple-value-bind (read-end write-end) (shcl/posix:pipe)
+    (multiple-value-bind (read-end write-end) (shcl/core/posix:pipe)
       (debug-log status "PIPE ~A -> ~A" write-end read-end)
       (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
 

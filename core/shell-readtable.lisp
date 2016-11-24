@@ -1,11 +1,11 @@
-(defpackage :shcl/shell-readtable
-  (:use :common-lisp :shcl/utility :shcl/data)
+(defpackage :shcl/core/shell-readtable
+  (:use :common-lisp :shcl/core/utility :shcl/core/data)
   (:import-from :fset)
   (:export
    #:shell-extensible-read #:build-shell-readtable #:define-shell-readtable
    #:with-dispatch-character #:with-default-handler #:with-handler #:use-table
    #:+standard-shell-readtable+))
-(in-package :shcl/shell-readtable)
+(in-package :shcl/core/shell-readtable)
 
 (optimization-settings)
 
@@ -317,7 +317,7 @@ For information about the `on-conflict' and `handler' arguments, see
   "Construct a table.
 
 The result of this macro is equivalent to
-(shcl/utility:-> #<empty-table> ,@body)"
+(shcl/core/utility:-> #<empty-table> ,@body)"
   `(-> *empty-shell-readtable* ,@body))
 
 (defmacro define-shell-readtable (name &body body)

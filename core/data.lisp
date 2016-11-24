@@ -1,9 +1,9 @@
-(defpackage :shcl/data
-  (:use :common-lisp :shcl/utility)
+(defpackage :shcl/core/data
+  (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export #:define-data))
-(in-package :shcl/data)
+(in-package :shcl/core/data)
 
 (optimization-settings)
 
