@@ -1,18 +1,20 @@
 SHCL_DEPENDS= core/*.lisp shell/*.lisp shcl.asd libshcl-support.so make.lisp
+SUPPORT_OBJS= core/support/macros.o core/support/spawn.o
+
 all: shcl
 
-%.o : %.c
+%.o : %.c Makefile
 	clang -fPIC -o $@ -c $<
 
-core/support/spawn.o: core/support/spawn.c core/support/spawn.h
+core/support/spawn.o: core/support/spawn.c core/support/spawn.h Makefile
 	clang -fPIC -o $@ -c $<
 
-libshcl-support.so: core/support/macros.o core/support/spawn.o
-	clang -shared -o $@ $^
+libshcl-support.so: ${SUPPORT_OBJS} Makefile
+	clang -shared -o $@ ${SUPPORT_OBJS}
 
-shcl: ${SHCL_DEPENDS}
+shcl: ${SHCL_DEPENDS} Makefile
 	sbcl --load make.lisp
 
 .PHONY: test
-test: test/*.lisp ${SHCL_DEPENDS}
+test: test/*.lisp ${SHCL_DEPENDS} Makefile
 	sbcl --load test.lisp
