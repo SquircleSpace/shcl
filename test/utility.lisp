@@ -1,5 +1,5 @@
 (defpackage :shcl-test/utility
-  (:use :common-lisp :prove :shcl/utility))
+  (:use :common-lisp :prove :shcl/core/utility))
 (in-package :shcl-test/utility)
 
 (plan 7)
