@@ -4,6 +4,9 @@
    :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
    :shcl/core/lisp-interpolation :shcl/core/shell-readtable :shcl/core/builtin)
   (:import-from :shcl/core/posix #:exit)
+  (:import-from :shcl/shell/directory)
+  (:import-from :shcl/shell/logs)
+  (:import-from :shcl/shell/lisp-repl)
   (:import-from :trivial-gray-streams)
   (:import-from :cl-cli)
   (:import-from :uiop)

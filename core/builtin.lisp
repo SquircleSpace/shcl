@@ -1,7 +1,8 @@
 (defpackage :shcl/core/builtin
-  (:use :common-lisp :shcl/core/utility :shcl/core/fd-table :shcl/core/working-directory :shcl/core/environment)
+  (:use :common-lisp :shcl/core/utility)
   (:import-from :fset)
   (:import-from :alexandria)
+  (:import-from :shcl/core/fd-table #:with-fd-streams)
   (:shadow #:dump-logs)
   (:export #:define-builtin #:lookup-builtin))
 (in-package :shcl/core/builtin)
@@ -36,40 +37,3 @@ the provided string name.
 
 Returns nil if there is no builtin by the given name."
   (fset:lookup *builtin-table* name))
-
-(define-builtin dump-logs (args)
-  (declare (ignore args))
-  (shcl/core/utility:dump-logs)
-  0)
-
-(define-builtin (builtin-cd "cd") (args)
-  ;; Cut off command name
-  (setf args (fset:less-first args))
-  (when (zerop (fset:size args))
-    (let ((home (env "HOME")))
-      (when (zerop (length home))
-        (format *error-output* "cd: Could not locate home")
-        (return-from builtin-cd 1))
-
-      (fset:push-last args home)))
-
-  (cd (fset:last args))
-  0)
-
-(define-builtin pushd (args)
-  (fset:pop-first args)
-  (unless (equal 1 (fset:size args))
-    (format *error-output* "Anything but 1 arg pushd is not implemented~%")
-    (return-from pushd 1))
-
-  (push-working-directory (fset:last args))
-  0)
-
-(define-builtin popd (args)
-  (fset:pop-first args)
-  (unless (equal 0 (fset:size args))
-    (format *error-output* "popd takes no arguments~%")
-    (return-from popd 1))
-
-  (pop-working-directory)
-  0)
