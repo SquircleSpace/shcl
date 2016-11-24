@@ -1,4 +1,4 @@
-(defpackage :shcl/main
+(defpackage :shcl/shell/main
   (:use
    :common-lisp :shcl/core/lexer :shcl/core/shell-grammar :shcl/core/utility
    :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
@@ -11,7 +11,7 @@
   (:import-from :cl-cli)
   (:import-from :uiop)
   (:export #:main #:run-shell-commands-in-stream #:run-shell-commands-in-string))
-(in-package :shcl/main)
+(in-package :shcl/shell/main)
 
 (optimization-settings)
 

@@ -9,5 +9,5 @@ core/support/spawn.o: core/support/spawn.c core/support/spawn.h
 libshcl-support.so: core/support/macros.o core/support/spawn.o
 	clang -shared -o $@ $^
 
-shcl: core/*.lisp shell/*.lisp main.lisp shcl.asd libshcl-support.so make.lisp
+shcl: core/*.lisp shell/*.lisp shcl.asd libshcl-support.so make.lisp
 	sbcl --load make.lisp
