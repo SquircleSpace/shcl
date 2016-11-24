@@ -1,5 +1,5 @@
-(defpackage :shcl/thread
-  (:use :common-lisp :shcl/utility :bordeaux-threads)
+(defpackage :shcl/core/thread
+  (:use :common-lisp :shcl/core/utility :bordeaux-threads)
   (:export
    ;; Semaphores
    #:semaphore #:make-semaphore #:semaphore-signal #:semaphore-wait
@@ -8,7 +8,7 @@
    #:queue-thread #:make-queue-thread #:close-queue-thread #:kill-queue-thread
    #:queue-thread-p
    #:async-f #:async #:sync-f #:sync))
-(in-package :shcl/thread)
+(in-package :shcl/core/thread)
 
 (optimization-settings)
 

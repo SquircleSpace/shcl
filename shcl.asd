@@ -1,7 +1,7 @@
-(defsystem "shcl/posix-types"
+(defsystem "shcl/core/posix-types"
   :defsystem-depends-on ("cffi-grovel")
-  :components ((:file "posix-types")
-               (:cffi-grovel-file "posix-types-grovel" :depends-on ("posix-types"))))
+  :components ((:file "core/posix-types")
+               (:cffi-grovel-file "core/posix-types-grovel" :depends-on ("core/posix-types"))))
 
 (defsystem "shcl"
   :class :package-inferred-system

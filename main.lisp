@@ -1,8 +1,9 @@
 (defpackage :shcl/main
-  (:use :common-lisp :shcl/lexer :shcl/shell-grammar :shcl/utility
-        :shcl/evaluate :shcl/baking :shcl/thread :shcl/lisp-interpolation
-        :shcl/shell-readtable :shcl/builtin)
-  (:import-from :shcl/posix #:exit)
+  (:use
+   :common-lisp :shcl/core/lexer :shcl/core/shell-grammar :shcl/core/utility
+   :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
+   :shcl/core/lisp-interpolation :shcl/core/shell-readtable :shcl/core/builtin)
+  (:import-from :shcl/core/posix #:exit)
   (:import-from :trivial-gray-streams)
   (:import-from :cl-cli)
   (:import-from :uiop)

@@ -1,10 +1,10 @@
-(defpackage :shcl/support/support
-  (:use :common-lisp :cffi :shcl/utility :shcl/posix-types)
+(defpackage :shcl/core/support
+  (:use :common-lisp :cffi :shcl/core/utility :shcl/core/posix-types)
   (:export
    #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig
    #:string-table #:fd-actions #:make-fd-actions #:fd-actions-add-close
    #:fd-actions-add-dup2 #:shcl-spawn))
-(in-package :shcl/support/support)
+(in-package :shcl/core/support)
 
 (optimization-settings)
 

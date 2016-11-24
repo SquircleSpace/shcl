@@ -1,4 +1,4 @@
-(in-package :shcl/posix-types)
+(in-package :shcl/core/posix-types)
 
 (include "errno.h" "sys/types.h" "sys/stat.h" "fcntl.h" "spawn.h" "dirent.h")
 

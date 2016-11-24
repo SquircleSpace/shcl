@@ -1,10 +1,10 @@
-(defpackage :shcl/builtin
-  (:use :common-lisp :shcl/utility :shcl/fd-table :shcl/working-directory :shcl/environment)
+(defpackage :shcl/core/builtin
+  (:use :common-lisp :shcl/core/utility :shcl/core/fd-table :shcl/core/working-directory :shcl/core/environment)
   (:import-from :fset)
   (:import-from :alexandria)
   (:shadow #:dump-logs)
   (:export #:define-builtin #:lookup-builtin))
-(in-package :shcl/builtin)
+(in-package :shcl/core/builtin)
 
 (optimization-settings)
 
@@ -39,7 +39,7 @@ Returns nil if there is no builtin by the given name."
 
 (define-builtin dump-logs (args)
   (declare (ignore args))
-  (shcl/utility:dump-logs)
+  (shcl/core/utility:dump-logs)
   0)
 
 (define-builtin (builtin-cd "cd") (args)

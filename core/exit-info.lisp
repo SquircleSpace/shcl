@@ -1,9 +1,9 @@
-(defpackage :shcl/exit-info
-  (:use :common-lisp :shcl/utility :shcl/posix)
+(defpackage :shcl/core/exit-info
+  (:use :common-lisp :shcl/core/utility :shcl/core/posix)
   (:export
    #:exit-info #:exit-info-p #:exit-info-true-p #:exit-info-false-p
    #:invert-exit-info #:make-exit-info #:truthy-exit-info #:falsey-exit-info))
-(in-package :shcl/exit-info)
+(in-package :shcl/core/exit-info)
 
 (optimization-settings)
 

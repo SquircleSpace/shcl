@@ -1,5 +1,5 @@
-(defpackage :shcl/shell-grammar
-  (:use :common-lisp :shcl/parser :shcl/lexer :shcl/utility)
+(defpackage :shcl/core/shell-grammar
+  (:use :common-lisp :shcl/core/parser :shcl/core/lexer :shcl/core/utility)
   (:export
    #:command-iterator
    ;; nonterminals
@@ -15,7 +15,7 @@
    #:io-here #:here-end #:newline-list #:newline-list-tail #:linebreak
    #:separator-op #:separator #:command-separator #:sequential-sep
    #:wordly-word #:redirect #:fd-description #:condition #:body))
-(in-package :shcl/shell-grammar)
+(in-package :shcl/core/shell-grammar)
 
 (optimization-settings)
 

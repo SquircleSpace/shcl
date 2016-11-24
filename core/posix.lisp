@@ -1,6 +1,6 @@
-(defpackage :shcl/posix
-  (:use :common-lisp :cffi :trivial-garbage :shcl/posix-types :shcl/utility
-        :shcl/support/support :bordeaux-threads)
+(defpackage :shcl/core/posix
+  (:use :common-lisp :cffi :trivial-garbage :shcl/core/posix-types :shcl/core/utility
+        :shcl/core/support :bordeaux-threads)
   (:import-from :fset)
   (:export
    #:posix-spawn-file-actions-init #:posix-spawn-file-actions-destroy
@@ -12,7 +12,7 @@
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:syscall-error #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
    #:wtermsig #:wstopsig))
-(in-package :shcl/posix)
+(in-package :shcl/core/posix)
 
 (optimization-settings)
 

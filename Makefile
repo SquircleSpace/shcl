@@ -3,11 +3,11 @@ all: shcl
 %.o : %.c
 	clang -fPIC -o $@ -c $<
 
-support/spawn.o: support/spawn.c support/spawn.h
+core/support/spawn.o: core/support/spawn.c core/support/spawn.h
 	clang -fPIC -o $@ -c $<
 
-libshcl-support.so: support/macros.o support/spawn.o
+libshcl-support.so: core/support/macros.o core/support/spawn.o
 	clang -shared -o $@ $^
 
-shcl: *.lisp support/support.lisp shcl.asd libshcl-support.so make.lisp
+shcl: core/*.lisp main.lisp shcl.asd libshcl-support.so make.lisp
 	sbcl --load make.lisp

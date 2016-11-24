@@ -1,17 +1,17 @@
-(defpackage :shcl/lisp-interpolation
-  (:use :common-lisp :shcl/utility :shcl/lexer :shcl/shell-grammar
-        :shcl/evaluate :shcl/expand :shcl/baking :shcl/builtin :shcl/exit-info
-        :shcl/fd-table :shcl/shell-readtable)
+(defpackage :shcl/core/lisp-interpolation
+  (:use :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
+        :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/builtin :shcl/core/exit-info
+        :shcl/core/fd-table :shcl/core/shell-readtable)
   (:import-from :fset)
-  (:import-from :shcl/evaluate)
-  (:import-from :shcl/posix)
-  (:import-from :shcl/thread)
+  (:import-from :shcl/core/evaluate)
+  (:import-from :shcl/core/posix)
+  (:import-from :shcl/core/thread)
   (:import-from :bordeaux-threads)
   (:export
    #:enable-shell-splice-syntax #:enable-reader-syntax #:evaluate-shell-string
    #:evaluate-constant-shell-string #:exit-failure #:check-result #:capture
    #:*splice-table*))
-(in-package :shcl/lisp-interpolation)
+(in-package :shcl/core/lisp-interpolation)
 
 (defclass lisp-form (a-word)
   ((form
@@ -174,18 +174,18 @@
        (let (part)
          (loop :do
             (progn
-              (setf part (shcl/posix:posix-read retained-fd +read-rate+))
+              (setf part (shcl/core/posix:posix-read retained-fd +read-rate+))
               (debug-log status "READ ~A BYTES" (length part))
               (write-string part output-buffer))
             :while (not (zerop (length part)))))
     (fd-release retained-fd)
-    (shcl/thread:semaphore-signal semaphore)))
+    (shcl/core/thread:semaphore-signal semaphore)))
 
 (defun %capture (streams shell-command-fn)
   (with-fd-scope ()
     (let ((fds (mapcar 'decode-stream-descriptor streams))
           (result-buffer (make-string-output-stream))
-          (semaphore (shcl/thread:make-semaphore)))
+          (semaphore (shcl/core/thread:make-semaphore)))
       (multiple-value-bind (read-end write-end) (pipe-retained)
         (unwind-protect
              (progn
@@ -200,7 +200,7 @@
 
                (fd-release write-end)
                (setf write-end nil)
-               (shcl/thread:semaphore-wait semaphore)
+               (shcl/core/thread:semaphore-wait semaphore)
                (get-output-stream-string result-buffer))
           (when read-end
             (fd-release read-end))
