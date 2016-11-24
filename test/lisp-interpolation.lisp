@@ -3,7 +3,7 @@
   (:shadow #:run))
 (in-package :shcl-test/lisp-interpolation)
 
-(plan 7)
+(plan 8)
 
 (defun shell (str)
   (evaluate-shell-string str))
