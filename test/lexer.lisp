@@ -1,6 +1,8 @@
 (defpackage :shcl-test/lexer
-  (:use :common-lisp :prove :shcl/core/lexer :shcl/core/shell-readtable))
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lexer :shcl/core/shell-readtable))
 (in-package :shcl-test/lexer)
+
+(optimization-settings)
 
 (plan 3)
 
