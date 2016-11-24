@@ -20,14 +20,19 @@
 (define-builtin lisp-repl (args)
   (declare (ignore args))
   (catch 'return-to-shell
-    (let ((*package* (find-package :shcl-user)))
+    (let ((eof-value '#:eof-value)
+          (*package* (find-package :shcl-user)))
       (labels
           ((print-list (list)
              (dolist (value list)
                (format *standard-output* "~A~%" value))
              (finish-output *standard-output*))
            (our-read ()
-             (let ((form (read)))
+             (let ((form (read *standard-input* nil eof-value)))
+               (when (eq form eof-value)
+                 (format *standard-output* "~%")
+                 (return-to-shell))
+
                (case form
                  (:shell
                   (return-to-shell))
