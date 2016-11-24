@@ -1,5 +1,5 @@
 (defpackage :shcl-test/data
-  (:use :common-lisp :shcl/data :prove)
+  (:use :common-lisp :shcl/core/data :prove)
   (:import-from :fset))
 (in-package :shcl-test/data)
 
