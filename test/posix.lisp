@@ -1,6 +1,8 @@
 (defpackage :shcl-test/posix
-  (:use :common-lisp :shcl/core/posix :prove))
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/posix))
 (in-package :shcl-test/posix)
+
+(optimization-settings)
 
 (plan 1)
 
