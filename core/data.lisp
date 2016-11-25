@@ -10,7 +10,8 @@
 (defmacro define-cloning-accessor (name &key slot-name accessor)
   (unless (and (or slot-name accessor) (not (and slot-name accessor)))
     (error "define-cloning-accessor requires either a slot-name xor an accessor function"))
-  (let* ((object (gensym "OBJECT"))
+  (let* ((description (list slot-name accessor))
+         (object (gensym "OBJECT"))
          (env (gensym "ENV"))
          (vars (gensym "VARS"))
          (vals (gensym "VALS"))
@@ -30,6 +31,8 @@
                        `(slot-value ,,object ,'',slot-name)))
               (list `(defmacro ,access-macro (,object)
                        `(,',accessor ,,object))))))
+    (when (equal description (get name 'cloning-accessor-description))
+      (return-from define-cloning-accessor))
     `(progn
        ,@access-wrapper
        (defun ,name (,object)
@@ -47,7 +50,8 @@
                  (multiple-value-bind ,,set-vars ,,inner-clone
                    ,,setter)
                  ,,set-var)
-              `(,',access-macro ,,inner-clone))))))))
+              `(,',access-macro ,,inner-clone)))))
+       (setf (get ',name 'cloning-accessor-description) ',description))))
 
 (defun clone-slots (slots old new)
   (dolist (slot slots)
