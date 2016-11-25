@@ -46,7 +46,9 @@
       (asdf:compile-system :shcl))
     (asdf:load-system :shcl)
     (funcall (intern "OBSERVE-DUMP" (find-package "SHCL/CORE/UTILITY")))
-    #+sbcl (sb-ext:save-lisp-and-die "shcl" :toplevel (intern "MAIN" (find-package "SHCL/SHELL/MAIN")) :executable t :save-runtime-options t :purify t))
+    (let ((main (intern "MAIN" (find-package "SHCL/SHELL/MAIN"))))
+      #+sbcl (sb-ext:save-lisp-and-die "shcl" :toplevel main :executable t :save-runtime-options t :purify t)
+      #+ccl (ccl:save-application "shcl" :toplevel-function main :purify t :impurify t :prepend-kernel t)))
   #+ecl
   (progn
     (asdf:register-immutable-system :asdf)
