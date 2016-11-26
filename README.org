@@ -2,7 +2,7 @@
 #+AUTHOR: Brad Jensen
 
 SHCL is
-1. a shell powered by secret alien technology, and
+1. a shell made with secret alien technology, and
 2. a Common Lisp library that makes it very convenient to create new processes.
 
 The POSIX shell language is very limited.  It is primarily focused on
