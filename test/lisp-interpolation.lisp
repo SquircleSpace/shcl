@@ -5,7 +5,7 @@
 
 (optimization-settings)
 
-(plan 8)
+(plan 9)
 
 (defun shell (str)
   (evaluate-shell-string str))
@@ -149,6 +149,12 @@ done)"
       (format nil "condition~%condition2~%elif-branch~%")
       :test #'equal
       "Only the elif branch runs"))
+
+(deftest bang
+  (exit-fail
+   (shell "! true"))
+  (exit-ok
+   (shell "! false")))
 
 (deftest while
     (let ((count 0))
