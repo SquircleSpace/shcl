@@ -10,8 +10,8 @@
    #:with-posix-spawnattr #:environment-iterator #:fchdir #:open-fds
    #:compiler-owned-fds #:posix-read #:posix-write #:fork #:_exit #:exit
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
-   #:pipe #:syscall-error #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
-   #:wtermsig #:wstopsig))
+   #:pipe #:fstat #:syscall-error #:wifexited #:wifstopped #:wifsignaled
+   #:wexitstatus #:wtermsig #:wstopsig))
 (in-package :shcl/core/posix)
 
 (optimization-settings)
@@ -375,6 +375,39 @@
     (values
      (mem-aref fildes :int 0)
      (mem-aref fildes :int 1))))
+
+(defmacro define-simple-struct-class (name-and-type)
+  (unless (consp name-and-type)
+    (setf name-and-type `(,name-and-type (:struct ,name-and-type))))
+
+  (destructuring-bind (lisp-name type) name-and-type
+    (labels
+        ((slot-definition (name) `(,name)))
+      (let* ((structure-slot-names (foreign-slot-names type))
+             (slots (mapcar #'slot-definition structure-slot-names))
+             (instance (gensym "INSTANCE"))
+             (slot-names (gensym "SLOT-NAMES"))
+             (pointer (gensym "POINTER")))
+        `(progn
+           (defclass ,lisp-name ()
+             ,slots)
+           (defmethod shared-initialize :after ((,instance ,lisp-name) ,slot-names &key ((:pointer ,pointer)) &allow-other-keys)
+             (declare (ignore ,slot-names))
+             (when ,pointer
+               ,@(loop :for slot-name :in structure-slot-names :collect
+                    `(setf (slot-value ,instance ',slot-name) (foreign-slot-value ,pointer ',type ',slot-name)))))
+           ',lisp-name)))))
+
+(define-simple-struct-class stat)
+
+(define-c-wrapper (%fstat "fstat") (:int #'not-negative-1-p)
+  (fd :int)
+  (buf (:pointer (:struct stat))))
+
+(defun fstat (fd)
+  (with-foreign-object (buf '(:struct stat))
+    (%fstat fd buf)
+    (make-instance 'stat :pointer buf)))
 
 (define-c-wrapper (%strerror "strerror") (:string)
   (err :int))
