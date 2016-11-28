@@ -3,7 +3,8 @@
   (:export
    #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig
    #:string-table #:fd-actions #:make-fd-actions #:fd-actions-add-close
-   #:fd-actions-add-dup2 #:shcl-spawn))
+   #:fd-actions-add-dup2 #:shcl-spawn #:s-isreg #:s-isdir #:s-ischr #:s-isblk
+   #:s-isfifo #:s-islnk #:s-issock))
 (in-package :shcl/core/support)
 
 (optimization-settings)
@@ -37,6 +38,27 @@
 
 (defcfun (wstopsig "wstopsig" :library shcl-support) :int
   (status :int))
+
+(defcfun (s-isreg "s_isreg") :int
+  (mode mode-t))
+
+(defcfun (s-isdir "s_isdir") :int
+  (mode mode-t))
+
+(defcfun (s-ischr "s_ischr") :int
+  (mode mode-t))
+
+(defcfun (s-isblk "s_isblk") :int
+  (mode mode-t))
+
+(defcfun (s-isfifo "s_isfifo") :int
+  (mode mode-t))
+
+(defcfun (s-islnk "s_islnk") :int
+  (mode mode-t))
+
+(defcfun (s-issock "s_issock") :int
+  (mode mode-t))
 
 (define-foreign-type string-table-type ()
   ((size
