@@ -15,20 +15,14 @@
 
 (use-foreign-library shcl-support)
 
-(defcfun (%wifexited "wifexited" :library shcl-support) :int
+(defcfun (wifexited "wifexited" :library shcl-support) (:boolean :int)
   (status :int))
-(defun wifexited (status)
-  (not (zerop (%wifexited status))))
 
-(defcfun (%wifstopped "wifstopped" :library shcl-support) :int
+(defcfun (wifstopped "wifstopped" :library shcl-support) (:boolean :int)
   (status :int))
-(defun wifstopped (status)
-  (not (zerop (%wifstopped status))))
 
-(defcfun (%wifsignaled "wifsignaled" :library shcl-support) :int
+(defcfun (wifsignaled "wifsignaled" :library shcl-support) (:boolean :int)
   (status :int))
-(defun wifsignaled (status)
-  (not (zerop (%wifsignaled status))))
 
 (defcfun (wexitstatus "wexitstatus" :library shcl-support) :int
   (status :int))
@@ -39,25 +33,25 @@
 (defcfun (wstopsig "wstopsig" :library shcl-support) :int
   (status :int))
 
-(defcfun (s-isreg "s_isreg") :int
+(defcfun (s-isreg "s_isreg") (:boolean :int)
   (mode mode-t))
 
-(defcfun (s-isdir "s_isdir") :int
+(defcfun (s-isdir "s_isdir") (:boolean :int)
   (mode mode-t))
 
-(defcfun (s-ischr "s_ischr") :int
+(defcfun (s-ischr "s_ischr") (:boolean :int)
   (mode mode-t))
 
-(defcfun (s-isblk "s_isblk") :int
+(defcfun (s-isblk "s_isblk") (:boolean :int)
   (mode mode-t))
 
-(defcfun (s-isfifo "s_isfifo") :int
+(defcfun (s-isfifo "s_isfifo") (:boolean :int)
   (mode mode-t))
 
-(defcfun (s-islnk "s_islnk") :int
+(defcfun (s-islnk "s_islnk") (:boolean :int)
   (mode mode-t))
 
-(defcfun (s-issock "s_issock") :int
+(defcfun (s-issock "s_issock") (:boolean :int)
   (mode mode-t))
 
 (define-foreign-type string-table-type ()
