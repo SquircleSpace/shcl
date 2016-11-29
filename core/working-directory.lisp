@@ -88,18 +88,20 @@
 
 (defun push-working-directory (path)
   (with-lock-held (*working-directory-lock*)
-    (let ((dir-fd (openat-retained (%current-working-directory-fd) path O-RDONLY)))
-      (unwind-protect
-           (progn
-             (%push-working-directory-fd dir-fd))
-        (fd-release dir-fd)))))
+    (with-fd-scope ()
+      (let ((dir-fd (openat-retained (%current-working-directory-fd) path O-RDONLY)))
+        (unwind-protect
+             (progn
+               (%push-working-directory-fd dir-fd))
+          (fd-release dir-fd))))))
 
 (defun cd (path)
   (with-lock-held (*working-directory-lock*)
-    (let ((dir-fd (openat-retained (%current-working-directory-fd) path O-RDONLY)))
-      (unwind-protect
-           (progn
-             (%pop-working-directory)
-             (%push-working-directory-fd dir-fd)
-             (values))
-        (fd-release dir-fd)))))
+    (with-fd-scope ()
+      (let ((dir-fd (openat-retained (%current-working-directory-fd) path O-RDONLY)))
+        (unwind-protect
+             (progn
+               (%pop-working-directory)
+               (%push-working-directory-fd dir-fd)
+               (values))
+          (fd-release dir-fd))))))
