@@ -1,9 +1,9 @@
 (defpackage :shcl/core/working-directory
-  (:use :common-lisp :trivial-garbage :bordeaux-threads :shcl/core/utility
-        :shcl/core/fd-table :shcl/core/posix-types :shcl/core/posix)
+  (:use :common-lisp :bordeaux-threads :shcl/core/utility
+        :shcl/core/fd-table :shcl/core/posix-types :shcl/core/posix
+        :shcl/core/shell-environment)
   (:export #:cd #:push-working-directory #:pop-working-directory
-           #:current-working-directory-fd #:preserve-working-directory-history
-           #:with-alternate-working-directory-history))
+           #:current-working-directory-fd))
 (in-package :shcl/core/working-directory)
 
 (defvar *process-working-directory-lock* (make-recursive-lock))
@@ -26,12 +26,6 @@
   (with-lock-held (*working-directory-lock*)
     (%current-working-directory-fd)))
 
-(defstruct wrapper
-  object)
-
-(defstruct preserved-working-directory-history
-  fds)
-
 (defun release-history (history)
   (dolist (item history)
     (fd-release item)))
@@ -42,36 +36,38 @@
 
 (defun preserve-working-directory-history ()
   (with-lock-held (*working-directory-lock*)
-    (let* ((fds *working-directory-fds*)
-           (wrapper (make-wrapper :object fds))
-           (wrapped-history (make-preserved-working-directory-history :fds wrapper)))
-      (labels ((finalize-preserved-working-directory-history ()
-                 (release-history fds)))
-        (retain-history fds)
-        (finalize wrapper #'finalize-preserved-working-directory-history)
-        wrapped-history))))
+    (let* ((fds *working-directory-fds*))
+      (retain-history fds)
+      fds)))
 
 (defun destroy-preserved-working-directory-history (history)
-  (cancel-finalization (preserved-working-directory-history-fds history))
-  (setf (wrapper-object (preserved-working-directory-history-fds history)) nil)
-  (setf (preserved-working-directory-history-fds history) nil)
+  (release-history history)
   (values))
 
-(defun rehydrate-working-directory-history-fds (history)
-  (wrapper-object (preserved-working-directory-history-fds history)))
-
-(defmacro with-alternate-working-directory-history (preserved-history (&key (destroy t)) &body body)
+(defmacro with-alternate-working-directory-history (preserved-history &body body)
   (let ((history (gensym "HISTORY")))
     `(let* ((,history ,preserved-history)
             (*working-directory-lock* (make-lock))
-            (*working-directory-fds* (rehydrate-working-directory-history-fds ,history)))
-       ;; The history might change once we start executing body.  So,
-       ;; we're going to retain it in its current state and release it
-       ;; in whatever state it is in later.
+            (*working-directory-fds* ,history))
        (retain-history *working-directory-fds*)
-       ,@(when destroy `((destroy-preserved-working-directory-history ,history)))
        (unwind-protect (progn ,@body)
          (release-history *working-directory-fds*)))))
+
+(defun call-with-alternate-working-directory-history (history fn)
+  (let ((*working-directory-lock* (make-lock))
+        (*working-directory-fds* history))
+    ;; The history might change once we start executing body.  So,
+    ;; we're going to retain it in its current state and release it
+    ;; in whatever state it is in later.
+    (retain-history *working-directory-fds*)
+    (unwind-protect (funcall fn)
+      (release-history *working-directory-fds*))))
+
+(extend-shell-environment
+ 'working-directory
+ 'preserve-working-directory-history
+ 'call-with-alternate-working-directory-history
+ 'destroy-preserved-working-directory-history)
 
 (defun %pop-working-directory ()
   (let ((fd (pop *working-directory-fds*)))

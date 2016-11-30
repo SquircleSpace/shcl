@@ -1,11 +1,13 @@
 (defpackage :shcl/core/fd-table
-  (:use :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams :shcl/core/utility :shcl/core/posix :shcl/core/posix-types)
+  (:use :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams
+        :shcl/core/utility :shcl/core/posix :shcl/core/posix-types
+        :shcl/core/shell-environment)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export
-   #:fd-retain #:copy-fd-bindings #:fd-release #:fd-autorelease
-   #:with-fd-scope #:with-living-fds :dup-retained #:open-retained
+   #:fd-retain #:fd-release #:fd-autorelease
+   #:with-fd-scope #:with-living-fds #:dup-retained #:open-retained
    #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
-   #:get-fd :simplify-fd-bindings #:with-fd-streams))
+   #:get-fd #:simplify-fd-bindings #:with-fd-streams))
 (in-package :shcl/core/fd-table)
 
 (optimization-settings)
@@ -98,19 +100,22 @@ count reaches 0.  See `fd-release'."
       (when (%fd-managed-p value-fd)
         (%fd-retain value-fd)))))
 
-(defun copy-fd-bindings ()
-  "Take the current state of the fd bindings and preserve it for later re-hydration with `with-fd-scope'.
-
-You may only rehydrate the returned fd bindings at most once.
-Attempting to rehydrate the bindings twice is an error."
+(defun preserve-fd-bindings ()
   (retain-fd-bindings *fd-bindings*)
-  (let* ((inner (make-floating-fd-bindings-inner :bindings *fd-bindings*))
-         (floater (make-floating-fd-bindings :inner inner)))
-    (labels ((release-bindings ()
-               (when (floating-fd-bindings-inner-bindings inner)
-                 (release-fd-bindings (floating-fd-bindings-inner-bindings inner)))))
-      (trivial-garbage:finalize floater #'release-bindings)
-      floater)))
+  *fd-bindings*)
+
+(defun destroy-fd-bindings (bindings)
+  (release-fd-bindings bindings)
+  (values))
+
+(defun call-with-fd-bindings (bindings continuation)
+  (%with-fd-scope continuation bindings))
+
+(extend-shell-environment
+ 'fd-table
+ 'preserve-fd-bindings
+ 'call-with-fd-bindings
+ 'destroy-fd-bindings)
 
 (define-condition fd-over-release (error)
   ((fd
@@ -160,47 +165,26 @@ If the retain count reaches 0, then it will be closed immediately."
   (vector-push-extend fd *autorelease-fd-scope*)
   fd)
 
-(defun %with-fd-scope (fn &key (take nil take-p))
-  (when take-p
-    (check-type take floating-fd-bindings))
-  ;; We need to make sure take isn't garbage collected until we've
-  ;; taken full ownership over it.  Just in case we are dealing with a
-  ;; very clever compiler, we're going to force ourselves to always
-  ;; access the inner information via take.  That way, take can't
-  ;; possibly be garbage collected until we're done with the inner
-  ;; information.
-  (symbol-macrolet ((taken-inner (floating-fd-bindings-inner take)))
-    (let* ((taken-bindings (when take-p (floating-fd-bindings-inner-bindings taken-inner)))
-           (*fd-bindings* (or taken-bindings *fd-bindings* (fset:empty-map)))
-           (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
-      (assert (or (not take-p) taken-bindings) nil
-              "A copied fd binding can only be taken once.")
-      ;; Retain the new bindings
-      (retain-fd-bindings *fd-bindings*)
+(defun %with-fd-scope (fn &optional bindings)
+  (let* ((*fd-bindings* (or bindings *fd-bindings* (fset:empty-map)))
+         (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
+    ;; Retain the new bindings
+    (retain-fd-bindings *fd-bindings*)
 
-      (when take-p
-        (setf (floating-fd-bindings-inner-bindings taken-inner) nil)
-        ;; This offsets the retain done by copy-fd-bindings
-        (release-fd-bindings taken-bindings))
+    (unwind-protect (funcall fn)
+      (with-recursive-lock-held (%fd-retain-count-table-lock%)
+        (loop :for fd :across *autorelease-fd-scope* :do
+           (%fd-release fd)))
+      (release-fd-bindings *fd-bindings*))))
 
-      (unwind-protect (funcall fn)
-        (with-recursive-lock-held (%fd-retain-count-table-lock%)
-          (loop :for fd :across *autorelease-fd-scope* :do
-             (%fd-release fd)))
-        (release-fd-bindings *fd-bindings*)))))
-
-(defmacro with-fd-scope ((&key (take nil take-p)) &body body)
+(defmacro with-fd-scope (() &body body)
   "Introduce an fd scope.
 
 Calls to `fd-autorelease' while this fd scope is active will not
 decrement fd retain counts until control leaves this fd scope.
 Additionally, any manipulations to the fd table `*fd-bindings*' will
-be reverted when this scope exits.
-
-The `:take' argument allows you to re-activate fd-bindings preserved
-with `copy-fd-bindings'.  You may only take a copied fd-binding table
-at most once.  Attempting to take it twice is an error."
-  `(%with-fd-scope (lambda () ,@body) ,@(when take-p `(:take ,take))))
+be reverted when this scope exits."
+  `(%with-fd-scope (lambda () ,@body)))
 
 (defmacro with-living-fds ((fd-list-sym) &body body)
   "Lock the fd table and list all managed file descriptors.
