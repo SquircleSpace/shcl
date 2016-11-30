@@ -1,5 +1,6 @@
 (defpackage :shcl/core/environment
-  (:use :common-lisp :shcl/core/utility :shcl/core/posix)
+  (:use :common-lisp :shcl/core/utility :shcl/core/posix
+        :shcl/core/shell-environment)
   (:import-from :fset)
   (:export
    #:*environment* #:linearized-exported-environment #:with-environment-scope
@@ -58,6 +59,7 @@ suitable for storing in `*environment*'."
   "The current posix environment.")
 (on-revival reset-environment)
 (on-dump clear-environment)
+(preserve-special-variable '*environment*)
 
 (defun reset-environment ()
   "Set `*environment*' based on the current posix environment."

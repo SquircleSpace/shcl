@@ -1,9 +1,9 @@
 (defpackage :shcl/core/evaluate
-  (:use :common-lisp :trivial-garbage :alexandria :bordeaux-threads
+  (:use :common-lisp :alexandria :bordeaux-threads
         :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer :shcl/core/fork-exec
         :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/builtin
         :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
-        :shcl/core/working-directory)
+        :shcl/core/working-directory :shcl/core/shell-environment)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluate))
@@ -158,29 +158,18 @@ directly."))
 This is a synonym for `evaluate'."
   (evaluate sy))
 
-(defparameter *special-variables-to-preserve-during-async*
-  '(*environment*)
-  "The values of these variables will be preserved when switching
-threads to evaluate a syntax tree asynchronously (both for
-`evaluate-async-job' and `evaluate-background-job').")
-
 (defun evaluate-async-job (sy completion-handler)
   "Evaluate the given syntax tree asynchronously.
 
 This function does not create an entry in the job table."
-  (let* ((symbols *special-variables-to-preserve-during-async*)
-         (symbol-values (mapcar #'symbol-value symbols))
-         (fd-bindings (copy-fd-bindings))
-         (wd-history (preserve-working-directory-history)))
+  (let ((shell-environment (preserve-shell-environment)))
     (labels
         ((async-eval ()
-           (progv symbols symbol-values
-             (with-fd-scope (:take fd-bindings)
-               (with-alternate-working-directory-history
-                   wd-history (:destroy t)
-                 (let* ((result (evaluate sy)))
-                   ;; TODO: What if there is an error in evaluate!?
-                   (funcall completion-handler result)))))
+           (with-restored-shell-environment shell-environment
+             (destroy-preserved-shell-environment shell-environment)
+             (let* ((result (evaluate sy)))
+               ;; TODO: What if there is an error in evaluate!?
+               (funcall completion-handler result)))
            (debug-log status "Thread exit ~A" sy)))
       (make-thread #'async-eval))))
 
