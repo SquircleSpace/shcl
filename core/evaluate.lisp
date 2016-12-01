@@ -165,12 +165,19 @@ This function does not create an entry in the job table."
   (let ((shell-environment (preserve-shell-environment)))
     (labels
         ((async-eval ()
-           (with-restored-shell-environment shell-environment
+           (unwind-protect
+                (handler-bind
+                    ((error (lambda (e)
+                              (return-from async-eval (funcall completion-handler nil e)))))
+                  (with-restored-shell-environment shell-environment
+                    (destroy-preserved-shell-environment shell-environment)
+                    (let* ((result (evaluate sy)))
+                      (funcall completion-handler result nil))))
+             ;; Just in case we never even made it into the body of
+             ;; with-resotred-shell-environment, let's destroy the
+             ;; environment again.
              (destroy-preserved-shell-environment shell-environment)
-             (let* ((result (evaluate sy)))
-               ;; TODO: What if there is an error in evaluate!?
-               (funcall completion-handler result)))
-           (debug-log status "Thread exit ~A" sy)))
+             (debug-log status "Worker thread exit ~A" sy))))
       (make-thread #'async-eval))))
 
 (defgeneric evaluate (syntax-tree)
@@ -265,7 +272,10 @@ The methods on this function are tightly coupled to the shell grammar."))
              (when write-end
                (bind-fd-description +pipe-write-fd+ write-end))
              (evaluate-async-job (aref vector index)
-                                 (lambda (result) (store index result))))))
+                                 (lambda (result error)
+                                   (when error
+                                     (debug-log error "Error in pipeline ~A" error))
+                                   (store index (or result (internal-error-exit-info))))))))
       ;; Produce a vector containing all the elements of the pipeline
       (visit sy)
       (assert (< 1 (length vector)))
