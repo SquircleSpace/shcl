@@ -2,7 +2,8 @@
   (:use :common-lisp :shcl/core/utility :shcl/core/posix)
   (:export
    #:exit-info #:exit-info-p #:exit-info-true-p #:exit-info-false-p
-   #:invert-exit-info #:make-exit-info #:truthy-exit-info #:falsey-exit-info))
+   #:invert-exit-info #:make-exit-info #:truthy-exit-info #:falsey-exit-info
+   #:internal-error-exit-info))
 (in-package :shcl/core/exit-info)
 
 (optimization-settings)
@@ -83,3 +84,7 @@ sucesfully."
 (defun falsey-exit-info ()
   "Produce an exit-info that indicates failure"
   (make-exit-info :exit-status 1))
+
+(defun internal-error-exit-info ()
+  "Produce an exit-info that indicates shcl has failed in some way"
+  (make-exit-info :exit-status 128))
