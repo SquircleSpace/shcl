@@ -5,7 +5,7 @@
   (:export
    #:*environment* #:linearized-exported-environment #:with-environment-scope
    #:env #:export-variable #:unexport-variable #:clear-environment #:exported-p
-   #:unset-env
+   #:unset-env #:colon-list-iterator
    #:$ifs #:$path #:$pwd #:$oldpwd))
 (in-package :shcl/core/environment)
 
@@ -155,6 +155,21 @@ given key."
   (setf (fset:lookup *environment* key) (make-instance 'environment-binding
                                                        :value (env key)
                                                        :exported nil)))
+
+(defun colon-list-iterator (string)
+  (let ((part (make-string-output-stream))
+        (iterator (vector-iterator string)))
+    (make-iterator ()
+      (do-iterator (c iterator)
+        (case c
+          (#\:
+           (emit (get-output-stream-string part)))
+          (otherwise
+           (write-char c part))))
+      (let ((last-part (get-output-stream-string part)))
+        (unless (zerop (length last-part))
+          (emit last-part))
+        (stop)))))
 
 (defmacro define-environment-accessor (name &optional (default '*env-default*))
   "Define a symbol macro that accesses the given environment
