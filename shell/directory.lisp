@@ -1,8 +1,7 @@
 (defpackage :shcl/shell/directory
   (:use :common-lisp :shcl/core/utility :shcl/core/builtin
         :shcl/core/environment :shcl/core/working-directory
-        :shcl/core/posix :shcl/core/posix-types
-        :shcl/core/support :shcl/core/fd-table :shcl/core/lisp-interpolation))
+        :shcl/core/fd-table :shcl/core/lisp-interpolation))
 (in-package :shcl/shell/directory)
 
 (optimization-settings)
@@ -67,30 +66,6 @@
            (write-char #\/ result))))
     (get-output-stream-string result)))
 
-(defun directory-fd-p (fd)
-  (s-isdir (slot-value (fstat fd) 'st-mode)))
-
-(defun try-opening-path (path)
-  (handler-bind
-      ((syscall-error
-        (lambda (e)
-          (when (equal enoent (syscall-errno e))
-            (return-from try-opening-path nil)))))
-    (fd-autorelease (openat-retained (current-working-directory-fd) path o-rdonly))))
-
-(defun directory-p (path)
-  (with-fd-scope ()
-    (let ((fd (try-opening-path path)))
-      (when fd
-        (directory-fd-p fd)))))
-
-(define-condition path-invalid (error)
-  ((message
-    :type string
-    :initarg :message
-    :reader path-invalid-message))
-  (:report (lambda (c s) (format s "Path is invalid.  ~A" (path-invalid-message c)))))
-
 (defun interpret-path (path physical-p)
   ;; Step 1 and 2
   (unless path
@@ -119,11 +94,9 @@
          (let* ((cdpath (if (equal "" cdpath) "./" cdpath))
                 (slash-terminated (equal #\/ (aref cdpath (- (length cdpath) 1))))
                 (query-path (concatenate 'string cdpath (if slash-terminated "" "/") path)))
-           (with-fd-scope ()
-             (let ((dir-fd (try-opening-path query-path)))
-               (when (and dir-fd (directory-fd-p dir-fd))
-                 (setf curpath query-path)
-                 (go step-7))))))
+           (when (directory-p query-path)
+             (setf curpath query-path)
+             (go step-7))))
 
      step-6
        (setf curpath path)
@@ -194,26 +167,17 @@
          (return-from interpret-path (values pwd-string cd-string))))))
 
 (defun switch-directory (command-name path physical-p switcher-fn)
-  (labels
-      ((interpret ()
-         (handler-bind
-             ((path-invalid
-               (lambda (e)
-                 (format *error-output* "~A: ~A~%" command-name (path-invalid-message e))
-                 (return-from switch-directory 1))))
-           (interpret-path path physical-p))))
+  (handler-bind
+      ((path-invalid
+        (lambda (e)
+          (format *error-output* "~A: ~A~%" command-name (path-invalid-message e))
+          (return-from switch-directory 1))))
 
-    (multiple-value-bind (pwd-string cd-string) (interpret)
+    (multiple-value-bind (pwd-string cd-string) (interpret-path path physical-p)
       (debug-log status "CD ~A [~A => ~A] PWD=~A"
                  (if physical-p "physical" "logical")
                  path cd-string pwd-string)
-      (handler-bind
-          ((syscall-error
-            (lambda (e)
-              (when (equal enoent (syscall-errno e))
-                (format *error-output* "~A: No such directory~%" command-name)
-                (return-from switch-directory 1)))))
-        (funcall switcher-fn cd-string))
+      (funcall switcher-fn cd-string)
       (unless pwd-string
         (setf pwd-string (physical-pwd)))
       (setf $oldpwd $pwd)
