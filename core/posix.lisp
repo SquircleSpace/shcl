@@ -10,8 +10,8 @@
    #:with-posix-spawnattr #:environment-iterator #:fchdir #:open-fds
    #:compiler-owned-fds #:posix-read #:posix-write #:fork #:_exit #:exit
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
-   #:pipe #:fstat #:syscall-error #:wifexited #:wifstopped #:wifsignaled
-   #:wexitstatus #:wtermsig #:wstopsig))
+   #:pipe #:fstat #:syscall-error #:syscall-errno #:wifexited #:wifstopped
+   #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig))
 (in-package :shcl/core/posix)
 
 (optimization-settings)
@@ -19,7 +19,7 @@
 (define-condition syscall-error (error)
   ((errno
     :initform errno
-    :accessor syscall-error-errno
+    :reader syscall-errno
     :type integer)
    (function
     :initform nil
@@ -27,9 +27,9 @@
     :accessor syscall-error-function))
   (:report (lambda (c s)
              (format s "Encountered an error (~A) in ~A.  ~A"
-                     (syscall-error-errno c)
+                     (syscall-errno c)
                      (syscall-error-function c)
-                     (strerror (syscall-error-errno c))))))
+                     (strerror (syscall-errno c))))))
 
 (defstruct gc-wrapper
   pointer)
@@ -187,7 +187,7 @@
      (handler-bind
          ((syscall-error
            (lambda (e)
-             (when (equal eintr (syscall-error-errno e))
+             (when (equal eintr (syscall-errno e))
                (go retry)))))
        (%fchdir fildes))))
 
@@ -235,7 +235,7 @@
        (handler-bind
            ((syscall-error
              (lambda (e)
-               (when (equal eintr (syscall-error-errno e))
+               (when (equal eintr (syscall-errno e))
                  (go retry)))))
          (let ((length (%posix-read fd buf count)))
            (unless binary
@@ -263,7 +263,7 @@
        (handler-bind
            ((syscall-error
              (lambda (e)
-               (when (equal eintr (syscall-error-errno e))
+               (when (equal eintr (syscall-errno e))
                  (go retry)))))
          (let* ((written (%posix-write fd ptr count)))
            (decf count written)
