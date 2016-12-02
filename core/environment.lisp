@@ -6,7 +6,7 @@
    #:*environment* #:linearized-exported-environment #:with-environment-scope
    #:env #:export-variable #:unexport-variable #:clear-environment #:exported-p
    #:unset-env #:colon-list-iterator
-   #:$ifs #:$path #:$pwd #:$oldpwd))
+   #:$ifs #:$path #:$cdpath #:$pwd #:$oldpwd #:$home))
 (in-package :shcl/core/environment)
 
 (optimization-settings)
@@ -182,5 +182,7 @@ variable."
 
 (define-environment-accessor "IFS" %ifs-default%)
 (define-environment-accessor "PATH")
+(define-environment-accessor "CDPATH")
 (define-environment-accessor "PWD")
 (define-environment-accessor "OLDPWD")
+(define-environment-accessor "HOME")

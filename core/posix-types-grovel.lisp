@@ -55,4 +55,5 @@
 (constant (f-getfd "F_GETFD"))
 (constant (wuntraced "WUNTRACED"))
 (constant (eintr "EINTR"))
+(constant (enoent "ENOENT"))
 (constant (at-symlink-nofollow "AT_SYMLINK_NOFOLLOW"))
