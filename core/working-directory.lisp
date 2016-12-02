@@ -1,8 +1,9 @@
 (defpackage :shcl/core/working-directory
   (:use :common-lisp :bordeaux-threads :shcl/core/utility
         :shcl/core/fd-table :shcl/core/posix-types :shcl/core/posix
-        :shcl/core/shell-environment)
-  (:export #:cd #:push-working-directory #:pop-working-directory
+        :shcl/core/support :shcl/core/shell-environment)
+  (:export #:directory-p #:path-invalid #:path-invalid-message #:cd
+           #:push-working-directory #:pop-working-directory
            #:current-working-directory-fd))
 (in-package :shcl/core/working-directory)
 
@@ -69,6 +70,31 @@
  'call-with-alternate-working-directory-history
  'destroy-preserved-working-directory-history)
 
+(defun %try-opening-path (path)
+  (handler-bind
+      ((syscall-error
+        (lambda (e)
+          (when (equal enoent (syscall-errno e))
+            (return-from %try-opening-path nil)))))
+    (fd-autorelease (openat-retained (%current-working-directory-fd) path o-rdonly))))
+
+(defun directory-p (path)
+  (with-lock-held (*working-directory-lock*)
+    (with-fd-scope ()
+      (let ((fd (%try-opening-path path)))
+        (when fd
+          (directory-fd-p fd))))))
+
+(defun directory-fd-p (fd)
+  (s-isdir (slot-value (fstat fd) 'st-mode)))
+
+(define-condition path-invalid (error)
+  ((message
+    :type string
+    :initarg :message
+    :reader path-invalid-message))
+  (:report (lambda (c s) (format s "Path is invalid.  ~A" (path-invalid-message c)))))
+
 (defun %pop-working-directory ()
   (let ((fd (pop *working-directory-fds*)))
     (fd-release fd)
@@ -85,19 +111,17 @@
 (defun push-working-directory (path)
   (with-lock-held (*working-directory-lock*)
     (with-fd-scope ()
-      (let ((dir-fd (openat-retained (%current-working-directory-fd) path O-RDONLY)))
-        (unwind-protect
-             (progn
-               (%push-working-directory-fd dir-fd))
-          (fd-release dir-fd))))))
+      (let ((dir-fd (%try-opening-path path)))
+        (unless (and dir-fd (directory-fd-p dir-fd))
+          (error 'path-invalid :message (format nil "~A is not a directory" path)))
+        (%push-working-directory-fd dir-fd)))))
 
 (defun cd (path)
   (with-lock-held (*working-directory-lock*)
     (with-fd-scope ()
-      (let ((dir-fd (openat-retained (%current-working-directory-fd) path O-RDONLY)))
-        (unwind-protect
-             (progn
-               (%pop-working-directory)
-               (%push-working-directory-fd dir-fd)
-               (values))
-          (fd-release dir-fd))))))
+      (let ((dir-fd (%try-opening-path path)))
+        (unless (and dir-fd (directory-fd-p dir-fd))
+          (error 'path-invalid :message (format nil "~A is not a directory" path)))
+        (%pop-working-directory)
+        (%push-working-directory-fd dir-fd)
+        (values)))))
