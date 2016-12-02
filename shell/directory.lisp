@@ -240,15 +240,24 @@
     (values command-name physical-p directory)))
 
 (define-builtin (builtin-cd "cd") (args)
-  (multiple-value-bind (command-name physical-p directory) (parse-cd-args args)
-    (unless directory
-      (let ((home (env "HOME")))
-        (when (zerop (length home))
-          (format *error-output* "cd: Could not locate home")
-          (return-from builtin-cd 1))
-        (setf directory home)))
+  (let (print-pwd)
+    (when (and (equal 2 (fset:size args))
+             (equal "-" (fset:last args)))
+      (setf args (fset:with-last (fset:less-last args) $oldpwd))
+      (setf print-pwd t))
 
-    (switch-directory command-name directory physical-p 'cd)))
+    (multiple-value-bind (command-name physical-p directory) (parse-cd-args args)
+      (unless directory
+        (let ((home (env "HOME")))
+          (when (zerop (length home))
+            (format *error-output* "cd: Could not locate home")
+            (return-from builtin-cd 1))
+          (setf directory home)))
+
+      (let ((result (switch-directory command-name directory physical-p 'cd)))
+        (when print-pwd
+          (evaluate-constant-shell-string "pwd"))
+        result))))
 
 (define-builtin pushd (args)
   (multiple-value-bind (command-name physical-p directory) (parse-cd-args args)
