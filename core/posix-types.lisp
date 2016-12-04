@@ -8,4 +8,4 @@
    #:eintr #:enoent #:dev-t #:ino-t #:nlink-t #:uid-t #:gid-t #:off-t #:blksize-t
    #:blkcnt-t #:time-t #:stat #:st-dev #:st-ino #:st-mode #:st-nlink #:st-uid
    #:st-gid #:st-rdev #:st-size #:st-blksize #:st-blocks #:st-atime #:st-mtime
-   #:st-ctime #:at-symlink-nofollow))
+   #:st-ctime #:at-symlink-nofollow #:path-max))
