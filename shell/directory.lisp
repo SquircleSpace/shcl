@@ -1,7 +1,8 @@
 (defpackage :shcl/shell/directory
-  (:use :common-lisp :shcl/core/utility :shcl/core/builtin
+  (:use :common-lisp :cffi :shcl/core/utility :shcl/core/builtin
         :shcl/core/environment :shcl/core/working-directory
-        :shcl/core/fd-table :shcl/core/lisp-interpolation))
+        :shcl/core/fd-table :shcl/core/lisp-interpolation
+        :shcl/core/posix :shcl/core/posix-types))
 (in-package :shcl/shell/directory)
 
 (optimization-settings)
@@ -65,6 +66,9 @@
          (unless (equal index (- (length parts) 1))
            (write-char #\/ result))))
     (get-output-stream-string result)))
+
+(defun path-byte-length (path)
+  (1+ (strlen path)))
 
 (defun interpret-path (path physical-p)
   ;; Step 1 and 2
@@ -147,11 +151,8 @@
 
        ;; Step 9
        (setf pwd-curpath curpath)
-       ;; TODO: Posix wants us to shorten the path if it is too long,
-       ;; here.  That's awkward because we don't know how many bytes
-       ;; long the path it.  Converting it to a foreign string and
-       ;; paying the cost of consing seems wasteful.  Surely there is
-       ;; a better solution!?
+       (when (>= (path-byte-length curpath) path-max)
+         (error "Long paths are not implemented"))
 
      step-10
        (let (pwd-string

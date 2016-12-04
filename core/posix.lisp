@@ -8,7 +8,7 @@
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
    #:with-posix-spawnattr #:environment-iterator #:fchdir #:open-fds
-   #:compiler-owned-fds #:posix-read #:posix-write #:fork #:_exit #:exit
+   #:compiler-owned-fds #:posix-read #:strlen #:posix-write #:fork #:_exit #:exit
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:syscall-error #:syscall-errno #:wifexited #:wifstopped
    #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig))

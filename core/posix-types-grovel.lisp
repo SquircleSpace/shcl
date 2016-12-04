@@ -57,3 +57,4 @@
 (constant (eintr "EINTR"))
 (constant (enoent "ENOENT"))
 (constant (at-symlink-nofollow "AT_SYMLINK_NOFOLLOW"))
+(constant (path-max "PATH_MAX"))
