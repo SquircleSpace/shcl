@@ -1,0 +1,91 @@
+#+TITLE: Hacking on SHCL
+#+AUTHOR: Brad Jensen
+
+So you want to contribute to SHCL?  First, let's get you familiar with
+the organization of the project.
+
+* File Organization
+The root folder of the SHCL source tree contains a few loose files and
+several sub-directories.  The root folder should not contain any SHCL
+source files.  Let's explore the sub-directories!
+
+** =/core/=
+This directory contains the "core" of SHCL.  The core contains just
+the common functionality that both the SHCL library and the SHCL shell
+need.  Think of it as a toolbox that you can use to build your own
+shell.
+
+*** =/core/support/=
+This folder contains the C functionality that cannot be written in
+Common Lisp (even with the help of CFFI).  Currently, it contains two
+things:
+1. function wrappers around POSIX APIs which are defined as macros, and
+2. the ~shcl_spawn~ function, which provides a bit more flexibility
+   than ~posix_spawn~.
+
+You might be thinking "sure, I see why you need #1, but can't you
+implement #2 in Common Lisp?".  Well, yes.  Sort of.  Some Common Lisp
+compilers (namely, SBCL) won't let you fork when there are multiple
+threads.  SHCL uses threads.  We can go behind the compiler's back and
+call ~fork~ directly, but that puts us into an unsupported
+configuration.  Its easier and more portable to just write the ~fork~
+~exec~ logic in straight C.  The lisp compiler should (hopefully)
+never notice that we forked.  That's the theory, at least.
+
+** =/shell/=
+This directory contains things that are only relevant to SHCL when it
+is used as a shell.  For example, shell builtins.
+
+** =/library/=
+This directory doesn't yet exist, but it will contain high-level
+abstractions which allow Common Lisp programs to easily run shell
+commands.
+
+** =/test/=
+This directory contains tests that ensure SHCL is working correctly.
+The tests are run by the =test.lisp= script in the root directory.
+
+** =/linters/=
+This directory contains scripts which detect stylistic issues with
+SHCL's source.
+
+* The pipeline
+SHCL is, at its heart, a pipeline.  Generally, each stage is a
+transformation from one iterator to another.
+
+** Lexing
+The lexer takes a character stream and produces an iterator for the
+tokens found in the stream.
+
+The lexer can be extended using lexer readtables (much like Common
+Lisp supports adding reader macros).
+
+** Baking
+Some tokens can't be complete until "run time".  For example, consider
+a token that expands to the value of a lisp variable.  Lexing might
+occur at compile time, but the user would probably rather get the
+value of the variable at run time.  The baking phase allows each token
+to provide a lisp form that needs to be evaluated before the shell
+command is run.  If possible, these forms should be compiled at
+compile time and then run at run time.  If the baking phase runs at
+run time, these forms will be passed to ~EVAL~.
+
+Very little actually happens during the baking phase.  The bake forms
+are collected into a queue that is expected to be drained later.  The
+tokens that enter the bake phase are returned unmodified.  The bake
+forms typically modify the tokens when they are evaluated.
+
+** Parsing
+The parsing phase consumes a token iterator and produces a syntax tree
+iterator.  That is, the values of the resulting iterator are syntax
+trees.
+
+** Evaluating
+This is the final phase of the pipeline.  In this phase, a syntax tree
+is pulled from the input iterator.  Before calling ~EVALUATE~ on the
+syntax tree, all of the bake forms in the bakery queue should be
+evaluated.
+
+*** Expansion
+Just before the ~EVALUATE~ function runs a command or builtin, it
+expands each "word" being passed to the command/builtin.
