@@ -215,7 +215,7 @@
       (unless directory
         (let ((home (env "HOME")))
           (when (zerop (length home))
-            (format *error-output* "cd: Could not locate home")
+            (format *error-output* "cd: Could not locate home~%")
             (return-from builtin-cd 1))
           (setf directory home)))
 
