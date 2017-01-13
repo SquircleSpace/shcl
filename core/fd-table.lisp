@@ -287,9 +287,10 @@ expression."))
 fd (in a spawned subprocesses).
 
 See `bind-fd'."
-  (let ((binding (fset:lookup *fd-bindings* fd)))
-    (when binding
-      (return-from get-fd binding)))
+  (when *fd-bindings*
+    (let ((binding (fset:lookup *fd-bindings* fd)))
+      (when binding
+        (return-from get-fd binding))))
   (when (fd-managed-p fd)
     (error 'invalid-fd :fd fd))
   (when error-on-closed-fd
