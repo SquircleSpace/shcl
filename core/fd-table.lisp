@@ -8,7 +8,8 @@
    #:fd-retain #:fd-release #:fd-autorelease
    #:with-fd-scope #:with-living-fds #:dup-retained #:open-retained
    #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
-   #:get-fd #:simplify-fd-bindings #:with-fd-streams))
+   #:get-fd #:simplify-fd-bindings #:with-fd-streams #:fd-stream
+   #:make-fd-stream))
 (in-package :shcl/core/fd-table)
 
 (optimization-settings)
@@ -491,3 +492,32 @@ The new-fd-fn argument is only intended to be used for testing."
          (*standard-output* (make-instance 'fd-character-output-stream :fd 1 :symbolic t))
          (*error-output* (make-instance 'fd-character-output-stream :fd 2 :symbolic t)))
      ,@body))
+
+(defun make-binary-fd-stream (fd direction symbolic)
+  (macrolet
+      ((make (type)
+         `(make-instance ',type :symbolic symbolic :fd fd)))
+    (ecase direction
+      (:input
+       (make fd-binary-input-stream))
+      (:output
+       (make fd-binary-output-stream))
+      (:io
+       (make fd-binary-input-output-stream)))))
+
+(defun make-character-fd-stream (fd direction symbolic)
+  (macrolet
+      ((make (type)
+         `(make-instance ',type :symbolic symbolic :fd fd)))
+    (ecase direction
+      (:input
+       (make fd-character-input-stream))
+      (:output
+       (make fd-character-output-stream))
+      (:io
+       (make fd-character-input-output-stream)))))
+
+(defun make-fd-stream (fd &key (direction :input) binary symbolic)
+  (if binary
+      (make-binary-fd-stream fd direction symbolic)
+      (make-character-fd-stream fd direction symbolic)))
