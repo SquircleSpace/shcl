@@ -4,6 +4,7 @@
         :shcl/core/shell-environment)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export
+   #:with-safe-fd-manipulation #:track #:forget
    #:fd-retain #:fd-release #:fd-autorelease
    #:with-fd-scope #:with-living-fds #:dup-retained #:open-retained
    #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
@@ -12,13 +13,33 @@
 
 (optimization-settings)
 
+(define-once-global %extant-fds% (make-hash-table)
+  (:documentation
+   "The set of fds that are currently alive."))
+(define-once-global %extant-fds-lock% (make-recursive-lock)
+  (:documentation
+   "The lock protecting `%extant-fds%'."))
+
+(defmacro with-safe-fd-manipulation (&body body)
+  (let ((fd (gensym "FD")))
+    `(with-recursive-lock-held (%extant-fds-lock%)
+       (labels
+           ((track (,fd)
+              (debug-log status "TRACK ~A" ,fd)
+              (setf (gethash ,fd %extant-fds%) t)
+              ,fd)
+            (forget (,fd)
+              (debug-log status "FORGET ~A" ,fd)
+              (remhash ,fd %extant-fds%)
+              (values)))
+         (declare (dynamic-extent #'track #'forget))
+         (declare (ignorable #'track #'forget))
+         ,@body))))
+
 (define-once-global %fd-retain-count-table% (make-hash-table)
   (:documentation
    "This table tracks how many outstanding retains each file
 descriptor has."))
-(define-once-global %fd-retain-count-table-lock% (make-recursive-lock)
-  (:documentation
-   "This lock protects `%fd-retain-count-table-lock%'."))
 
 (defparameter *autorelease-fd-scope* nil
   "The collection of file descriptors that should be released when the
@@ -45,7 +66,7 @@ bindings with `bind-fd' and query bindings with `get-fd'.")
 
 (defun fd-managed-p (fd)
   "Returns t iff the given fd is being managed with retain/release."
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (%fd-managed-p fd)))
 
 (define-condition fd-already-managed (error)
@@ -55,22 +76,21 @@ bindings with `bind-fd' and query bindings with `get-fd'.")
     :accessor fd-already-managed-fd))
   (:report (lambda (c s) (format s "Can't enter FD ~A into retain/release management again" (fd-already-managed-fd c)))))
 
-(defun %manage-new-fd (fd)
+(defun manage-new-fd (fd)
   "Enter the given fd into the retain/release table.
 
 To safely use this function, you must
-1. Take the fd table lock
-2. Create the new fd
-3. Call this function
-4. Release the fd table lock
+1. Inside the body of a `with-safe-fd-manipulation' form, create and track a new fd
+2. Call this function
 
 Any other sequence of events has the potential to introduce a race.
 In particular, once an unmanaged fd is added to *fd-bindings*, it must
 not become a managed fd."
-  (when (gethash fd %fd-retain-count-table%)
-    (error 'fd-already-managed :fd fd))
-  (setf (gethash fd %fd-retain-count-table%) 1)
-  fd)
+  (with-safe-fd-manipulation
+    (when (gethash fd %fd-retain-count-table%)
+      (error 'fd-already-managed :fd fd))
+    (setf (gethash fd %fd-retain-count-table%) 1)
+    fd))
 
 (define-condition fd-not-managed (error)
   ((fd
@@ -90,11 +110,11 @@ not become a managed fd."
 
 The given fd will not be closed in the shell process until the retain
 count reaches 0.  See `fd-release'."
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (%fd-retain fd)))
 
 (defun retain-fd-bindings (fd-bindings)
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (fset:do-map (key-fd value-fd fd-bindings)
       (declare (ignore key-fd))
       (when (%fd-managed-p value-fd)
@@ -132,7 +152,9 @@ locked."
   (let ((count (decf (gethash fd %fd-retain-count-table%))))
     (when (equal 0 count)
       (debug-log status "CLOSE ~A" fd)
-      (posix-close fd)
+      (with-safe-fd-manipulation
+        (posix-close fd)
+        (forget fd))
       (remhash fd %fd-retain-count-table%)))
   nil)
 
@@ -140,11 +162,11 @@ locked."
   "Decrement the retain count for the given fd.
 
 If the retain count reaches 0, then it will be closed immediately."
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (%fd-release fd)))
 
 (defun release-fd-bindings (fd-bindings)
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (fset:do-map (key-fd value-fd fd-bindings)
       (declare (ignore key-fd))
       (when (%fd-managed-p value-fd)
@@ -172,7 +194,7 @@ If the retain count reaches 0, then it will be closed immediately."
     (retain-fd-bindings *fd-bindings*)
 
     (unwind-protect (funcall fn)
-      (with-recursive-lock-held (%fd-retain-count-table-lock%)
+      (with-safe-fd-manipulation
         (loop :for fd :across *autorelease-fd-scope* :do
            (%fd-release fd)))
       (release-fd-bindings *fd-bindings*))))
@@ -192,31 +214,31 @@ be reverted when this scope exits."
 Since this locks the fd table, it is very important to minimize the
 amount of work done in the body of this macro.  Ideally, you would
 do nothing exept spawn a new process."
-  `(with-recursive-lock-held (%fd-retain-count-table-lock%)
-     (let ((,fd-list-sym (hash-table-keys %fd-retain-count-table%)))
+  `(with-safe-fd-manipulation
+     (let ((,fd-list-sym (hash-table-keys %extant-fds%)))
        (declare (dynamic-extent ,fd-list-sym))
        ,@body)))
 
 (defun dup-retained (fd)
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
-    (let ((new-fd (dup fd)))
+  (with-safe-fd-manipulation
+    (let ((new-fd (track (dup fd))))
       (debug-log status "DUP ~A = ~A" new-fd fd)
-      (%manage-new-fd new-fd))))
+      (manage-new-fd new-fd))))
 
 (defun open-retained (pathname flags &optional mode)
   "This is a wrapper around the posix open function which
 atomically adds the new fd to the fd table and gives it a +1 retain
 count."
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
-    (let ((fd (posix-open pathname flags mode)))
+  (with-safe-fd-manipulation
+    (let ((fd (track (posix-open pathname flags mode))))
       (debug-log status "OPEN ~A = ~A" fd pathname)
-      (%manage-new-fd fd))))
+      (manage-new-fd fd))))
 
 (defun openat-retained (dir-fd pathname flags &optional mode)
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
-    (let ((fd (openat dir-fd pathname flags mode)))
+  (with-safe-fd-manipulation
+    (let ((fd (track (openat dir-fd pathname flags mode))))
       (debug-log status "OPENAT ~A, ~A = ~A" dir-fd fd pathname)
-      (%manage-new-fd fd))))
+      (manage-new-fd fd))))
 
 (defun pipe-retained ()
   "This is a wrapper around the posix pipe function which atomically
@@ -224,10 +246,12 @@ adds the new fds to the fd table and gives them +1 retain counts.
 
 Returns two values: the read-end of the pipe and the write end of the
 pipe."
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (multiple-value-bind (read-end write-end) (shcl/core/posix:pipe)
+      (track read-end)
+      (track write-end)
       (debug-log status "PIPE ~A -> ~A" write-end read-end)
-      (values (%manage-new-fd read-end) (%manage-new-fd write-end)))))
+      (values (manage-new-fd read-end) (manage-new-fd write-end)))))
 
 (defmacro with-pipe ((read-end write-end) &body body)
   "Introduce a pipe into the retain table (as if with `pipe-retained')
@@ -257,7 +281,7 @@ named fd should be bound to in spawned processes."
   (unless *fd-bindings*
     (error "Cannot bind without an fd-scope"))
   (debug-log status "BIND ~A = ~A (~A)" fd fd-value *fd-bindings*)
-  (with-recursive-lock-held (%fd-retain-count-table-lock%)
+  (with-safe-fd-manipulation
     (let ((old-value (fset:lookup *fd-bindings* fd)))
       (setf (fset:lookup *fd-bindings* fd) fd-value)
       (when (%fd-managed-p fd-value)
