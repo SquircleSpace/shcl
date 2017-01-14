@@ -246,7 +246,7 @@
            (let ((array (make-array length :element-type 'unsigned-byte)))
              (loop :for index :below length :do
                 (setf (aref array index) (mem-aref buf :unsigned-char index)))
-             array))))))
+             (return-from posix-read array)))))))
 
 (define-c-wrapper (strlen "strlen") (size-t)
   (s :string))
