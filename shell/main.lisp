@@ -192,4 +192,5 @@
     (when *enable-lisp-splice*
       (setf *shell-readtable* *splice-table*))
 
-    (run-shell-commands-in-stream (make-instance 'interactive-buffer))))
+    (let ((*package* (find-package :shcl-user)))
+      (run-shell-commands-in-stream (make-instance 'interactive-buffer)))))
