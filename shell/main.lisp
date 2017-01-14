@@ -1,13 +1,13 @@
 (defpackage :shcl/shell/main
   (:use
-   :common-lisp :shcl/core/lexer :shcl/core/shell-grammar :shcl/core/utility
-   :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
+   :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
+   :shcl/core/utility :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
    :shcl/core/lisp-interpolation :shcl/core/shell-readtable :shcl/core/builtin)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/logs)
   (:import-from :shcl/shell/lisp-repl)
-  (:import-from :trivial-gray-streams)
+  (:import-from :shcl/shell/prompt #:get-line)
   (:import-from :cl-cli)
   (:import-from :uiop)
   (:export #:main #:run-shell-commands-in-stream #:run-shell-commands-in-string))
@@ -17,10 +17,74 @@
 
 (defparameter *shell-readtable* +standard-shell-readtable+)
 
-(defclass echo (trivial-gray-streams:fundamental-character-output-stream)
+(defparameter *fresh-prompt* t)
+
+(defun next-line ()
+  (let ((prompt (if *fresh-prompt* "shcl> " "> ")))
+    (setf *fresh-prompt* nil)
+    (get-line prompt)))
+
+(defclass interactive-buffer (fundamental-character-input-stream)
+  ((text
+    :initform (fset:empty-seq))))
+
+(defun extend-interactive-buffer (stream)
+  (with-slots (text) stream
+    (unless (open-stream-p stream)
+      (error "Stream is closed"))
+    (unless (zerop (fset:size text))
+      (error "Stream isn't empty yet"))
+    (let ((next-line (next-line)))
+      (cond
+        (next-line
+         (assert (plusp (length next-line)))
+         (fset:appendf text next-line))
+
+        (t
+         (close stream)))
+      (values))))
+
+(defun buffer-read-char (s hang-p)
+  (with-slots (text) s
+    (tagbody
+     again
+       (return-from buffer-read-char
+         (cond
+           ((plusp (fset:size text))
+            (let ((result (fset:pop-first text)))
+              result))
+
+           ((not (open-stream-p s))
+            :eof)
+
+           (hang-p
+            (extend-interactive-buffer s)
+            (go again))
+
+           (t
+            nil))))))
+
+(defmethod stream-read-char ((s interactive-buffer))
+  (let ((value (buffer-read-char s t)))
+    (assert value)
+    value))
+
+(defmethod stream-unread-char ((s interactive-buffer) char)
+  (with-slots (text) s
+    (fset:push-first text char)
+    nil))
+
+(defmethod stream-read-char-no-hang ((s interactive-buffer))
+  (buffer-read-char s nil))
+
+(defmethod stream-clear-input ((s interactive-buffer))
+  (with-slots (text) s
+    (setf text (fset:empty-seq))))
+
+(defclass echo (fundamental-character-output-stream)
     ())
 
-(defmethod trivial-gray-streams:stream-write-char ((s echo) char)
+(defmethod stream-write-char ((s echo) char)
   (format *standard-output* "CHAR: ~W~%" char)
   char)
 
@@ -41,13 +105,6 @@
           (stop))
         (emit token)))
     form-queue)))
-
-(defun display-prompt (input-stream output-stream)
-  (when (and output-stream
-             (interactive-stream-p input-stream)
-             (not (listen input-stream)))
-    (format output-stream "shcl> ")
-    (finish-output output-stream)))
 
 (defun restartable-command-iterator (raw-stream form-queue)
   (let* ((stream (debug-char-stream raw-stream))
@@ -92,11 +149,11 @@
        (progv ,vars ,values
          ,@body))))
 
-(defun run-shell-commands-in-stream (stream &key prompt-stream)
+(defun run-shell-commands-in-stream (stream)
   (let* ((form-queue (make-queue))
          (commands (restartable-command-iterator stream form-queue))
+         (*fresh-prompt* t)
          last-result)
-    (display-prompt stream prompt-stream)
     (restart-case
         (do-iterator (tree commands)
           (loop
@@ -112,7 +169,7 @@
                 (setf last-result result)
                 (debug-log status "RESULT ~A" result))
             (skip ()))
-          (display-prompt stream prompt-stream))
+          (setf *fresh-prompt* t))
       (die () (exit 1)))
     last-result))
 
@@ -135,4 +192,4 @@
     (when *enable-lisp-splice*
       (setf *shell-readtable* *splice-table*))
 
-    (run-shell-commands-in-stream *standard-input* :prompt-stream *standard-output*)))
+    (run-shell-commands-in-stream (make-instance 'interactive-buffer))))
