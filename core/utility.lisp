@@ -14,7 +14,7 @@
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
-   #:iterator-values #:lookahead-iterator-wrapper))
+   #:filter-iterator #:iterator-values #:lookahead-iterator-wrapper))
 (in-package :shcl/core/utility)
 
 (defmacro optimization-settings ()
@@ -441,6 +441,22 @@ produced by the given iterator."
       (unless more
         (stop))
       (emit (funcall function value)))))
+
+(defun filter-iterator (iter function)
+  "Create a new iterator that only contains the elements produced by
+`iter' where `function' returns non-nil.
+
+For example,
+ (iterator-values (filter-iterator (list-iterator '(1 2 3 4) #'oddp)))
+will return
+ #(1 3)"
+  (make-iterator ()
+    (loop
+       (multiple-value-bind (value more) (next iter)
+         (unless more
+           (stop))
+         (when (funcall function value)
+           (emit value))))))
 
 (defun iterator-values (iter)
   "Extract all remaining values from the given iterator and return

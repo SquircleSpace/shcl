@@ -2,7 +2,7 @@
   (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
   (:import-from :fset)
-  (:export #:graph-class-hierarchy))
+  (:export #:graph-class-hierarchy #:undocumented-symbols))
 (in-package :shcl/core/debug)
 
 (optimization-settings)
@@ -25,3 +25,36 @@
       (dolist (superclass (closer-mop:class-direct-superclasses the-class))
         (format stream "\"~A\" -> \"~A\"~%" (class-name the-class) (class-name superclass)))))
   (format stream "}~%"))
+
+(defun shcl-package-p (package)
+  (let ((shcl-prefix "SHCL/"))
+    (when (> (length (package-name package)) (length shcl-prefix))
+      (string= (package-name package) shcl-prefix :end1 (length shcl-prefix)))))
+
+(defun symbol-documentation-types ()
+  (let* ((methods (list-iterator (closer-mop:generic-function-methods #'documentation)))
+         (specializers (map-iterator methods 'closer-mop:method-specializers))
+         (symbol-methods (filter-iterator specializers (lambda (x) (eq (find-class 'symbol) (first x)))))
+         (eql-methods (filter-iterator symbol-methods (lambda (x) (typep (second x) 'closer-mop:eql-specializer))))
+         (eql-specializers (map-iterator eql-methods 'second))
+         (values (map-iterator eql-specializers 'closer-mop:eql-specializer-object)))
+    (iterator-values values)))
+
+(defparameter *symbol-documentation-types* (symbol-documentation-types))
+
+(defun documented-p (symbol)
+  (loop :for documentation-type :across *symbol-documentation-types* :do
+     (progn
+       (when (documentation symbol documentation-type)
+         (return-from documented-p t))))
+  nil)
+
+(defun undocumented-symbols ()
+  (let* ((all-packages (list-iterator (list-all-packages)))
+         (shcl-packages (filter-iterator all-packages 'shcl-package-p))
+         (syms (make-extensible-vector)))
+    (do-iterator (package shcl-packages)
+      (do-external-symbols (sym package)
+        (unless (documented-p sym)
+          (vector-push-extend sym syms))))
+    syms))
