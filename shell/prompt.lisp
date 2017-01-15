@@ -1,5 +1,7 @@
 (defpackage :shcl/shell/prompt
-  (:use :common-lisp :cffi :shcl/core/utility :shcl/shell/prompt-types)
+  (:use
+   :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
+   :shcl/shell/prompt-types)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/posix #:posix-write #:dup)
   (:import-from :shcl/core/fd-table
@@ -7,7 +9,7 @@
                 #:forget #:get-fd)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
-  (:export #:get-line))
+  (:export #:get-line #:make-editline-stream))
 (in-package :shcl/shell/prompt)
 
 (optimization-settings)
@@ -401,3 +403,66 @@ This interacts with the user on symbolic fds 0, 1, and 2."
     (with-editline (e "shcl" stdin-fd stdout-fd stderr-fd)
       (setf (editline-prompt e) prompt)
       (editline-gets e))))
+
+(defclass editline-stream (fundamental-character-input-stream)
+  ((text
+    :initform (fset:empty-seq))
+   (prompt-fn
+    :initform (constantly "% ")
+    :initarg :prompt-fn)))
+
+(defun extend-editline-stream (stream)
+  (with-slots (text prompt-fn) stream
+    (unless (open-stream-p stream)
+      (error "Stream is closed"))
+    (unless (zerop (fset:size text))
+      (error "Stream isn't empty yet"))
+    (let ((next-line (get-line (funcall prompt-fn))))
+      (cond
+        (next-line
+         (assert (plusp (length next-line)))
+         (fset:appendf text next-line))
+
+        (t
+         (close stream)))
+      (values))))
+
+(defun buffer-read-char (s hang-p)
+  (with-slots (text) s
+    (tagbody
+     again
+       (return-from buffer-read-char
+         (cond
+           ((plusp (fset:size text))
+            (let ((result (fset:pop-first text)))
+              result))
+
+           ((not (open-stream-p s))
+            :eof)
+
+           (hang-p
+            (extend-editline-stream s)
+            (go again))
+
+           (t
+            nil))))))
+
+(defmethod stream-read-char ((s editline-stream))
+  (let ((value (buffer-read-char s t)))
+    (assert value)
+    value))
+
+(defmethod stream-unread-char ((s editline-stream) char)
+  (with-slots (text) s
+    (fset:push-first text char)
+    nil))
+
+(defmethod stream-read-char-no-hang ((s editline-stream))
+  (buffer-read-char s nil))
+
+(defmethod stream-clear-input ((s editline-stream))
+  (with-slots (text) s
+    (setf text (fset:empty-seq))))
+
+(defun make-editline-stream (prompt-fn)
+  (make-instance 'editline-stream :prompt-fn prompt-fn))

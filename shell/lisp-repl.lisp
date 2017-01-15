@@ -1,5 +1,6 @@
 (defpackage :shcl/shell/lisp-repl
   (:use :common-lisp :shcl/core/builtin :shcl/core/utility)
+  (:import-from :shcl/shell/prompt #:make-editline-stream)
   (:export #:return-to-shell #:shell-help))
 (in-package :shcl/shell/lisp-repl)
 
@@ -35,17 +36,26 @@
     (format stdout "~A~%" value))
   (finish-output stdout))
 
+(defparameter *fresh-prompt* t)
+
+(defun repl-prompt ()
+  (let ((result (if *fresh-prompt* "shcl (lisp)> " "> ")))
+    (setf *fresh-prompt* nil)
+    result))
+
 (define-builtin shcl-repl (args)
   (declare (ignore args))
   (catch 'return-to-shell
-    (let ((*package* (find-package :shcl-user)))
+    (let ((*package* (find-package :shcl-user))
+          (*fresh-prompt* t)
+          (stdin (make-editline-stream 'repl-prompt)))
       (loop
          (restart-case
              (progn
                (fresh-line *standard-output*)
-               (format *standard-output* "shcl (lisp)> ")
                (finish-output *standard-output*)
-               (let ((form (shcl-repl-read *standard-input*)))
+               (let ((form (shcl-repl-read stdin)))
+                 (setf *fresh-prompt* t)
                  (case form
                    (:shell
                     (return-to-shell))

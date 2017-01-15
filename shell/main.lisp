@@ -7,7 +7,7 @@
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/logs)
   (:import-from :shcl/shell/lisp-repl)
-  (:import-from :shcl/shell/prompt #:get-line)
+  (:import-from :shcl/shell/prompt #:make-editline-stream)
   (:import-from :cl-cli)
   (:import-from :uiop)
   (:export #:main #:run-shell-commands-in-stream #:run-shell-commands-in-string))
@@ -19,67 +19,10 @@
 
 (defparameter *fresh-prompt* t)
 
-(defun next-line ()
-  (let ((prompt (if *fresh-prompt* "shcl> " "> ")))
+(defun main-prompt ()
+  (let ((result (if *fresh-prompt* "shcl> " "> ")))
     (setf *fresh-prompt* nil)
-    (get-line prompt)))
-
-(defclass interactive-buffer (fundamental-character-input-stream)
-  ((text
-    :initform (fset:empty-seq))))
-
-(defun extend-interactive-buffer (stream)
-  (with-slots (text) stream
-    (unless (open-stream-p stream)
-      (error "Stream is closed"))
-    (unless (zerop (fset:size text))
-      (error "Stream isn't empty yet"))
-    (let ((next-line (next-line)))
-      (cond
-        (next-line
-         (assert (plusp (length next-line)))
-         (fset:appendf text next-line))
-
-        (t
-         (close stream)))
-      (values))))
-
-(defun buffer-read-char (s hang-p)
-  (with-slots (text) s
-    (tagbody
-     again
-       (return-from buffer-read-char
-         (cond
-           ((plusp (fset:size text))
-            (let ((result (fset:pop-first text)))
-              result))
-
-           ((not (open-stream-p s))
-            :eof)
-
-           (hang-p
-            (extend-interactive-buffer s)
-            (go again))
-
-           (t
-            nil))))))
-
-(defmethod stream-read-char ((s interactive-buffer))
-  (let ((value (buffer-read-char s t)))
-    (assert value)
-    value))
-
-(defmethod stream-unread-char ((s interactive-buffer) char)
-  (with-slots (text) s
-    (fset:push-first text char)
-    nil))
-
-(defmethod stream-read-char-no-hang ((s interactive-buffer))
-  (buffer-read-char s nil))
-
-(defmethod stream-clear-input ((s interactive-buffer))
-  (with-slots (text) s
-    (setf text (fset:empty-seq))))
+    result))
 
 (defclass echo (fundamental-character-output-stream)
     ())
@@ -131,11 +74,12 @@
           commands))))
 
 (defparameter *enable-lisp-splice* nil)
-
+(defparameter *debug* nil)
 (defparameter *help* nil)
 
 (defparameter *options*
   '((*enable-lisp-splice* nil "Extend shell language to support splicing lisp expressions")
+    (*debug* nil "Run a SWANK server")
     (*help* nil "Show list of options")))
 
 (defmacro with-options ((argv &key (options '*options*)) &body body)
@@ -182,6 +126,10 @@
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
+(eval-when (:compile-toplevel :load-toplevel)
+  (load #P"/usr/share/emacs/site-lisp/slime/swank-loader.lisp")
+  (funcall (intern "INIT" (find-package "SWANK-LOADER"))))
+
 (defun main ()
   (observe-revival)
   (with-options ((uiop:raw-command-line-arguments))
@@ -189,8 +137,11 @@
       (cl-cli:help *options* nil :prog-name "shcl")
       (return-from main))
 
+    (when *debug*
+      (funcall (intern "CREATE-SERVER" (find-package "SWANK")) :port 4005))
+
     (when *enable-lisp-splice*
       (setf *shell-readtable* *splice-table*))
 
     (let ((*package* (find-package :shcl-user)))
-      (run-shell-commands-in-stream (make-instance 'interactive-buffer)))))
+      (run-shell-commands-in-stream (make-editline-stream 'main-prompt)))))
