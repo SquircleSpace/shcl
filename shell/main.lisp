@@ -10,7 +10,7 @@
   (:import-from :shcl/shell/prompt #:make-editline-stream)
   (:import-from :cl-cli)
   (:import-from :uiop)
-  (:export #:main #:run-shell-commands-in-stream #:run-shell-commands-in-string))
+  (:export #:main #:run-shell-commands-in-stream))
 (in-package :shcl/shell/main)
 
 (optimization-settings)
@@ -98,9 +98,6 @@
           (setf *fresh-prompt* t))
       (die () (exit 1)))
     last-result))
-
-(defun run-shell-commands-in-string (string)
-  (run-shell-commands-in-stream (make-string-input-stream string)))
 
 (define-builtin enable-lisp-syntax (args)
   (unless (equal 1 (fset:size args))
