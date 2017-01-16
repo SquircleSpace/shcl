@@ -29,7 +29,8 @@ then the builtin name is the downcased symbol name."
            ,@declarations
            (with-fd-streams ()
              ,@body-forms))
-         (setf *builtin-table* (fset:with *builtin-table* ,string-form ',function-sym))))))
+         (setf *builtin-table* (fset:with *builtin-table* ,string-form ',function-sym))
+         ',function-sym))))
 
 (defun lookup-builtin (name)
   "Attempt to find the function which corresponds to the builtin with
