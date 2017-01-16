@@ -10,9 +10,14 @@
   (:use :common-lisp :shcl/shell/lisp-repl))
 
 (defun return-to-shell ()
+  "Exit the lisp repl and return to the shell.
+
+This function assumes that the lisp repl was entered with the builtin
+comand `shcl-repl'."
   (throw 'return-to-shell t))
 
 (defun shell-help ()
+  "Print some helpful information about the SHCL repl."
   (format
    *standard-output*
    "Welcome to SHCL REPL!  The following special commands are recognized.
@@ -21,6 +26,10 @@
 "))
 
 (defun shcl-repl-read (stdin)
+  "Read a lisp form from the given stream.
+
+Calls `return-to-shell' when no characters were read due to
+encountering EOF."
   (let* ((eof-value '#:eof-value)
          (form (read stdin nil eof-value)))
     (when (eq form eof-value)
@@ -32,18 +41,27 @@
     form))
 
 (defun print-list (list stdout)
+  "Print a multiple-value list."
   (dolist (value list)
     (format stdout "~A~%" value))
   (finish-output stdout))
 
-(defparameter *fresh-prompt* t)
+(defparameter *fresh-prompt* t
+  "A non-nil value indicates that the next prompt the user sees should
+be the standard prompt.
+
+A nil value indicates that the next prompt the user sees should
+indicate that the previous input isn't done yet.")
 
 (defun repl-prompt ()
+  "Return the string that should be displayed to the user at the
+prompt."
   (let ((result (if *fresh-prompt* "shcl (lisp)> " "> ")))
     (setf *fresh-prompt* nil)
     result))
 
 (define-builtin shcl-repl (args)
+  "Enter the lisp repl."
   (declare (ignore args))
   (catch 'return-to-shell
     (let ((*package* (find-package :shcl-user))
