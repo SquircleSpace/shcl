@@ -49,29 +49,25 @@
         (emit token)))
     form-queue)))
 
-(defun restartable-command-iterator (raw-stream form-queue)
-  (let* ((stream (debug-char-stream raw-stream))
-         (tokens (main-token-iterator stream form-queue))
+(defun restartable-command-iterator (stream form-queue)
+  (let* ((tokens (main-token-iterator stream form-queue))
          (commands (command-iterator tokens)))
     (labels
         ((reset-token-iterator ()
-           (loop :while (read-char-no-hang raw-stream nil nil))
-           (setf stream (debug-char-stream raw-stream)
-                 tokens (main-token-iterator stream form-queue)
+           (loop :while (read-char-no-hang stream nil nil))
+           (setf tokens (main-token-iterator stream form-queue)
                  commands (command-iterator tokens))))
-      (if (interactive-stream-p raw-stream)
-          (make-iterator ()
-            (tagbody
-             start
-               (restart-case
-                   (multiple-value-bind (value more) (next commands)
-                     (if more
-                         (emit value)
-                         (stop)))
-                 (ignore ()
-                   (reset-token-iterator)
-                   (go start)))))
-          commands))))
+      (make-iterator ()
+        (tagbody
+         start
+           (restart-case
+               (multiple-value-bind (value more) (next commands)
+                 (if more
+                     (emit value)
+                     (stop)))
+             (ignore ()
+               (reset-token-iterator)
+               (go start))))))))
 
 (defparameter *enable-lisp-splice* nil)
 (defparameter *debug* nil)
@@ -126,9 +122,11 @@
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
-(eval-when (:compile-toplevel :load-toplevel)
-  (load #P"/usr/share/emacs/site-lisp/slime/swank-loader.lisp")
-  (funcall (intern "INIT" (find-package "SWANK-LOADER"))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (unless (find-package "SWANK-LOADER")
+    (load #P"/usr/share/emacs/site-lisp/slime/swank-loader.lisp"))
+  (unless (find-package "SWANK")
+    (funcall (intern "INIT" (find-package "SWANK-LOADER")))))
 
 (defun main ()
   (observe-revival)
