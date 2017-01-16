@@ -24,20 +24,6 @@
     (setf *fresh-prompt* nil)
     result))
 
-(defclass echo (fundamental-character-output-stream)
-    ())
-
-(defmethod stream-write-char ((s echo) char)
-  (format *standard-output* "CHAR: ~W~%" char)
-  char)
-
-(defparameter *echo-characters* nil)
-
-(defun debug-char-stream (stream)
-  (if *echo-characters*
-      (make-echo-stream stream (make-instance 'echo))
-      stream))
-
 (defun main-token-iterator (stream form-queue)
   (lookahead-iterator-wrapper
    (bake-tokens

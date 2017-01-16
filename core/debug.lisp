@@ -1,8 +1,9 @@
 (defpackage :shcl/core/debug
-  (:use :common-lisp :shcl/core/utility)
+  (:use :common-lisp :trivial-gray-streams :shcl/core/utility)
   (:import-from :closer-mop)
   (:import-from :fset)
-  (:export #:graph-class-hierarchy #:undocumented-symbols))
+  (:export
+   #:graph-class-hierarchy #:undocumented-symbols #:verbose-echo-stream))
 (in-package :shcl/core/debug)
 
 (optimization-settings)
@@ -73,3 +74,19 @@ See `symbol-documentation-types'.")
         (unless (documented-p sym)
           (vector-push-extend sym syms))))
     syms))
+
+(defclass verbose-echo-stream (fundamental-character-output-stream)
+  ((output-stream
+    :initform *standard-output*
+    :initarg :output-stream
+    :documentation
+    "The stream where characters should be echoed."))
+  (:documentation
+   "This is a more verbose form of the standard echo stream.
+
+The extra verbositty is helpful when debugging."))
+
+(defmethod stream-write-char ((s verbose-echo-stream) char)
+  (with-slots (output-stream) s
+    (format output-stream "CHAR: ~W~%" char)
+    char))
