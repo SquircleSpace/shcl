@@ -4,9 +4,10 @@
    :shcl/shell/prompt-types)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/posix #:posix-write #:dup)
-  (:import-from :shcl/core/fd-table
-                #:make-fd-stream #:fd-stream #:with-safe-fd-manipulation #:track
-                #:forget #:get-fd)
+  (:import-from
+   :shcl/core/fd-table
+   #:make-fd-stream #:fd-stream #:with-safe-fd-manipulation #:track
+   #:forget #:get-fd)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
   (:export #:get-line #:make-editline-stream))
@@ -62,6 +63,8 @@
   (count (:pointer :int)))
 
 (defun el-gets (e)
+  "A wrapper around el_gets which returns the `count' output parameter
+as a second value."
   (with-foreign-object (count :int)
     (let ((s (%el-gets e count)))
       (values s (mem-ref count :int)))))
@@ -110,18 +113,28 @@
   &rest)
 
 (defun el-set-prompt (e prompt-callback)
+  "A wrapper around `el-set' which provides a convenient way to use
+the EL_PROMPT sub-routine of `el-set'."
   (el-set e +el-prompt+ :pointer prompt-callback))
 
 (defun el-set-rprompt (e prompt-callback)
+  "A wrapper around `el-set' which provides a convenient way to use
+the EL_RPROMPT sub-routine of `el-set'."
   (el-set e +el-rprompt+ :pointer prompt-callback))
 
 (defun el-set-editor (e mode)
+  "A wrapper around `el-set' which provides a convenient way to use
+the EL_EDITOR sub-routine of `el-set'."
   (el-set e +el-editor+ :string mode))
 
-(defun el-set-add-fn (e name-ptr help-ptr fn)
+(defun el-set-addfn (e name-ptr help-ptr fn)
+  "A wrapper around `el-set' which provides a convenient way to use
+the EL_ADDFN sub-routine of `el-set'."
   (el-set e +el-addfn+ :pointer name-ptr :pointer help-ptr :pointer fn))
 
 (defun el-set-bind (e key command)
+  "A wrapper around `el-set' which provides a convenient way to use
+the EL_BIND sub-routine of `el-set'."
   (el-set e +el-bind+ :string key :string command :pointer (null-pointer)))
 
 (defcfun (el-wset "el_wset" :library libedit) :int
@@ -203,46 +216,85 @@
   (stream file-ptr))
 
 (defun close-file-ptr (file-ptr)
+  "Close a file-ptr pointer created with `file-ptr-wrapper-for-fd'.
+
+The file-ptr will not be closed automatically by the garbage
+collector."
   (with-safe-fd-manipulation
     (debug-log status "FCLOSE ~A" file-ptr)
     (forget (fileno file-ptr))
     (fclose file-ptr)))
 
 (defun file-ptr-wrapper-for-fd (fd mode)
+  "Create a file-ptr which interacts with a dup'd version of the given
+fd.
+
+This file-ptr must be closed with `close-file-ptr'.  The garbage
+collector will not close it for you."
   (with-safe-fd-manipulation
     (let* ((new-fd (track (dup fd)))
            (result (fdopen new-fd mode)))
       (debug-log status "FDOPEN ~A ~A = ~A" result new-fd fd)
       result)))
 
-(defvar *editline-sidetable* (make-hash-table))
+(defvar *editline-sidetable* (make-hash-table)
+  "This table provides a way to find the instance of the `editline'
+class corresponding to a given `editline-ptr'.")
 
 (defclass editline ()
   ((stdin
-    :reader editline-stdin)
+    :reader editline-stdin
+    :documentation
+    "A lisp stream which communicates with the same endpoint as the
+stdin editline is using.")
    (stdout
-    :reader editline-stdout)
+    :reader editline-stdout
+        :documentation
+    "A lisp stream which communicates with the same endpoint as the
+stdout editline is using.")
    (stderr
-    :reader editline-stderr)
+    :reader editline-stderr
+        :documentation
+    "A lisp stream which communicates with the same endpoint as the
+stderr editline is using.")
+   (ptr
+    :documentation
+    "The editline-ptr associated with this instance.")
 
-   ;; Low-level stuff
-   prompt
-   rprompt
-   fin
-   fout
-   ferr
-   ptr
+   ;; Resources that need to be freed
+   (prompt
+    :documentation
+    "The C-string representing the prompt that editline should use.")
+   (rprompt
+    :documentation
+    "The C-string representing the rprompt that editline should use.")
+   (fin
+    :documentation
+    "The file-ptr that was provided to editline for stdin.")
+   (fout
+    :documentation
+    "The file-ptr that was provided to editline for stdout.")
+   (ferr
+    :documentation
+    "The file-ptr that was provided to editline for stderr.")
    (command-data
-    :initform (make-hash-table))))
+    :initform (make-hash-table)
+    :documentation
+    "Contains `command-data' that was provided to editline.")))
 
 (defstruct command-data
+  "A struct that contains pointers which need to be freed."
   (name-ptr (null-pointer))
   (help-ptr (null-pointer)))
 
 (defun extra (e)
+  "Look up the `editline' instance associated with the given
+`editline-ptr'."
   (gethash (pointer-address e) *editline-sidetable*))
 
 (defun forget-extra (e)
+  "Remove the `editline' instance associated with the given
+`editline-ptr' from `*editline-sidetable*'."
   (remhash (pointer-address e) *editline-sidetable*)
   (values))
 
@@ -255,6 +307,10 @@
   (slot-value (extra e) 'rprompt))
 
 (defun make-editline (program stdin-fd stdout-fd stderr-fd &key (prompt "% ") (rprompt "") (editor "emacs"))
+  "Create an `editline' instance.
+
+This instance must be destroyed with `destroy-editline'.  You are
+encouraged to use `with-editline' to ensure the object is destroyed."
   (let ((extra (make-instance 'editline)))
     (unwind-protect
          (with-slots
@@ -286,6 +342,11 @@
         (destroy-editline extra)))))
 
 (defun destroy-editline (e)
+  "Destroy and invalidate the given `editline' instance.
+
+Resources associated with the `editline' instance will be reclaimed.
+After destruction, the instance may no longer be passed to any
+function in this package."
   (macrolet
       ((clear (place &body body)
          `(when ,place
@@ -315,20 +376,36 @@
   (values))
 
 (defmacro with-editline ((sym program-name stdin-fd stdout-fd stderr-fd &rest args) &body body)
+  "Create an `editline' instance and bind it to `sym'.
+
+The editline instance has dynamic extent."
   (let ((editline (gensym "EDITLINE")))
     `(let ((,editline (make-editline ,program-name ,stdin-fd ,stdout-fd ,stderr-fd ,@args)))
+       (declare (dynamic-extent ,editline))
        (unwind-protect
             (let ((,sym ,editline))
+              (declare (dynamic-extent ,sym))
               ,@body)
          (destroy-editline ,editline)))))
 
 (defun editline-prompt (e)
+  "Retrieve the prompt string associated with the given `editline'.
+
+This place is `setf'-able.  Changing the prompt will not take effect
+until the next time the prompt is drawn."
   (foreign-string-to-lisp (slot-value e 'prompt)))
 
 (defun editline-rprompt (e)
+  "Retrieve the rprompt string associated with the given `editline'.
+
+This place is `setf'-able.  Changing the rprompt will not take effect
+until the next time the prompt is drawn."
   (foreign-string-to-lisp (slot-value e 'rprompt)))
 
 (defun (setf editline-prompt) (value e)
+  "Change the prompt string for the given `editline'.
+
+See `editline-prompt'."
   (with-slots (prompt) e
     (when prompt
       (foreign-free prompt))
@@ -336,6 +413,9 @@
     value))
 
 (defun (setf editline-rprompt) (value e)
+  "Change the rprompt string for the given `editline'.
+
+See `editline-rprompt'."
   (with-slots (rprompt) e
     (when rprompt
       (foreign-free rprompt))
@@ -343,9 +423,27 @@
     value))
 
 (defun editline-gets (e)
+  "Retrieve a line of input from the user."
   (nth-value 0 (el-gets (slot-value e 'ptr))))
 
 (defmacro define-editline-trampoline (trampoline-name &optional (fn-name trampoline-name))
+  "Create a cffi callback which calls the given lisp function.
+
+`editline-set-addfn' takes a symbol naming a \"trampoline\".  This
+macro creates such a trampoline.
+
+CFFI callbacks can be a bit annoying to work with directly for two
+reasons.
+
+1. Redefining the callback doesn't replace the existing callback.  If
+you've passed the callback to editline, then it won't call the new
+definition of the callback.  Using a trampoline means that you can
+redefine the lisp function that the callback calls.
+
+2. We need to store extra information outside of the `editline-ptr'
+that editline passes to the callback.  It can be anoying to retrieve
+that info in every callback.  This trampoline takes care of that for
+you."
   (check-type trampoline-name symbol)
   (check-type fn-name symbol)
   `(defcallback ,trampoline-name :unsigned-char
@@ -353,7 +451,13 @@
         (ch :int))
      (,fn-name (extra e) ch)))
 
-(defun editline-set-add-fn (e name help trampoline-fn)
+(defun editline-set-addfn (e name help trampoline-sym)
+  "Add a new function to the `editline' instance.
+
+This function can be bound to a key with `editline-set-bind'.  It is
+an error to bind to the same name twice."
+  (check-type name string)
+  (check-type help string)
   (with-slots (command-data ptr) e
     (when (gethash name command-data)
       (error "Function already set for ~A" name))
@@ -363,7 +467,7 @@
            (progn
              (setf (command-data-name-ptr new) (foreign-string-alloc name))
              (setf (command-data-help-ptr new) (foreign-string-alloc help))
-             (el-set-add-fn ptr (command-data-name-ptr new) (command-data-help-ptr new) trampoline-fn)
+             (el-set-addfn ptr (command-data-name-ptr new) (command-data-help-ptr new) (get-callback trampoline-sym))
              (setf (gethash name command-data) new)
              (setf set t))
         (unless set
@@ -373,14 +477,26 @@
           (setf (command-data-help-ptr new) (null-pointer)))))))
 
 (defun editline-set-bind (e key command)
+  "Bind a key to the named command."
+  (check-type command string)
   (with-slots (ptr) e
     (el-set-bind ptr key command)))
 
 (defstruct lineinfo
+  "Information about the state of the editline input.
+
+`lineinfo-text' contains the text inputted by the user.
+
+`lineinfo-cursor-index' indicates the index where the cursor is.  That
+is, the next character to be inserted will appear at the index
+returned by this function (assuming the user doesn't move the
+cursor).  This value is a non-negative number less than or equal to
+(length (lineinfo-text))"
   text
   cursor-index)
 
 (defun convert-lineinfo (lineinfo-ptr)
+  "Produce a `lineinfo' from a `lineinfo-ptr'."
   (let* ((buffer (foreign-slot-value lineinfo-ptr '(:struct lineinfo) 'buffer))
          (cursor (foreign-slot-value lineinfo-ptr '(:struct lineinfo) 'cursor))
          (lastchar (foreign-slot-value lineinfo-ptr '(:struct lineinfo) 'lastchar))
@@ -389,6 +505,9 @@
     (make-lineinfo :text buffer-text :cursor-index cursor-position)))
 
 (defun editline-line (e)
+  "Retrieve information about the line the user is currently authoring.
+
+Returns a `lineinfo' instance."
   (with-slots (ptr) e
     (convert-lineinfo (el-line ptr))))
 
@@ -406,12 +525,27 @@ This interacts with the user on symbolic fds 0, 1, and 2."
 
 (defclass editline-stream (fundamental-character-input-stream)
   ((text
-    :initform (fset:empty-seq))
+    :initform (fset:empty-seq)
+    :documentation
+    "This slot contains characters that haven't been read yet.")
    (prompt-fn
     :initform (constantly "% ")
-    :initarg :prompt-fn)))
+    :initarg :prompt-fn
+    :documentation
+    "This slot contains a function which produces the prompt string
+which the user sees when input is needed."))
+  (:documentation
+   "An `editline-stream' is an input stream which retrieves its
+contents from the user (using `get-line').
+
+You can just read from this stream as though it was a normal input
+stream.  The user will see a prompt whenever additional content is
+required.
+
+The prompt the user sees is decided by the `prompt-fn'."))
 
 (defun extend-editline-stream (stream)
+  "Add another line of content to an `editline-stream'."
   (with-slots (text prompt-fn) stream
     (unless (open-stream-p stream)
       (error "Stream is closed"))
@@ -428,6 +562,7 @@ This interacts with the user on symbolic fds 0, 1, and 2."
       (values))))
 
 (defun buffer-read-char (s hang-p)
+  "Read a single character from an `editline-stream'."
   (with-slots (text) s
     (tagbody
      again
@@ -465,4 +600,6 @@ This interacts with the user on symbolic fds 0, 1, and 2."
     (setf text (fset:empty-seq))))
 
 (defun make-editline-stream (prompt-fn)
+  "Create a stream whose contents are retrieved from the user using
+the editline library."
   (make-instance 'editline-stream :prompt-fn prompt-fn))
