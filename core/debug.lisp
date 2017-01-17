@@ -31,8 +31,16 @@ and all of its subclasses"))
         (format stream "\"~A\" -> \"~A\"~%" (class-name the-class) (class-name superclass)))))
   (format stream "}~%"))
 
-(defun shcl-package-p (package)
-  "Returns non-nil iff the provided package belongs to SHCL."
+(defparameter *intentionally-undocumented-packages*
+  (fset:set
+   (find-package :shcl/shell/prompt-types)
+   (find-package :shcl/core/posix-types)))
+
+(defun documented-shcl-package-p (package)
+  "Returns non-nil iff the provided package belongs to SHCL and should
+be documented."
+  (when (fset:lookup *intentionally-undocumented-packages* package)
+    (return-from documented-shcl-package-p nil))
   (let ((shcl-prefix "SHCL/"))
     (when (> (length (package-name package)) (length shcl-prefix))
       (string= (package-name package) shcl-prefix :end1 (length shcl-prefix)))))
@@ -67,7 +75,7 @@ See `symbol-documentation-types'.")
 (defun undocumented-symbols ()
   "Returns an array of all shcl symbols that are undocumented."
   (let* ((all-packages (list-iterator (list-all-packages)))
-         (shcl-packages (filter-iterator all-packages 'shcl-package-p))
+         (shcl-packages (filter-iterator all-packages 'documented-shcl-package-p))
          (syms (make-extensible-vector)))
     (do-iterator (package shcl-packages)
       (do-external-symbols (sym package)
