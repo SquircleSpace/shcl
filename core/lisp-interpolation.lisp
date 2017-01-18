@@ -150,14 +150,12 @@
     :reader exit-failure-info))
   (:report (lambda (c s) (format s "Command exited with info ~A" (exit-failure-info c)))))
 
-(defun %check-result (shell-command-fn)
-  (let ((result (funcall shell-command-fn)))
-    (unless (exit-info-true-p result)
-      (cerror "Ignore error" 'exit-failure :info result))
-    result))
-
-(defmacro check-result (() shell-command)
-  `(%check-result (lambda () ,shell-command)))
+(defun check-result (exit-info)
+  "Returns the given `exit-info', but signals an `exit-failure'
+condition if it indicates a non-zero exit status."
+  (unless (exit-info-true-p exit-info)
+    (cerror "Ignore error" 'exit-failure :info exit-info))
+  exit-info)
 
 (defgeneric decode-stream-descriptor (descriptor))
 (defmethod decode-stream-descriptor ((descriptor integer))
@@ -208,7 +206,7 @@
             (fd-release write-end)))))))
 
 (defmacro capture ((&rest streams) shell-command)
-  (setf shell-command `(check-result () ,shell-command))
+  (setf shell-command `(check-result ,shell-command))
   (when (null streams)
     (return-from capture `(progn ,shell-command "")))
   `(%capture (list ,@streams) (lambda () ,shell-command)))
