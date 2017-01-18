@@ -53,7 +53,7 @@
    (shell "false")
    "False is false")
   (exit-ok
-   (check-result () (shell "true"))
+   (check-result (shell "true"))
    "check-result doesn't interfere with true")
   (exit-fail
    (let (signaled)
@@ -63,7 +63,7 @@
              (setf signaled t)
              (pass "exit-failure signal is expected")
              (continue c))))
-       (let ((result (check-result () (shell "false"))))
+       (let ((result (check-result (shell "false"))))
          (unless signaled
            (fail "exit-failure signal is expected"))
          result)))))
