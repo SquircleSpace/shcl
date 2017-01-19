@@ -69,30 +69,30 @@
          result)))))
 
 (deftest capture
-  (is (capture (:stdout) (shell "echo   \f'o'\"o\"   "))
+  (is (capture (:streams '(:stdout)) (shell "echo   \f'o'\"o\"   "))
       (format nil "foo~%")
       :test #'equal
       "Capturing works for basic strings")
-  (is (capture (:stdout :stderr 3) (shell "echo foo && echo bar >&2 ; echo baz >&3"))
+  (is (capture (:streams '(:stdout :stderr 3)) (shell "echo foo && echo bar >&2 ; echo baz >&3"))
       (format nil "foo~%bar~%baz~%")
       :test #'equal
       "Capturing works for slightly more complex strings"))
 
 (deftest splice
   (let ((lexical-variable "ABC"))
-    (is (capture (:stdout) (evaluate-constant-shell-string "echo ,lexical-variable" :readtable *splice-table*))
+    (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "echo ,lexical-variable" :readtable *splice-table*))
         (format nil "ABC~%")
         :test #'equal
         "Splicing a lexical string works"))
 
   (let ((lexical-vector #("A " "b")))
-    (is (capture (:stdout) (evaluate-constant-shell-string "echo ,@lexical-vector" :readtable *splice-table*))
+    (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "echo ,@lexical-vector" :readtable *splice-table*))
         (format nil "A  b~%")
         :test #'equal
         "Splicing a lexical vector works"))
 
   (let ((lexical-seq (fset:seq "A " "b")))
-    (is (capture (:stdout) (evaluate-constant-shell-string "echo ,@lexical-seq" :readtable *splice-table*))
+    (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "echo ,@lexical-seq" :readtable *splice-table*))
         (format nil "A  b~%")
         :test #'equal
         "Splicing a lexical seq works")))

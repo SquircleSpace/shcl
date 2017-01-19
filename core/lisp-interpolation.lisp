@@ -167,22 +167,48 @@ condition if it indicates a non-zero exit status."
 
 (defconstant +read-rate+ 4096)
 
-(defun consume (retained-fd output-buffer semaphore)
+(defstruct place
+  value)
+
+(defun consume (retained-fd output-place semaphore encoding)
+  "Read from `retained-fd' and store the resulting string in `output-place'.
+
+When EOF is hit, the given semaphore will be signaled.  This function
+will release `retained-fd' when it finishes.  `output-place' should be
+an instance of the `place' struct.
+
+This function is not meant to be used directly.  Only `capture' should
+call this function."
+  ;; Sigh.  We need to collect all of the bytes from posix-read and
+  ;; then decode it all at once.  Otherwise, we might cut a character
+  ;; in half and have decoding failures.  We could try to figure out a
+  ;; subset of the data we read that is whole and decode just that,
+  ;; but we're probably not going to be dealing with big strings
+  ;; anyway.  So, let's just take the easy way out for now.
   (unwind-protect
-       (let (part)
+       (let ((content (make-extensible-vector :element-type '(unsigned-byte 8)))
+             (part #()))
          (loop :do
             (progn
-              (setf part (shcl/core/posix:posix-read retained-fd +read-rate+))
+              (setf part (shcl/core/posix:posix-read retained-fd +read-rate+ :binary t))
               (debug-log status "READ ~A BYTES" (length part))
-              (write-string part output-buffer))
-            :while (not (zerop (length part)))))
+              (loop :for byte :across part :do
+                 (vector-push-extend byte content)))
+            :while (not (zerop (length part))))
+         (setf (place-value output-place) (babel:octets-to-string content :encoding encoding))
+         (values))
     (fd-release retained-fd)
     (shcl/core/thread:semaphore-signal semaphore)))
 
-(defun %capture (streams shell-command-fn)
+(defun %capture (streams encoding shell-command-fn)
+  "This function implements the `capture' macro."
+  (unless streams
+    (funcall shell-command-fn)
+    (return-from %capture ""))
+
   (with-fd-scope ()
     (let ((fds (mapcar 'decode-stream-descriptor streams))
-          (result-buffer (make-string-output-stream))
+          (result-place (make-place))
           (semaphore (shcl/core/thread:make-semaphore)))
       (multiple-value-bind (read-end write-end) (pipe-retained)
         (unwind-protect
@@ -192,24 +218,27 @@ condition if it indicates a non-zero exit status."
                    (bind-fd fd write-end))
                  (fd-retain read-end)
                  (bordeaux-threads:make-thread
-                  (lambda () (consume read-end result-buffer semaphore)))
+                  (lambda () (consume read-end result-place semaphore encoding)))
 
                  (funcall shell-command-fn))
 
                (fd-release write-end)
                (setf write-end nil)
                (shcl/core/thread:semaphore-wait semaphore)
-               (get-output-stream-string result-buffer))
+               (place-value result-place))
           (when read-end
             (fd-release read-end))
           (when write-end
             (fd-release write-end)))))))
 
-(defmacro capture ((&rest streams) shell-command)
-  (setf shell-command `(check-result ,shell-command))
-  (when (null streams)
-    (return-from capture `(progn ,shell-command "")))
-  `(%capture (list ,@streams) (lambda () ,shell-command)))
+(defmacro capture ((&key (streams ''(:stdout))
+                         (encoding 'cffi:*default-foreign-encoding*))
+                   &body shell-command)
+  "Capture the output of the given shell command and return it as a
+string.
+
+"
+  `(%capture ,streams ,encoding (lambda () ,@shell-command)))
 
 (defmethod bake-form-for-token ((command-word command-word))
   `(setf (command-word-evaluate-fn ,command-word)

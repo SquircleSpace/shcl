@@ -8,7 +8,7 @@
 (optimization-settings)
 
 (defun physical-pwd ()
-  (let ((raw-path (capture (:stdout) (evaluate-constant-shell-string "pwd -P"))))
+  (let ((raw-path (capture (:streams '(:stdout)) (evaluate-constant-shell-string "pwd -P"))))
     (string-right-trim #(#\newline) raw-path)))
 
 (defun path-iterator (path)
