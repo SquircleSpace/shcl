@@ -12,21 +12,32 @@
   ((pid
     :reader exit-info-pid
     :initform nil
-    :initarg :pid)
+    :initarg :pid
+    :documentation
+    "The pid of the process this object describes.")
    (exit-status
     :reader exit-info-exit-status
     :initform nil
-    :initarg :exit-status)
+    :initarg :exit-status
+    :documentation
+    "The exit code the process provided.")
    (exit-signal
     :reader exit-info-exit-signal
     :initform nil
-    :initarg :exit-signal)
+    :initarg :exit-signal
+    :documentation
+    "The signal that caused the process to exit.")
    (stop-signal
     :reader exit-info-stop-signal
     :initform nil
-    :initarg :stop-signal)))
+    :initarg :stop-signal
+    :documentation
+    "The signal that caused the process to stop."))
+  (:documentation
+   "An object containing useful information about a process"))
 
 (defun exit-info-p (thing)
+  "Returns non-nil iff the given object is an `exit-info'."
   (typep thing 'exit-info))
 
 (defmethod print-object ((exit-info exit-info) stream)
