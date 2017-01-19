@@ -2,6 +2,8 @@
   (:use :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
         :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/builtin :shcl/core/exit-info
         :shcl/core/fd-table :shcl/core/shell-readtable)
+  (:import-from :babel)
+  (:import-from :cffi)
   (:import-from :fset)
   (:import-from :shcl/core/evaluate)
   (:import-from :shcl/core/posix)
@@ -16,8 +18,19 @@
 (defclass lisp-form (a-word)
   ((form
     :initarg :form
-    :initform (required))
-   function))
+    :initform (required)
+    :documentation
+    "The form this token represents")
+   (function
+    :documentation
+    "This function evaluates the form."))
+  (:documentation
+   "A token representing a lisp form.
+
+If possible, the `function' slot should be compiled in the Lisp
+lexical environment where the token was used.
+
+This token always expands to one word."))
 (defmethod print-object ((token lisp-form) stream)
   (format stream "#<~A ~A>" (class-name (class-of token)) (slot-value token 'form)))
 
@@ -30,7 +43,12 @@
              :quoted t)))))
 
 (defclass lisp-splice-form (lisp-form)
-  ())
+  ()
+  (:documentation
+   "A token representing a lisp form which evaulates to a sequence.
+
+During expansion, this token traverses the sequence returned by the
+lisp form and turns each element into a separate word."))
 
 (defmethod bake-form-for-token ((lisp-form lisp-splice-form))
   (let ((seq (gensym "SEQ"))
@@ -50,44 +68,59 @@
   (funcall (slot-value token 'function)))
 
 (defun read-lisp-form (stream initiation-sequence context)
+  "Read a `lisp-form'."
   (declare (ignore initiation-sequence context))
   (let ((form (read-preserving-whitespace stream)))
     (make-instance 'lisp-form :form form)))
 
 (defun read-lisp-splice-form (stream initiation-sequence context)
+  "Read a `lisp-splice-form'."
   (declare (ignore initiation-sequence context))
   (let ((form (read-preserving-whitespace stream)))
     (make-instance 'lisp-splice-form :form form)))
 
 (defun hash-default-handler (stream initiation-sequence context)
+  "Read a comment"
   (unless (equal #\linefeed (aref initiation-sequence (- (length initiation-sequence) 1)))
     (read-line stream nil :eof))
   (lexer-context-mark-end-of-token context)
   t)
 
 (define-shell-readtable *splice-table*
+  "A shell readtable which supports injecting lisp forms."
   (with-dispatch-character ",")
   (with-default-handler "," 'read-lisp-form)
   (with-handler ",@" 'read-lisp-splice-form))
 
 (define-shell-readtable *exit-reader-macro-table*
+  "A shell readtable which allows the shell reader macro to
+terminate."
   (with-dispatch-character "#")
   (with-default-handler "#" 'hash-default-handler)
   (with-handler "#$" 'end-shell-parse))
 
 (define-shell-readtable *interpolation-table*
+  "A shell readtable which is suitable for use with the shell reader
+macro."
   (use-table *splice-table*)
   (use-table *exit-reader-macro-table*))
 
-(defvar *proper-end-found* nil)
+(defvar *proper-end-found* nil
+  "This is used by `end-shell-parse' and `read-shell-command' to
+ensure that use of the #$ reader macro is properly terminated.")
 
 (defun end-shell-parse (stream initiation-sequence context)
+  "Mark the end of a #$ reader macro form."
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
   (setf *proper-end-found* t)
   t)
 
 (defun read-shell-command (stream subchar arg)
+  "This function implements the #$ reader macro
+
+It looks for an expression of the form
+#$ <shell expression> #$"
   (declare (ignore subchar arg))
   (let ((*proper-end-found* nil))
     (let* ((raw-token-iter (token-iterator stream :readtable *interpolation-table*))
@@ -105,9 +138,15 @@
       `(parse-token-sequence ,(coerce tokens 'list)))))
 
 (defun enable-reader-syntax ()
+  "Enable use of the #$ reader macro for reading shell commands."
   (set-dispatch-macro-character #\# #\$ 'read-shell-command))
 
-(defmacro evaluate-constant-shell-string (string &key (readtable *interpolation-table*))
+(defmacro evaluate-constant-shell-string (string &key (readtable *splice-table*))
+  "Parse the given shell command and arrange for the commands
+contained within to be executed at runtime.
+
+Note, embedded lisp forms will have access to the lexical environment
+where this form appears."
   (assert (typep string 'string) (string) "Only constant shell strings can be evaluated by this macro")
   (let ((table (typecase readtable
                  (symbol (symbol-value readtable))
@@ -115,9 +154,17 @@
     `(parse-token-sequence ,(coerce (tokens-in-string string :readtable table) 'list))))
 
 (defun evaluate-shell-string (string &key (readtable *splice-table*))
+  "At runtime, parse and execute the given shell command.
+
+Note, embedded lisp forms will not have access to the lexical
+environment in which this function call appears.  They will be
+evauluated in the null lexical environment."
   (eval `(evaluate-constant-shell-string ,string ,@(when readtable `(:readtable ,readtable)))))
 
 (defmacro parse-token-sequence (tokens)
+  "This macro is responsible for parsing (at macro expansion time) a
+sequence of tokens and producing code which evaulates the shell
+command they describe."
   (let ((oven (make-extensible-vector)))
     (dolist (token tokens)
       (let ((form (bake-form-for-token token)))
@@ -147,8 +194,13 @@
   ((info
     :type exit-info
     :initarg :info
-    :reader exit-failure-info))
-  (:report (lambda (c s) (format s "Command exited with info ~A" (exit-failure-info c)))))
+    :reader exit-failure-info
+    :documentation
+    "Information about the process that exited abnormally"))
+  (:report (lambda (c s) (format s "Command exited with info ~A" (exit-failure-info c))))
+  (:documentation
+   "A condition that represents a command exiting with non-zero exit
+status."))
 
 (defun check-result (exit-info)
   "Returns the given `exit-info', but signals an `exit-failure'
@@ -157,7 +209,12 @@ condition if it indicates a non-zero exit status."
     (cerror "Ignore error" 'exit-failure :info exit-info))
   exit-info)
 
-(defgeneric decode-stream-descriptor (descriptor))
+(defgeneric decode-stream-descriptor (descriptor)
+  (:documentation
+   "Translate the given description of a stream into its corresponding
+file descriptor.
+
+This is intended to be used with `capture'."))
 (defmethod decode-stream-descriptor ((descriptor integer))
   descriptor)
 (defmethod decode-stream-descriptor ((stdout (eql :stdout)))
@@ -165,7 +222,9 @@ condition if it indicates a non-zero exit status."
 (defmethod decode-stream-descriptor ((stdout (eql :stderr)))
   2)
 
-(defconstant +read-rate+ 4096)
+(defconstant +read-rate+ 4096
+  "The number of bytes that we should try to read from a pipe at
+once.")
 
 (defstruct place
   value)

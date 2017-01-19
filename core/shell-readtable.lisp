@@ -322,8 +322,12 @@ The result of this macro is equivalent to
 
 (defmacro define-shell-readtable (name &body body)
   "Define a table suitable for use at compile time."
-  `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (defparameter ,name (build-shell-readtable ,@body))))
+  (let (documentation)
+    (when (typep (first body) 'string)
+      (setf documentation (list (pop body))))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       (defparameter ,name (build-shell-readtable ,@body)
+         ,@documentation))))
 
 (defun %shell-extensible-read (stream readtable initiation-sequence fallback context)
   (let ((next-char (peek-char nil stream nil :eof)))
