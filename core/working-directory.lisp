@@ -7,11 +7,10 @@
            #:current-working-directory-fd))
 (in-package :shcl/core/working-directory)
 
-(defvar *process-working-directory-lock* (make-recursive-lock))
-
 (defun process-working-directory-retained ()
-  (with-recursive-lock-held (*process-working-directory-lock*)
-    (open-retained "." O-RDONLY)))
+  "Return a retained fd representing the current working directory of
+the process."
+  (open-retained "." O-RDONLY))
 
 (defvar *working-directory-fds* nil)
 (defvar *working-directory-lock* (make-lock))
