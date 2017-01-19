@@ -44,15 +44,6 @@ the process."
   (release-history history)
   (values))
 
-(defmacro with-alternate-working-directory-history (preserved-history &body body)
-  (let ((history (gensym "HISTORY")))
-    `(let* ((,history ,preserved-history)
-            (*working-directory-lock* (make-lock))
-            (*working-directory-fds* ,history))
-       (retain-history *working-directory-fds*)
-       (unwind-protect (progn ,@body)
-         (release-history *working-directory-fds*)))))
-
 (defun call-with-alternate-working-directory-history (history fn)
   (let ((*working-directory-lock* (make-lock))
         (*working-directory-fds* history))
