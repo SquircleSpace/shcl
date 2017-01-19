@@ -10,7 +10,7 @@
   (:import-from :shcl/core/thread)
   (:import-from :bordeaux-threads)
   (:export
-   #:enable-shell-splice-syntax #:enable-reader-syntax #:evaluate-shell-string
+   #:enable-reader-syntax #:evaluate-shell-string
    #:evaluate-constant-shell-string #:exit-failure #:check-result #:capture
    #:*splice-table*))
 (in-package :shcl/core/lisp-interpolation)
