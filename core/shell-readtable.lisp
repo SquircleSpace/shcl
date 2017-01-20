@@ -29,9 +29,8 @@
   (print-unreadable-object (table stream)
     (format stream "~A" (dispatch-table-characters table))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *empty-shell-readtable* (make-instance 'dispatch-table))
-  (define-symbol-macro +standard-shell-readtable+ *empty-shell-readtable*))
+(defparameter *empty-shell-readtable* (make-instance 'dispatch-table))
+(define-symbol-macro +standard-shell-readtable+ *empty-shell-readtable*)
 
 (defun table-handler (readtable character)
   "Look up the handler for the given character."
