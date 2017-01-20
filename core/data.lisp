@@ -10,8 +10,7 @@
 (defmacro define-cloning-accessor (name &key slot-name accessor)
   (unless (and (or slot-name accessor) (not (and slot-name accessor)))
     (error "define-cloning-accessor requires either a slot-name xor an accessor function"))
-  (let* ((description (list slot-name accessor))
-         (object (gensym "OBJECT"))
+  (let* ((object (gensym "OBJECT"))
          (env (gensym "ENV"))
          (vars (gensym "VARS"))
          (vals (gensym "VALS"))
@@ -31,8 +30,6 @@
                        `(slot-value ,,object ,'',slot-name)))
               (list `(defmacro ,access-macro (,object)
                        `(,',accessor ,,object))))))
-    (when (equal description (get name 'cloning-accessor-description))
-      (return-from define-cloning-accessor))
     `(progn
        ,@access-wrapper
        (defun ,name (,object)
@@ -50,8 +47,7 @@
                  (multiple-value-bind ,,set-vars ,,inner-clone
                    ,,setter)
                  ,,set-var)
-              `(,',access-macro ,,inner-clone)))))
-       (setf (get ',name 'cloning-accessor-description) ',description))))
+              `(,',access-macro ,,inner-clone))))))))
 
 (defun clone-slots (slots old new)
   (dolist (slot slots)
@@ -136,45 +132,43 @@
       t
       (call-next-method)))
 
-(defclass direct-data-slot (closer-mop:standard-direct-slot-definition)
-  ((updater
-    :initarg :updater
-    :initform nil)))
-
 (defmethod closer-mop:finalize-inheritance :after ((class data-class))
   (let* ((superclasses (closer-mop:class-precedence-list class)))
     (unless (member (find-class 'data) superclasses)
       (error "data classes must inherit from data"))))
-
-(defmethod initialize-instance :around ((slot direct-data-slot) &rest initargs)
-  (declare (ignore initargs))
-  (let ((result (call-next-method))
-        (updater (slot-value slot 'updater)))
-    (unless (listp updater)
-      (setf updater (list updater)))
-    (dolist (fn-name updater)
-      (unless (typep fn-name 'symbol)
-        (error "updater must have a symbol as the argument"))
-      (let ((updater (slot-value slot 'updater)))
-        (unless (listp updater)
-          (setf updater (list updater)))
-        (dolist (fn-name updater)
-          (assert (typep fn-name 'symbol))
-          (eval `(define-cloning-accessor ,fn-name :slot-name ,(closer-mop:slot-definition-name slot))))))
-    result))
-
-(defmethod closer-mop:direct-slot-definition-class ((data-class data-class) &rest initargs)
-  (declare (ignore initargs))
-  (find-class 'direct-data-slot))
 
 (defmacro define-data (name direct-superclasses direct-slots &rest options)
   (when (find :metaclass options :key #'car)
     (error "metaclass option is forbidden"))
   (unless direct-superclasses
     (setf direct-superclasses '(data)))
-  ;; We need to eval the class definition now so that the updater
-  ;; functions are generated.
-  `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (defclass ,name ,direct-superclasses ,direct-slots
-       (:metaclass data-class)
-       ,@options)))
+  (let (updaters)
+    (labels
+        ((normalize-slot-definition (definition)
+           (when (symbolp definition)
+             (return-from normalize-slot-definition definition))
+           (let ((slot-name (car definition))
+                 (remaining (cdr definition))
+                 cleaned)
+             (loop :while remaining :do
+                (progn
+                  (unless (cdr remaining)
+                    (error "odd number of elements in &key list for slot definition"))
+                  (destructuring-bind (key value &rest rest) remaining
+                    (cond
+                      ((eq key :updater)
+                       (push (cons value slot-name) updaters))
+                      (t
+                       (push key cleaned)
+                       (push value cleaned)))
+                    (setf remaining rest))))
+             (cons slot-name (nreverse cleaned))))
+         (updater-form (updater-description)
+           `(define-cloning-accessor ,(car updater-description) :slot-name ,(cdr updater-description))))
+      (setf direct-slots (mapcar #'normalize-slot-definition direct-slots))
+      `(progn
+         (defclass ,name ,direct-superclasses ,direct-slots
+           (:metaclass data-class)
+           ,@options)
+         ,@(mapcar #'updater-form updaters)
+         ',name))))
