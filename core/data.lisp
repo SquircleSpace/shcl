@@ -8,6 +8,17 @@
 (optimization-settings)
 
 (defmacro define-cloning-accessor (name &key slot-name accessor)
+  "Define a non-destructive reader and setf-expander.
+
+Immutable data structures can be very useful, but they can also be
+pretty annoying when you want to update them.  Your only option is to
+create a new copy of the data structure which reflects the changes you
+want and then update your variable to point at the new version.  This
+macro makes that processs easier and more fluent by allowing you to
+use the `setf' macro to do it.
+
+This only works if you provide a method for `clone' specialized on the
+appropriate type."
   (unless (and (or slot-name accessor) (not (and slot-name accessor)))
     (error "define-cloning-accessor requires either a slot-name xor an accessor function"))
   (let* ((object (gensym "OBJECT"))
@@ -50,19 +61,50 @@
               `(,',access-macro ,,inner-clone))))))))
 
 (defun clone-slots (slots old new)
+  "For each given slot name, store `old''s value in `new'."
   (dolist (slot slots)
     (setf (slot-value new slot) (slot-value old slot)))
   new)
 
-(defgeneric clone (object))
+(defgeneric clone (object)
+  (:documentation
+   "Create a clone of the given object which contains the same data.
+
+If you wish to use `define-cloning-accessor' to access parts of a
+type, you must define a method for that type which returns an object
+which is not `eq' to the input object."))
 (defmethod clone (object)
   object)
 
 (defclass data-class (standard-class)
-  ())
+  ()
+  (:documentation
+   "This metaclass provides a way to silo-off purely-data-like classes
+from the wild west of normal classes.
+
+If your class uses this metaclass, then your class will only be
+allowed participate in an inheritance relationship with other
+`data-class' classes.  As a result, you don't have to worry about
+nasty un-data-like behaviors slipping into your pure and innocent
+data-like class.
+
+All `data-class' instances must have the `data' class in their class
+precedence list."))
 
 (defclass data ()
-  ())
+  ()
+  (:documentation
+   "Classes which inherit from `data' will be treated like they are plain
+old data.
+
+Plain old data will be manipulated in a very slot-centric way.  For
+example...
+- `clone' will just mirror all slots into a fresh instance
+- `fset:compare' will recursively compare slots
+- `make-load-form' will simply store slot values
+
+If these sorts of operations are inappropriate for your class, you
+must not inherit from `data'."))
 
 (defmethod clone ((object data))
   (clone-slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of object)))
@@ -138,6 +180,23 @@
       (error "data classes must inherit from data"))))
 
 (defmacro define-data (name direct-superclasses direct-slots &rest options)
+  "Define a class which is assumed to behave like plain old data.
+
+This macro works just like `defclass' with a few modifications.
+
+1. The metaclass is always `data-class'.  See the documentation for
+   `data-class' to learn more about the implications of this.
+
+2. The class will inherit from `data' if no superclass is specified.
+   An error will be signaled if the class you are attempting to define
+   doesn't have `data' in its class precedence list.  See the
+   documentation for `data' to learn more about the implications of
+   being a subclass of `data'.
+
+3. Slot definitions may now include the `:updater' argument to define
+   a cloning accessor with `define-cloning-accessor'.  See the
+   documentation for `define-cloning-accessor' to learn more about how
+   they behave."
   (when (find :metaclass options :key #'car)
     (error "metaclass option is forbidden"))
   (unless direct-superclasses
