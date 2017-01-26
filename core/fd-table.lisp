@@ -1,7 +1,8 @@
 (defpackage :shcl/core/fd-table
-  (:use :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams
-        :shcl/core/utility :shcl/core/posix :shcl/core/posix-types
-        :shcl/core/shell-environment)
+  (:use
+   :common-lisp :alexandria :bordeaux-threads :trivial-gray-streams
+   :shcl/core/utility :shcl/core/posix :shcl/core/posix-types
+   :shcl/core/shell-environment)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:import-from :cffi #:translate-to-foreign)
   (:import-from :trivial-garbage #:finalize #:cancel-finalization)
