@@ -172,12 +172,16 @@ This function does not create an entry in the job table."
                   (with-restored-shell-environment shell-environment
                     (destroy-preserved-shell-environment shell-environment)
                     (let* ((result (evaluate sy)))
+                      ;; TODO: What if we encounter an error?  We
+                      ;; still need to signal completion (one way or
+                      ;; the other!)
                       (funcall completion-handler result nil))))
              ;; Just in case we never even made it into the body of
              ;; with-resotred-shell-environment, let's destroy the
              ;; environment again.
              (destroy-preserved-shell-environment shell-environment)
              (debug-log status "Worker thread exit ~A" sy))))
+      ;; TODO: What if thread creation errors out?
       (make-thread #'async-eval))))
 
 (defgeneric evaluate (syntax-tree)
