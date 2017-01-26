@@ -214,12 +214,12 @@ class corresponding to a given `editline-ptr'.")
 stdin editline is using.")
    (stdout
     :reader editline-stdout
-        :documentation
+    :documentation
     "A lisp stream which communicates with the same endpoint as the
 stdout editline is using.")
    (stderr
     :reader editline-stderr
-        :documentation
+    :documentation
     "A lisp stream which communicates with the same endpoint as the
 stderr editline is using.")
    (ptr
