@@ -3,11 +3,11 @@
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
   (:import-from :shcl/core/environment #:env)
-  (:import-from :shcl/core/posix #:posix-write #:dup)
+  (:import-from :shcl/core/posix #:file-ptr)
   (:import-from
    :shcl/core/fd-table
-   #:make-fd-stream #:fd-stream #:with-safe-fd-manipulation #:track
-   #:forget #:get-fd)
+   #:make-fd-stream #:fd-stream #:get-fd #:dup-fd-into-file-ptr
+   #:close-file-ptr)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
   (:export #:get-line #:make-editline-stream))
@@ -42,9 +42,6 @@
 
 (defctype histeventw-ptr :pointer
   "History event (wide)")
-
-(defctype file-ptr :pointer
-  "The C standard library FILE * type.")
 
 (defcfun (el-init "el_init" :library libedit) editline-ptr
   (prog :string)
@@ -205,38 +202,6 @@ the EL_BIND sub-routine of `el-set'."
   (ev histeventw-ptr)
   (op :int))
 
-(defcfun (fdopen "fdopen") file-ptr
-  (fd :int)
-  (mode :string))
-
-(defcfun (fclose "fclose") :int
-  (stream file-ptr))
-
-(defcfun (fileno "fileno") :int
-  (stream file-ptr))
-
-(defun close-file-ptr (file-ptr)
-  "Close a file-ptr pointer created with `file-ptr-wrapper-for-fd'.
-
-The file-ptr will not be closed automatically by the garbage
-collector."
-  (with-safe-fd-manipulation
-    (debug-log status "FCLOSE ~A" file-ptr)
-    (forget (fileno file-ptr))
-    (fclose file-ptr)))
-
-(defun file-ptr-wrapper-for-fd (fd mode)
-  "Create a file-ptr which interacts with a dup'd version of the given
-fd.
-
-This file-ptr must be closed with `close-file-ptr'.  The garbage
-collector will not close it for you."
-  (with-safe-fd-manipulation
-    (let* ((new-fd (track (dup fd)))
-           (result (fdopen new-fd mode)))
-      (debug-log status "FDOPEN ~A ~A = ~A" result new-fd fd)
-      result)))
-
 (defvar *editline-sidetable* (make-hash-table)
   "This table provides a way to find the instance of the `editline'
 class corresponding to a given `editline-ptr'.")
@@ -318,9 +283,9 @@ encouraged to use `with-editline' to ensure the object is destroyed."
                       fin fout ferr
                       ptr (extra-prompt prompt) (extra-rprompt rprompt))
              extra
-           (setf fin (file-ptr-wrapper-for-fd stdin-fd "r"))
-           (setf fout (file-ptr-wrapper-for-fd stdout-fd "w"))
-           (setf ferr (file-ptr-wrapper-for-fd stderr-fd "w"))
+           (setf fin (dup-fd-into-file-ptr stdin-fd "r"))
+           (setf fout (dup-fd-into-file-ptr stdout-fd "w"))
+           (setf ferr (dup-fd-into-file-ptr stderr-fd "w"))
            (setf ptr (el-init program fin fout ferr))
 
            (setf extra-prompt (foreign-string-alloc prompt))
