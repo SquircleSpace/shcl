@@ -42,13 +42,18 @@
   (let* ((table (make-hash-table))
          (result (make-preserved-environment :data table)))
     (labels
-        ((handle (key value)
+        ((panic ()
+           (assert nil nil "A preserved shell environment was leaked"))
+         (handle (key value)
            (setf (gethash key table) (funcall (entry-pickle value)))))
+      (declare (dynamic-extent #'handle))
       (maphash #'handle *shell-environment-handlers*)
-      (trivial-garbage:finalize result (lambda () (%destroy-preserved-shell-environment table))))))
+      (trivial-garbage:finalize result #'panic)
+      result)))
 
 (defun destroy-preserved-shell-environment (shell-environment)
-  (%destroy-preserved-shell-environment (preserved-environment-data shell-environment)))
+  (%destroy-preserved-shell-environment (preserved-environment-data shell-environment))
+  (trivial-garbage:cancel-finalization shell-environment))
 
 (defun call-with-restored-shell-environment (shell-environment continuation)
   (let ((shell-environment (preserved-environment-data shell-environment)))
