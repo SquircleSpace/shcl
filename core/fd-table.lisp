@@ -3,13 +3,14 @@
         :shcl/core/utility :shcl/core/posix :shcl/core/posix-types
         :shcl/core/shell-environment)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
+  (:import-from :cffi #:translate-to-foreign)
+  (:import-from :trivial-garbage #:finalize #:cancel-finalization)
   (:export
-   #:with-safe-fd-manipulation #:track #:forget
    #:fd-retain #:fd-release #:fd-autorelease
    #:with-fd-scope #:with-living-fds #:dup-retained #:open-retained
    #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
    #:get-fd #:simplify-fd-bindings #:with-fd-streams #:fd-stream
-   #:make-fd-stream))
+   #:make-fd-stream #:dup-fd-into-file-ptr #:close-file-ptr))
 (in-package :shcl/core/fd-table)
 
 (optimization-settings)
@@ -521,3 +522,49 @@ The new-fd-fn argument is only intended to be used for testing."
   (if binary
       (make-binary-fd-stream fd direction symbolic)
       (make-character-fd-stream fd direction symbolic)))
+
+(defstruct gc-token)
+
+(defstruct file-ptr-wrapper
+  raw
+  gc-token)
+
+(defmethod translate-to-foreign ((value file-ptr-wrapper) (type file-ptr))
+  (file-ptr-wrapper-raw value))
+
+(defun dup-fd-into-file-ptr (fd mode)
+  "Create a file-ptr which interacts with a dup'd version of the given
+fd.
+
+This file-ptr must be closed with `close-file-ptr'.  If you leak the
+file-ptr without closing it, an error will be signaled."
+  (with-safe-fd-manipulation
+    (let* (new-fd
+           fdopen
+           result)
+      (unwind-protect
+           (progn
+             (setf new-fd (track (dup fd)))
+             (setf fdopen (fdopen new-fd mode))
+             (debug-log status "FDOPEN ~A ~A = ~A" result new-fd fd)
+             (setf result (make-file-ptr-wrapper :raw fdopen :gc-token (make-gc-token)))
+             (finalize (file-ptr-wrapper-gc-token result)
+                       (lambda () (assert nil nil "A file-ptr was leaked")))
+             (setf new-fd nil)
+             (setf fdopen nil)
+             result)
+        (cond
+          (fdopen
+           (fclose fdopen))
+          (new-fd
+           (close new-fd)))))))
+
+(defun close-file-ptr (file-ptr)
+  "Close a file-ptr pointer created with `file-ptr-wrapper-for-fd'."
+  (let ((file (file-ptr-wrapper-raw file-ptr)))
+    (with-safe-fd-manipulation
+      (debug-log status "FCLOSE ~A" file)
+      (forget (fileno file))
+      (fclose file)
+      (cancel-finalization (file-ptr-wrapper-gc-token file-ptr))
+      (values))))

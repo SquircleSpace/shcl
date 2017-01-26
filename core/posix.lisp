@@ -10,8 +10,9 @@
    #:with-posix-spawnattr #:environment-iterator #:fchdir #:open-fds
    #:compiler-owned-fds #:posix-read #:strlen #:posix-write #:fork #:_exit #:exit
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
-   #:pipe #:fstat #:syscall-error #:syscall-errno #:wifexited #:wifstopped
-   #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig))
+   #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen #:fclose
+   #:fileno #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig
+   #:wstopsig))
 (in-package :shcl/core/posix)
 
 (optimization-settings)
@@ -417,3 +418,20 @@
 (defun strerror (err)
   (with-lock-held (*errno-lock*)
     (%strerror err)))
+
+(define-foreign-type file-ptr ()
+  ()
+  (:actual-type :pointer)
+  (:simple-parser file-ptr)
+  (:documentation
+   "The C standard library FILE * type."))
+
+(defcfun (fdopen "fdopen") file-ptr
+  (fd :int)
+  (mode :string))
+
+(defcfun (fclose "fclose") :int
+  (stream file-ptr))
+
+(defcfun (fileno "fileno") :int
+  (stream file-ptr))
