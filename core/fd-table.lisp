@@ -24,6 +24,20 @@
    "The lock protecting `%extant-fds%'."))
 
 (defmacro with-safe-fd-manipulation (&body body)
+  "Inside the body of this form you may safely open and close file
+descriptors.
+
+When spawning a subprocess, we need to know exactly which file
+descriptors should be shared and which file descriptors are just
+implementation details of SHCL's operation.  If you call the `track'
+function (defined within the lexical scope of this form) on a file
+descriptor, then that file descriptor will not be passed on to child
+processes (unless it is bound with `bind-fd'!).  If you call the
+`forget' function (also defined with the lexical scope of this form)
+on a file descriptor, then it will be removed from the set of tracked
+file descriptors.  If the file descriptor is still open when it is
+forgotten, then the file descriptor will be passed on to child
+processes."
   (let ((fd (gensym "FD")))
     `(with-recursive-lock-held (%extant-fds-lock%)
        (labels
@@ -57,12 +71,6 @@ when a new process is spawned.
 This variable should not be accessed directly.  You should add
 bindings with `bind-fd' and query bindings with `get-fd'.")
 
-(defstruct floating-fd-bindings-inner
-  bindings)
-
-(defstruct floating-fd-bindings
-  inner)
-
 (defun %fd-managed-p (fd)
   "The non-locking version of `fd-managed-p'"
   (not (not (gethash fd %fd-retain-count-table%))))
@@ -72,12 +80,24 @@ bindings with `bind-fd' and query bindings with `get-fd'.")
   (with-safe-fd-manipulation
     (%fd-managed-p fd)))
 
-(define-condition fd-already-managed (error)
+(define-condition fd-error (error)
+  ()
+  (:documentation
+   "A condition that indicates an fd-management error has occured."))
+
+(define-condition fd-already-managed (fd-error)
   ((fd
     :initarg :fd
     :initform (required)
-    :accessor fd-already-managed-fd))
-  (:report (lambda (c s) (format s "Can't enter FD ~A into retain/release management again" (fd-already-managed-fd c)))))
+    :accessor fd-already-managed-fd
+    :documentation
+    "The fd which was already being managed"))
+  (:report (lambda (c s) (format s "Can't enter FD ~A into retain/release management again" (fd-already-managed-fd c))))
+  (:documentation
+   "A condition which indicates that a retain/release managed file
+descriptor was given to the retain/release system as though it were
+new.  This probably means that something closed the file descriptor
+out from underneath the retain/release system."))
 
 (defun manage-new-fd (fd)
   "Enter the given fd into the retain/release table.
@@ -95,14 +115,20 @@ not become a managed fd."
     (setf (gethash fd %fd-retain-count-table%) 1)
     fd))
 
-(define-condition fd-not-managed (error)
+(define-condition fd-not-managed (fd-error)
   ((fd
     :initarg :fd
     :initform (required)
-    :accessor fd-not-managed-fd))
-  (:report (lambda (c s) (format s "Can't retain unmanaged FD ~A" (fd-not-managed-fd c)))))
+    :accessor fd-not-managed-fd
+    :documentation
+    "The fd this condition is about."))
+  (:report (lambda (c s) (format s "Can't retain/release unmanaged FD ~A" (fd-not-managed-fd c))))
+  (:documentation
+   "This condition indicates that a retain or release was issued for a
+file descriptor which is not retain/release managed."))
 
 (defun %fd-retain (fd)
+  "The non-locking version of `fd-retain'."
   (unless (gethash fd %fd-retain-count-table%)
     (error 'fd-not-managed :fd fd))
   (incf (gethash fd %fd-retain-count-table%))
@@ -117,21 +143,32 @@ count reaches 0.  See `fd-release'."
     (%fd-retain fd)))
 
 (defun retain-fd-bindings (fd-bindings)
+  "Retain all the file descriptors involved in the given set of
+bindings."
   (with-safe-fd-manipulation
     (fset:do-map (key-fd value-fd fd-bindings)
       (declare (ignore key-fd))
       (when (%fd-managed-p value-fd)
-        (%fd-retain value-fd)))))
+        (%fd-retain value-fd)))
+    (values)))
 
 (defun preserve-fd-bindings ()
+  "Create a version of the current fd bindings that can be revived
+later."
   (retain-fd-bindings *fd-bindings*)
   *fd-bindings*)
 
 (defun destroy-fd-bindings (bindings)
+  "Reclaim the resources associated with the given fd bindings.
+
+The given fd bindings must be a return value from
+`preserve-fd-bindings'.  The consequences are undefined if you attempt
+to destroy the same value twice."
   (release-fd-bindings bindings)
   (values))
 
 (defun call-with-fd-bindings (bindings continuation)
+  "Restore the given fd bindings and call the given function."
   (%with-fd-scope continuation bindings))
 
 (extend-shell-environment
@@ -140,18 +177,11 @@ count reaches 0.  See `fd-release'."
  'call-with-fd-bindings
  'destroy-fd-bindings)
 
-(define-condition fd-over-release (error)
-  ((fd
-    :initarg :fd
-    :initform (required)
-    :accessor fd-over-release-fd))
-  (:report (lambda (c s) (format s "FD ~A was over released" (fd-over-release-fd c)))))
-
 (defun %fd-release (fd)
   "Do the work of `fd-release', but assume the table is already
 locked."
   (unless (gethash fd %fd-retain-count-table%)
-    (error 'fd-over-release :fd fd))
+    (error 'fd-not-managed :fd fd))
   (let ((count (decf (gethash fd %fd-retain-count-table%))))
     (when (equal 0 count)
       (debug-log status "CLOSE ~A" fd)
@@ -169,6 +199,10 @@ If the retain count reaches 0, then it will be closed immediately."
     (%fd-release fd)))
 
 (defun release-fd-bindings (fd-bindings)
+  "Reclaim resources associated with the given fd bindings.
+
+After this function returns, the given fd bindings cannot be used
+again."
   (with-safe-fd-manipulation
     (fset:do-map (key-fd value-fd fd-bindings)
       (declare (ignore key-fd))
@@ -176,12 +210,17 @@ If the retain count reaches 0, then it will be closed immediately."
         (%fd-release value-fd))))
   (values))
 
-(define-condition fd-autorelease-without-scope (error)
+(define-condition fd-autorelease-without-scope (fd-error)
   ((fd
     :initarg :fd
     :initform (required)
-    :accessor fd-autorelease-without-scope-fd))
-  (:report (lambda (c s) (format s "FD ~A was autoreleased without an FD scope in place" (fd-autorelease-without-scope-fd c)))))
+    :accessor fd-autorelease-without-scope-fd
+    :documentation
+    "The fd that this condition is about"))
+  (:report (lambda (c s) (format s "FD ~A was autoreleased without an FD scope in place" (fd-autorelease-without-scope-fd c))))
+  (:documentation
+   "A condition indicating that a file descriptor was autoreleased but
+there isn't an fd scope to catch the autorelease."))
 
 (defun fd-autorelease (fd)
   "Release the given fd when the current fd scope exits."
@@ -191,6 +230,7 @@ If the retain count reaches 0, then it will be closed immediately."
   fd)
 
 (defun %with-fd-scope (fn &optional bindings)
+  "The function that implements `with-fd-scope'."
   (let* ((*fd-bindings* (or bindings *fd-bindings* (fset:empty-map)))
          (*autorelease-fd-scope* (make-extensible-vector :element-type 'integer)))
     ;; Retain the new bindings
@@ -223,6 +263,8 @@ do nothing exept spawn a new process."
        ,@body)))
 
 (defun dup-retained (fd)
+  "Dup the given file descriptor and return the new file descriptor
+with a +1 retain count."
   (with-safe-fd-manipulation
     (let ((new-fd (track (dup fd))))
       (debug-log status "DUP ~A = ~A" new-fd fd)
@@ -238,6 +280,9 @@ count."
       (manage-new-fd fd))))
 
 (defun openat-retained (dir-fd pathname flags &optional mode)
+  "This is a wrapper around the posix openat function which
+atomically adds the new fd to the fd table and gives it a +1 retain
+count."
   (with-safe-fd-manipulation
     (let ((fd (track (openat dir-fd pathname flags mode))))
       (debug-log status "OPENAT ~A, ~A = ~A" dir-fd fd pathname)
@@ -278,7 +323,9 @@ file descriptors."
 
 This function doesn't actually modify the given fd in the current
 process.  Instead, it will simply store information about what the
-named fd should be bound to in spawned processes."
+named fd should be bound to in spawned processes.
+
+This operation is sort of like the dup2 posix system call."
   (check-type fd integer)
   (check-type fd-value integer)
   (unless *fd-bindings*
@@ -293,18 +340,21 @@ named fd should be bound to in spawned processes."
         (%fd-release old-value))))
   (values))
 
-(define-condition invalid-fd (error)
+(define-condition invalid-fd (fd-error)
   ((fd
     :type integer
     :initarg :fd
     :accessor invalid-fd-fd
-    :initform (required)))
+    :initform (required)
+    :documentation
+    "The fd this condition is about"))
   (:report (lambda (c s) (format s "Redirect from invalid fd: ~A~%" (invalid-fd-fd c))))
   (:documentation
    "A condition that indicates that an invalid fd has been
 requested.
 
-This represents an error in the shell expression.
+This could happen if the user requested a redirect from an invalid
+file descriptor.
 
 An fd is considered invalid if it hasn't been bound by the shell
 expression."))
@@ -326,10 +376,7 @@ See `bind-fd'."
         (error 'invalid-fd :fd fd))))
   fd)
 
-(defun simplify-fd-bindings-default-new-fd-fn (fd)
-  (fd-autorelease (dup-retained fd)))
-
-(defun simplify-fd-bindings (&key (fd-bindings *fd-bindings*) (new-fd-fn #'simplify-fd-bindings-default-new-fd-fn))
+(defun %simplify-fd-bindings (fd-bindings new-fd-fn)
   "Transform the given bindings so that there is no overlap between
 fds that will be bound in the child process and the source fds in this
 process.
@@ -356,7 +403,7 @@ The new-fd-fn argument is only intended to be used for testing."
     (setf conflict (fset:intersection ours theirs))
     (when (zerop (fset:size conflict))
       (debug-log status "SIMPLIFIED")
-      (return-from simplify-fd-bindings fd-bindings))
+      (return-from %simplify-fd-bindings fd-bindings))
 
     (let ((translation (make-hash-table)))
       (fset:do-set (conflicted-fd conflict)
@@ -371,16 +418,36 @@ The new-fd-fn argument is only intended to be used for testing."
       (debug-log status "SIMPLIFIED ~A" fd-bindings)
       fd-bindings)))
 
+(defun simplify-fd-bindings ()
+  "Produce a version of the current fd bindings which is safe to
+naively apply via dup2 in a child process."
+  (%simplify-fd-bindings *fd-bindings* (lambda (fd) (fd-autorelease (dup-retained fd)))))
+
 (defclass fd-stream (fundamental-stream)
   ((fd
     :initarg :fd
     :type (or integer null)
-    :initform (required))
+    :initform (required)
+    :documentation
+    "The file descriptor this stream interacts with.")
    (symbolic
     :initarg :symbolic
-    :initform nil)))
+    :initform nil
+    :documentation
+    "Non-nil if this stream should evaluate the given fd in the
+context of the current fd bindings.
 
-(defgeneric fd-stream-fd (stream))
+If this slot is non-nil, then a call to `bind-fd' could change which
+file descriptor is actually being interacted with.  If this slot is
+nil, then the stream will disregard the fd bindings and just interact
+with the given fd."))
+  (:documentation
+   "A stream which interacts with a file descriptor."))
+
+(defgeneric fd-stream-fd (stream)
+  (:documentation
+   "Return the actual file descriptor that the stream is currently
+with."))
 (defmethod fd-stream-fd ((stream fd-stream))
   (with-slots (symbolic fd) stream
     (if symbolic
@@ -389,12 +456,21 @@ The new-fd-fn argument is only intended to be used for testing."
 
 (defclass fd-input-stream (fd-stream fundamental-input-stream)
   ((buffer
-    :initform (make-array 0))
+    :initform (make-array 0)
+    :documentation
+    "A holding-place for content that has been read from the fd but
+not yet read from the stream.")
    (buffer-offset
-    :initform 0)
+    :initform 0
+    :documentation
+    "How far into the `buffer' slot we have read.")
    (buffer-maximum-size
     :accessor fd-input-stream-buffer-maximum-size
-    :initform 1)))
+    :initform 1
+    :documentation
+    "How large the buffer can become."))
+  (:documentation
+   "An `fd-stream' that can be used to read input."))
 
 (defclass fd-output-stream (fd-stream fundamental-output-stream)
   ())
@@ -418,6 +494,10 @@ The new-fd-fn argument is only intended to be used for testing."
   ())
 
 (defun fd-stream-read (stream binary-p)
+  "Read some content from the given fd-stream.
+
+If `binary-p' is non-nil, then we will read bytes instead of
+characters."
   (with-slots (buffer buffer-offset buffer-maximum-size) stream
     (with-accessors ((fd fd-stream-fd)) stream
       (let ((last-char (unless (zerop (length buffer))
@@ -436,6 +516,7 @@ The new-fd-fn argument is only intended to be used for testing."
         result))))
 
 (defun fd-stream-unread (stream thing)
+  "Unread one element."
   (with-slots (buffer buffer-offset) stream
     (when (zerop buffer-offset)
       (error "Can't unread without reading first"))
@@ -490,12 +571,18 @@ The new-fd-fn argument is only intended to be used for testing."
     (posix-write fd (make-array 1 :initial-element byte :element-type '(unsigned-byte 8)))))
 
 (defmacro with-fd-streams (() &body body)
+  "Evaluate `body' in an environment where the standard streams are
+bound to `fd-stream's.
+
+`*standard-input*', `*standard-output*', and `*error-output*' are
+bound to symbolic `fd-stream's for fds 0, 1, and 2 respectively."
   `(let ((*standard-input* (make-instance 'fd-character-input-stream :fd 0 :symbolic t))
          (*standard-output* (make-instance 'fd-character-output-stream :fd 1 :symbolic t))
          (*error-output* (make-instance 'fd-character-output-stream :fd 2 :symbolic t)))
      ,@body))
 
 (defun make-binary-fd-stream (fd direction symbolic)
+  "Create a binary `fd-stream'."
   (macrolet
       ((make (type)
          `(make-instance ',type :symbolic symbolic :fd fd)))
@@ -508,6 +595,7 @@ The new-fd-fn argument is only intended to be used for testing."
        (make fd-binary-input-output-stream)))))
 
 (defun make-character-fd-stream (fd direction symbolic)
+  "Make a character `fd-stream'."
   (macrolet
       ((make (type)
          `(make-instance ',type :symbolic symbolic :fd fd)))
@@ -520,13 +608,19 @@ The new-fd-fn argument is only intended to be used for testing."
        (make fd-character-input-output-stream)))))
 
 (defun make-fd-stream (fd &key (direction :input) binary symbolic)
+  "Make an `fd-stream' for the given fd.
+
+See the documentation for `fd-stream' to learn more about symbolic fd
+streams."
   (if binary
       (make-binary-fd-stream fd direction symbolic)
       (make-character-fd-stream fd direction symbolic)))
 
-(defstruct gc-token)
+(defstruct gc-token
+  "This struct exists only to be garbage collected.")
 
 (defstruct file-ptr-wrapper
+  "A wrapper around file-ptr which detects leaks."
   raw
   gc-token)
 
