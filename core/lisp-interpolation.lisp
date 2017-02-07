@@ -302,7 +302,7 @@ string.
 (defmethod bake-form-for-token ((command-word command-word))
   `(setf (command-word-evaluate-fn ,command-word)
          (lambda ()
-           (capture (:stdout)
+           (capture (:streams '(:stdout))
              (parse-token-sequence ,(coerce (command-word-tokens command-word) 'list))))))
 
 (defmethod expand ((command-word command-word))
