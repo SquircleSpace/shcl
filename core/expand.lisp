@@ -455,18 +455,23 @@
   (fset:seq (make-string-fragment (literal-token-string thing) :literal t)))
 
 (defmethod expand ((thing single-quote))
-  (fset:seq (make-string-fragment (single-quote-contents thing) :quoted t)))
+  (fset:seq (make-string-fragment (single-quote-contents thing) :quoted t :literal t)))
 
 (defmethod expand ((thing double-quote))
   (let ((*split-fields* nil))
     (let* ((parts (double-quote-parts thing))
-           (result (make-string-output-stream)))
+           (result (fset:seq)))
       (loop :for part :across parts :do
          (let ((expansion (expand part)))
            (fset:do-seq (sub-part expansion)
              (unless (word-boundary-p sub-part)
-               (write-string (string-fragment-string sub-part) result)))))
-      (fset:seq (make-string-fragment (get-output-stream-string result) :quoted t)))))
+               ;; Mark the fragment as quoted
+               (unless (string-fragment-quoted sub-part)
+                 (setf sub-part (copy-string-fragment sub-part))
+                 (setf (string-fragment-quoted sub-part) t))
+               ;; Add it to the result sequence
+               (setf result (fset:with-last result sub-part))))))
+      result)))
 
 (defmethod expand ((thing variable-expansion-word))
   (let* ((variable (variable-expansion-word-variable thing))
