@@ -462,12 +462,14 @@ and io redirects."
 (defun evaluate-assignment-word (assignment-word)
   "Modify the environment to include the given variable assignment."
   (with-accessors ((value assignment-word-value-word) (name assignment-word-name)) assignment-word
-    (let ((expanded (expansion-for-word
-                     value
+    (let ((expanded (expansion-for-words
+                     (list value)
                      :expand-aliases nil
                      :expand-pathname nil
                      :split-fields nil)))
-      (setf (env (simple-word-text name)) expanded))))
+      (unless (equal 1 (fset:size expanded))
+        (error "Handling of variables with multiple fields is not implemented"))
+      (setf (env (simple-word-text name)) (fset:first expanded)))))
 
 (defun evaluate-command-free (assignments redirects)
   "Not all simple-commands have a command!"

@@ -9,9 +9,8 @@
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
   (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:openat-retained #:fd-release)
   (:export
-   #:expansion-for-word #:expansion-for-words #:set-alias #:unalias
-   #:expand #:make-string-fragment #:word-boundary #:*split-fields*
-   #:split))
+   #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
+   #:word-boundary #:*split-fields* #:split))
 (in-package :shcl/core/expand)
 
 (optimization-settings)
@@ -96,16 +95,6 @@
              (when (alias-continue-expansion alias)
                (setf less-first (expand-aliases less-first)))
              (setf remaining (fset:concat (alias-words alias) less-first))))))))
-
-(defun expansion-for-word (word &rest args &key expand-aliases expand-pathname (split-fields t))
-  (declare (ignore expand-aliases expand-pathname))
-  (let ((result (apply 'expansion-for-words (fset:seq word) args)))
-    (cond
-      (split-fields
-       result)
-      (t
-       (assert (equal 1 (fset:size result)))
-       (fset:first result)))))
 
 (defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
   "Perform expansion on a sequence of tokens."
