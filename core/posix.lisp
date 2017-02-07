@@ -7,8 +7,9 @@
    #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
    #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
    #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
-   #:with-posix-spawnattr #:environment-iterator #:fchdir #:open-fds
-   #:compiler-owned-fds #:posix-read #:strlen #:posix-write #:fork #:_exit #:exit
+   #:with-posix-spawnattr #:environment-iterator #:dir-ptr #:fdopendir
+   #:closedir #:dirfd #:readdir #:fchdir #:open-fds #:compiler-owned-fds
+   #:posix-read #:strlen #:posix-write #:fork #:_exit #:exit
    #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen #:fclose
    #:fileno #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig
@@ -160,20 +161,30 @@
         (incf index)
         (emit result)))))
 
-(define-c-wrapper (opendir "opendir") (:pointer (lambda (x) (not (null-pointer-p x))))
+(define-foreign-type dir-ptr ()
+  ()
+  (:actual-type :pointer)
+  (:simple-parser dir-ptr)
+  (:documentation
+   "The POSIX DIR * type."))
+
+(define-c-wrapper (opendir "opendir") (dir-ptr (lambda (x) (not (null-pointer-p x))))
   (name :string))
 
+(define-c-wrapper (fdopendir "fdopendir") (dir-ptr (lambda (x) (not (null-pointer-p x))))
+  (fd :int))
+
 (define-c-wrapper (closedir "closedir") (:int #'zerop)
-  (dirp :pointer))
+  (dirp dir-ptr))
 
 (define-c-wrapper (dirfd "dirfd") (:int #'not-negative-p)
-  (dirp :pointer))
+  (dirp dir-ptr))
 
 (define-c-wrapper (%readdir "readdir") ((:pointer (:struct dirent))
                                         (lambda (x)
                                           (or (not (null-pointer-p x))
                                               (zerop errno))))
-  (dirp :pointer))
+  (dirp dir-ptr))
 
 (defun readdir (dirp)
   (setf errno 0)

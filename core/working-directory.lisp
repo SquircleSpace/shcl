@@ -4,7 +4,7 @@
         :shcl/core/support :shcl/core/shell-environment)
   (:export #:directory-p #:path-invalid #:path-invalid-message #:cd
            #:push-working-directory #:pop-working-directory
-           #:current-working-directory-fd))
+           #:with-local-working-directory #:current-working-directory-fd))
 (in-package :shcl/core/working-directory)
 
 (defun process-working-directory-retained ()
@@ -160,3 +160,14 @@ then `push-working-directory'."
         (%pop-working-directory)
         (%push-working-directory-fd dir-fd)
         (values)))))
+
+(defmacro with-local-working-directory ((place) &body body)
+  (let ((pop-needed (gensym "POP-NEEDED")))
+    `(let (,pop-needed)
+       (unwind-protect
+            (progn
+              (push-working-directory ,place)
+              (setf ,pop-needed t)
+              ,@body)
+         (when ,pop-needed
+           (pop-working-directory))))))

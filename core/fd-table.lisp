@@ -11,7 +11,8 @@
    #:with-fd-scope #:with-living-fds #:dup-retained #:open-retained
    #:openat-retained #:pipe-retained #:with-pipe #:bind-fd
    #:get-fd #:simplify-fd-bindings #:with-fd-streams #:fd-stream
-   #:make-fd-stream #:dup-fd-into-file-ptr #:close-file-ptr))
+   #:make-fd-stream #:dup-fd-into-file-ptr #:close-file-ptr
+   #:dup-fd-into-dir-ptr #:close-dir-ptr #:with-dir-ptr-for-fd))
 (in-package :shcl/core/fd-table)
 
 (optimization-settings)
@@ -663,3 +664,58 @@ file-ptr without closing it, an error will be signaled."
       (fclose file)
       (cancel-finalization (file-ptr-wrapper-gc-token file-ptr))
       (values))))
+
+(defstruct dir-ptr-wrapper
+  "A wrapper around `dir-ptr' which detects leaks."
+  raw
+  (gc-token (make-gc-token)))
+
+(defmethod translate-to-foreign ((value dir-ptr-wrapper) (type dir-ptr))
+  (dir-ptr-wrapper-raw value))
+
+(defun dup-fd-into-dir-ptr (fd)
+  "Close a `dir-ptr-wrapper' pointer created with `dup-fd-into-dir-ptr'."
+  (with-safe-fd-manipulation
+    (let (new-fd
+          dir-ptr
+          result)
+      (unwind-protect
+           (progn
+             (setf new-fd (track (dup fd)))
+             (setf dir-ptr (fdopendir new-fd))
+             (debug-log status "FDOPENDIR ~A = ~A" new-fd fd)
+             (setf result (make-dir-ptr-wrapper :raw dir-ptr))
+             (finalize (dir-ptr-wrapper-gc-token result)
+                       (lambda () (assert nil nil "A dir-ptr was leaked")))
+             (setf new-fd nil)
+             (setf dir-ptr nil)
+             result)
+        (cond
+          (dir-ptr
+           (closedir dir-ptr))
+          (new-fd
+           (posix-close new-fd)))))))
+
+(defun close-dir-ptr (dir-ptr)
+  "Close a `dir-ptr' pointer created with `dup-fd-into-dir-ptr'."
+  (let ((raw (dir-ptr-wrapper-raw dir-ptr)))
+    (unless raw
+      (return-from close-dir-ptr (values)))
+    (with-safe-fd-manipulation
+      (debug-log status "CLOSEDIR ~A" raw)
+      (forget (dirfd raw))
+      (closedir raw)
+      (cancel-finalization (dir-ptr-wrapper-gc-token dir-ptr))
+      (setf raw nil)
+      (values))))
+
+(defmacro with-dir-ptr-for-fd ((dir-ptr-sym fd) &body body)
+  (let ((dir-ptr (gensym "DIR-PTR")))
+    `(let (,dir-ptr)
+       (unwind-protect
+            (progn
+              (setf ,dir-ptr (dup-fd-into-dir-ptr ,fd))
+              (let ((,dir-ptr-sym ,dir-ptr))
+                ,@body))
+         (when ,dir-ptr
+           (close-dir-ptr ,dir-ptr))))))
