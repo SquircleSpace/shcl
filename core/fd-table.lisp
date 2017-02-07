@@ -711,6 +711,11 @@ signaled."
       (values))))
 
 (defmacro with-dir-ptr-for-fd ((dir-ptr-sym fd) &body body)
+  "Open a `dir-ptr' with `dup-fd-into-dir-ptr', bind it to `dir-ptr-sym'
+and evaluate `body'.
+
+The `dir-ptr' will be closed when control leaves the body of this
+macro."
   (let ((dir-ptr (gensym "DIR-PTR")))
     `(let (,dir-ptr)
        (unwind-protect
