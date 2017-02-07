@@ -621,19 +621,20 @@ streams."
   "This struct exists only to be garbage collected.")
 
 (defstruct file-ptr-wrapper
-  "A wrapper around file-ptr which detects leaks."
+  "A wrapper around `file-ptr' which detects leaks."
   raw
-  gc-token)
+  (gc-token (make-gc-token)))
 
 (defmethod translate-to-foreign ((value file-ptr-wrapper) (type file-ptr))
   (file-ptr-wrapper-raw value))
 
 (defun dup-fd-into-file-ptr (fd mode)
-  "Create a file-ptr which interacts with a dup'd version of the given
-fd.
+  "Create a `file-ptr-wrapper' which interacts with a dup'd version of
+the given fd.
 
-This file-ptr must be closed with `close-file-ptr'.  If you leak the
-file-ptr without closing it, an error will be signaled."
+This `file-ptr-wrapper' must be closed with `close-file-ptr'.  If you
+leak the `file-ptr-wrapper' without closing it, an error will be
+signaled."
   (with-safe-fd-manipulation
     (let* (new-fd
            fdopen
@@ -642,8 +643,8 @@ file-ptr without closing it, an error will be signaled."
            (progn
              (setf new-fd (track (dup fd)))
              (setf fdopen (fdopen new-fd mode))
-             (debug-log status "FDOPEN ~A ~A = ~A" result new-fd fd)
-             (setf result (make-file-ptr-wrapper :raw fdopen :gc-token (make-gc-token)))
+             (debug-log status "FDOPEN ~A = ~A" new-fd fd)
+             (setf result (make-file-ptr-wrapper :raw fdopen))
              (finalize (file-ptr-wrapper-gc-token result)
                        (lambda () (assert nil nil "A file-ptr was leaked")))
              (setf new-fd nil)
@@ -656,7 +657,7 @@ file-ptr without closing it, an error will be signaled."
            (posix-close new-fd)))))))
 
 (defun close-file-ptr (file-ptr)
-  "Close a file-ptr pointer created with `file-ptr-wrapper-for-fd'."
+  "Close a `file-ptr-wrapper' pointer created with `dup-fd-into-file-ptr'."
   (let ((file (file-ptr-wrapper-raw file-ptr)))
     (with-safe-fd-manipulation
       (debug-log status "FCLOSE ~A" file)
