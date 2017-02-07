@@ -162,6 +162,22 @@ then `push-working-directory'."
         (values)))))
 
 (defmacro with-local-working-directory ((place) &body body)
+  "Within the body of this macro, the current working directory is
+changed to be `place'.
+
+You can think of this as being roughly equivalent to
+     (unwind-protect
+          (progn
+            (push-working-directory ,place)
+            ,@body)
+       (pop-working-directory))
+
+You may not assume anything about the contents of the working
+directory stack within the body of this form.  There may or may not be
+any file descriptors (other than the current one) on the stack.
+
+The behavior is undefined if you push directories onto the stack which
+are not popped off before control leaves the body of this macro."
   (let ((pop-needed (gensym "POP-NEEDED")))
     `(let (,pop-needed)
        (unwind-protect
