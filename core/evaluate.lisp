@@ -53,11 +53,14 @@ directly."))
   fd)
 (defmethod fd-from-description ((io-file io-file))
   (with-slots (redirect filename) io-file
-    (let ((fd (open-retained (coerce (expansion-for-word filename :split-fields nil :expand-pathname t)
-                                     'simple-string)
-                             (open-args-for-redirect redirect)
-                             *umask*)))
-      (fd-autorelease fd))))
+    (let ((expansion (expansion-for-words filename :split-fields nil :expand-pathname t)))
+      (unless (equal 1 (fset:size expansion))
+        (error "file name expanded to ~A words.  Not implemented." (fset:size expansion)))
+      (setf expansion (fset:first expansion))
+      (fd-autorelease
+       (open-retained (coerce expansion 'simple-string)
+                      (open-args-for-redirect redirect)
+                      *umask*)))))
 
 (defun bind-fd-description (fd description)
   "Bind `fd' to the fd implied by `description'."
