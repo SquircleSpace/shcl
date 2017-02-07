@@ -17,55 +17,132 @@
 
 (defstruct (string-fragment
              (:constructor %make-string-fragment))
+  "This struct represents a part of a word.
+
+`string-fragment-string' stores the characters associated with this
+fragment.
+
+`string-fragment-quoted' is a boolean value indicating whether the
+characters should be treated as though they were quoted.  This impacts
+how the characters are interpreted in some expansion contexts.  For
+example, a #\~ appearing in a quoted string fragment will not expand
+to the user's home directory.
+
+`string-fragment-literal' is a boolean value indicating whether the
+characters should be treated as though they were typed by the user
+directly.  Tokens like `shcl/core/lexer:variable-expansion-word'
+should expand to non-literal string fragments.  Tokens like
+`shcl/core/lexer:if-word' should expand to a literal string fragment."
   string
   quoted
   literal)
 
 (defun make-string-fragment (string &key quoted literal)
+  "Create a `string-fragment'."
   (%make-string-fragment :string string :quoted quoted :literal literal))
 
-(defparameter *split-fields* t)
+(defparameter *split-fields* t
+  "Non-nil if field splitting should be performed after expansion
+takes place.
 
-(defconstant +soft-word-boundary+ '+soft-word-boundary+)
-(defconstant +hard-word-boundary+ '+hard-word-boundary+)
+Methods on the `expand' generic function should not emit word boundary
+markers (see `+soft-word-boundary+' and `+hard-word-boundary+') in
+their expansions when this variable is bound to nil.  When this
+variable is non-nil, methods on `expand' are permitted to split their
+expanded strings into multiple strings by inserting word boundary
+markers into their return value.  If appropriate, they are encouraged
+to use the `split' function to do this.")
 
-(defun word-boundary ()
-  +soft-word-boundary+)
+(defconstant +soft-word-boundary+ '+soft-word-boundary+
+  "A weaker version of `+hard-word-boundary+'.
+
+Unlike `+hard-word-boundary+', this marker only introduces a new field
+in specific circumstances.
+- Soft boundaries at the beginning or end of a fragment sequence have
+  no effect.
+- Consecutive soft boundaries can be coalesced into a single soft
+  boundary.
+- If a soft word boundary is next to a hard word boundary, then the
+  soft word boundary can be removed from the fragment sequence without
+  changing the end result.")
+(defconstant +hard-word-boundary+ '+hard-word-boundary+
+  "A marker indicating that a new field has begun.
+
+When fragments are being joined together, a hard word boundary will
+always introduce a new field, even if there are no fragments on one
+side of the boundary.  As a result,
+- Hard boundaries at the beginning or end of a fragment sequence
+  introduce an empty field.
+- Consecutive hard boundaries introduce empty a sequence of empty
+  fields.")
 
 (defun soft-word-boundary-p (thing)
+  "Returns non-nil iff the given object is a soft word boundary."
   (eq +soft-word-boundary+ thing))
 
 (defun hard-word-boundary-p (thing)
+  "Returns non-nil iff the given object is a hard word boundary."
   (eq +hard-word-boundary+ thing))
 
 (defun word-boundary-p (thing)
+  "Returns non-nil iff the given object is a word boundary."
   (or (soft-word-boundary-p thing)
       (hard-word-boundary-p thing)))
 
-(defgeneric to-string (thing))
-(defmethod to-string ((thing string))
+(defgeneric alias-name (thing)
+  (:documentation
+   "Returns the alias that the given object might name.
+
+If the given object can not name an alias, then this function returns
+nil.  You do not need to confirm that there is actually an alias
+associated with the name you return.
+
+For example, instances of `shcl/core/lexer:variable-expansion-word'
+cannot name an alias (because POSIX says so), so this generic function
+should return nil for objects of that type.  On the other hand, a
+`shcl/core/lexer:simple-word' token can be involved in alias
+expansion.  So, this function should return the string contents of a
+`shcl/core/lexer:simple-word' token."))
+(defmethod alias-name ((thing string))
+  ;; This method is provided for testing convenience
   thing)
-(defmethod to-string ((thing simple-word))
+(defmethod alias-name ((thing simple-word))
   (simple-word-text thing))
-(defmethod to-string ((thing token))
+(defmethod alias-name ((thing token))
   nil)
 
-(defparameter *aliases* (fset:empty-map))
+(defparameter *aliases* (fset:empty-map)
+  "This maps alias names (strings) to `alias' structs.
+
+Every entry in this map represents an alias definition in the current
+shell execution environment.")
 
 (defstruct alias
+  "A struct describing the expansion behavior of an alias."
   words
   continue-expansion)
 
-(defun set-alias (name words &key continue-expansion)
+(defun set-alias (name words &key continue-expansion-p)
+  "Establish an alias in the current shell execution environment.
+
+`name' is the string name for the alias.  `words' are the tokens that
+should replace use of the given alias.  If `continue-expansion-p' is
+nil, then use of this alias prevents further alias expansion in the
+current command."
   (setf (fset:lookup *aliases* name)
-        (make-alias :words (fset:image #'to-string (fset:convert 'fset:seq words))
-                    :continue-expansion continue-expansion))
-  nil)
+        (make-alias :words (fset:convert 'fset:seq words)
+                    :continue-expansion (not (not continue-expansion-p))))
+  (values))
 
 (defun unalias (name)
+  "Remove the named alias from the current shell execution
+environment.
+
+`name' should be a string."
   (setf *aliases* (fset:less *aliases* name)))
 
 (defun expand-aliases (tokens)
+  "Perform alias expansion on the given token sequence."
   (unless (typep tokens 'fset:seq)
     (setf tokens (fset:convert 'fset:seq tokens)))
 
@@ -79,12 +156,12 @@
              (return-from alias-for))
            (fset:lookup *aliases* string))
          (next-word ()
-           (to-string (fset:first remaining))))
+           (alias-name (fset:first remaining))))
       (loop
          (when (zerop (fset:size remaining))
            (finish))
 
-         (let* ((next-word (to-string (next-word)))
+         (let* ((next-word (next-word))
                 (alias (alias-for next-word)))
            (unless alias
              (finish))
@@ -97,7 +174,15 @@
              (setf remaining (fset:concat (alias-words alias) less-first))))))))
 
 (defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
-  "Perform expansion on a sequence of tokens."
+  "Perform expansion on a sequence of tokens.
+
+This always performs the expansion done by the `expand' generic
+function.  Alias expansion and pathname (glob-style) expansion are
+optional and enabled by keyword arguments.
+
+The value of the `split-fields' keyword argument is bound to the
+`*split-fields*' special variable.  See that variable's documentation
+to understand how it impacts expansion."
   (setf things (fset:convert 'fset:seq things))
   (when (equal 0 (fset:size things))
     (return-from expansion-for-words (fset:empty-seq)))
@@ -140,10 +225,24 @@
       pathname-expansion-results)))
 
 (defstruct wild-path
+  "This struct represents a path which may have components which
+contain wildcards.
+
+The first element of `directories' may start with slash characters.
+This indicates that the path is absolute.  If the first directory
+component doesn't start with a slash, then the path may be assumed to
+be relative.
+
+A wildcard component of the path is simply a scanner returned by
+`cl-ppcre:create-scanner'.
+
+How wild!"
   file-name
   (directories (make-extensible-vector)))
 
 (defun wild-path-wild-p (wild-path)
+  "Returns non-nil if the given `wild-path' contains wildcard
+components."
   (with-accessors
         ((file-name wild-path-file-name) (directories wild-path-directories))
       wild-path
@@ -151,6 +250,11 @@
         (find-if-not 'stringp directories))))
 
 (defun make-wild-path-from-fragments (fragments)
+  "Construct a `wild-path' from the given sequence of string
+fragments.
+
+This function is responsible for parsing glob patterns and
+constructing the appropriate regex scanner."
   (let ((path-part (make-extensible-vector))
         (path (make-wild-path)))
     (with-accessors
@@ -273,6 +377,11 @@
         path))))
 
 (defun directory-contents-iterator (dir-ptr)
+  "Return an iterator which returns the contents of the given directory.
+
+`dir-ptr' is assumed to remain valid for the lifetime of this
+iterator.  Using this iterator after `dir-ptr' has been closed results
+in undefined behavior."
   (make-iterator ()
     (tagbody
      again
@@ -286,6 +395,10 @@
                (emit name)))))))
 
 (defmacro with-directory-or-nil ((dir-name) &body body)
+  "This is a wrapper around
+`shcl/core/working-directory:with-local-working-directory' which
+evaluates to nil when the given `dir-name' cannot be opened as a
+directory."
   (let ((cd-done (gensym "CD-DONE"))
         (e (gensym "E"))
         (escape (gensym "ESCAPE")))
@@ -302,6 +415,7 @@
              ,@body))))))
 
 (defun %expand-wild-path (directories index file-name)
+  "The brains of `expand-wild-path'."
   (let (next as-directory-p)
     (cond
       ((>= index (length directories))
@@ -371,6 +485,10 @@
                matches)))))))
 
 (defun expand-wild-path (wild-path)
+  "Given a `wild-path', produce an `fset:seq' of strings representing
+the paths that were matched.
+
+Returns nil if no matches were found."
   (unless (wild-path-wild-p wild-path)
     (error "Expansion of non-wild wild-paths is not supported"))
 
@@ -381,6 +499,8 @@
       (fset:image (lambda (s) (fset:convert 'string s)) matches))))
 
 (defun tilde-expansion (fragments)
+  "Attempt to expand leading ~s in the given sequence of string
+fragments."
   (when (zerop (fset:size fragments))
     (return-from tilde-expansion fragments))
 
@@ -404,6 +524,8 @@
       (fset:with-first (fset:with-first less-first replacement-fragment) new-first))))
 
 (defun expand-pathname (fragments)
+  "Perform path-related expansions on the given word (which is
+represented as a sequence of string fragments)."
   (setf fragments (tilde-expansion fragments))
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
@@ -411,12 +533,35 @@
         (fset:seq (concat-fragments fragments)))))
 
 (defun concat-fragments (fragments)
+  "Concatenate the given string fragments into a normal string."
   (let ((stream (make-string-output-stream)))
     (fset:do-seq (f fragments)
       (write-string (string-fragment-string f) stream))
     (get-output-stream-string stream)))
 
-(defgeneric expand (thing))
+(defgeneric expand (thing)
+  (:documentation
+   "Expand the given token.
+
+This function should return an `fset:seq' of `string-fragment's and
+word boundary markers (see `+soft-word-boundary+',
+`+hard-word-boundary+', and `*split-fields*').  The properties set on
+the returned string fragments will impact subsequent expansion phases.
+Adjacent string fragments will be considered to be parts of the same
+field.  As a result, the following return values produce identical
+results.
+
+    (fset:seq (make-string-fragment \"foobar\"))
+    (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\"))
+
+On the other hand, the following return values could produce different
+end results.
+
+    (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\"))
+    (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\" :literal t))
+
+Use word boundaries responsibly.  Check with `*split-fields*' before
+you insert them into your return value."))
 
 (defmethod expand ((thing string))
   (fset:seq (make-string-fragment thing :literal t)))
@@ -488,6 +633,9 @@
         (fset:seq (make-string-fragment value)))))
 
 (defun ifs-parts (ifs)
+  "Return two values: a string containing the non-whitespace
+characters in `$ifs' and a string containing the whitespace characters
+in `$ifs'."
   (labels ((blank (c) (cl-unicode:has-binary-property c "White_Space"))
            (not-blank (c) (not (blank c))))
     (values
@@ -495,11 +643,15 @@
      (remove-if #'blank ifs))))
 
 (defun split (string)
+  "Split a string into multiple fields based on its content and the
+current value of $ifs.
+
+This function returns a `fset:seq' of string fragments."
   (multiple-value-bind (whitespace non-whitespace) (ifs-parts $ifs)
     (when (and (zerop (length whitespace)) (zerop non-whitespace))
       (return-from split string))
 
-    (let* ((result (fset:empty-seq))           
+    (let* ((result (fset:empty-seq))
            (index 0)
            current-word)
       (labels
