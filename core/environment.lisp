@@ -19,12 +19,17 @@
     :initarg :value
     :initform *env-default*
     :accessor environment-binding-value
-    :type string)
+    :type string
+    :documentation
+    "The string value which this environment variable is bound to.")
    (exported-p
     :initarg :exported
     :initform nil
     :accessor environment-binding-exported-p
-    :type boolean))
+    :type boolean
+    :documentation
+    "A boolean indicating whether this binding should be shared with
+spawned processes."))
   (:documentation
    "Everything there is to know about an environment variable."))
 
@@ -84,31 +89,6 @@ forms."
   `(let ((*environment* ,environment))
      ,@body))
 
-(defun lookup-with-default (collection key default)
-  "Similar to `fset:lookup', but returns the given default value if
-the given key is absent.
-
-The second return value is t iff the key was found in the collection."
-  (multiple-value-bind (value found) (fset:lookup collection key)
-    (if found
-        (values value t)
-        (values default nil))))
-
-(define-setf-expander lookup-with-default (collection key default &environment env)
-  (multiple-value-bind (temp-vars temp-vals new-value-vars setter getter)
-      (get-setf-expansion collection env)
-    (let ((value (gensym "VALUE"))
-          (key-sym (gensym "KEY"))
-          (default-sym (gensym "DEFAULT")))
-      (values
-       (list* key-sym default-sym temp-vars)
-       (list* key default temp-vals)
-       `(,value)
-       `(let ((,(first new-value-vars) (fset:with ,getter ,key-sym ,value)))
-          ,setter
-          ,value)
-       `(lookup-with-default ,getter ,key-sym ,default-sym)))))
-
 (defun env (key &optional (default *env-default*))
   "Look up the given variable in the current environment."
   (multiple-value-bind (entry found) (fset:lookup *environment* key)
@@ -123,9 +103,10 @@ The second return value is t iff the key was found in the collection."
       (environment-binding-exported-p entry))))
 
 (defun %set-env (key value default)
+  "The brains of `set-env' and `(setf env)'."
+  (declare (ignore default))
   ;; We only take in a default so that (setf env) can pass it to us
   ;; (and thus mark the default as "used") to supress warnings.
-  (declare (ignore default))
   (setf *environment* (fset:with *environment* key
                                  (make-instance 'environment-binding
                                                 :value value
@@ -138,6 +119,7 @@ given key."
   (%set-env key value nil))
 
 (defsetf env (key &optional default) (value)
+  "Set an environment variable."
   `(%set-env ,key ,value ,default))
 
 (defun unset-env (key)
@@ -157,6 +139,8 @@ given key."
                                                        :exported nil)))
 
 (defun colon-list-iterator (string)
+  "This function interprets `string' as a #\: delimited list and
+returns an iterator which produces the elements of that list."
   (let ((part (make-string-output-stream))
         (iterator (vector-iterator string)))
     (make-iterator ()
@@ -171,18 +155,36 @@ given key."
           (emit last-part))
         (stop)))))
 
-(defmacro define-environment-accessor (name &optional (default '*env-default*))
+(defmacro define-environment-accessor (sym-and-name &body options)
   "Define a symbol macro that accesses the given environment
 variable."
-  `(define-symbol-macro ,(intern (concatenate 'string "$" (string-upcase name))) (env ,name ,default)))
+  (when (symbolp sym-and-name)
+    (setf sym-and-name (list sym-and-name (subseq (symbol-name sym-and-name) 1))))
+  (destructuring-bind (sym name) sym-and-name
+    (unless (equal #\$ (aref (symbol-name sym) 0))
+      (error "environment accessors must start with $"))
+    (let ((default
+           (second (or (assoc :default options) '(:default *env-default*))))
+          (documentation
+           (second (or (assoc :documentation options) '(:documentation t)))))
+      (when (eq t documentation)
+        (setf documentation (format nil "This symbol macro accesses the $~A shell environment variable.
+
+If that shell variable is unbound, this symbol evaluates to ~S." name default)))
+      `(progn
+         (define-symbol-macro ,sym (env ,name ,default))
+         ,@(when documentation
+             `((setf (documentation ',sym 'variable) ,documentation)))
+         ',sym))))
 
 (define-once-global %ifs-default% (format nil "~C~C~C" #\space #\tab #\linefeed)
   (:documentation
    "The value of $IFS dictated by the posix standard."))
 
-(define-environment-accessor "IFS" %ifs-default%)
-(define-environment-accessor "PATH")
-(define-environment-accessor "CDPATH")
-(define-environment-accessor "PWD")
-(define-environment-accessor "OLDPWD")
-(define-environment-accessor "HOME")
+(define-environment-accessor $ifs
+  (:default %ifs-default%))
+(define-environment-accessor $path)
+(define-environment-accessor $cdpath)
+(define-environment-accessor $pwd)
+(define-environment-accessor $oldpwd)
+(define-environment-accessor $home)
