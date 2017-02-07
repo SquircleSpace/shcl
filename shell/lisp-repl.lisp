@@ -1,6 +1,7 @@
 (defpackage :shcl/shell/lisp-repl
   (:use :common-lisp :shcl/core/builtin :shcl/core/utility)
   (:import-from :shcl/shell/prompt #:make-editline-stream)
+  (:import-from :shcl/shell/directory #:physical-pwd)
   (:export #:return-to-shell #:shell-help))
 (in-package :shcl/shell/lisp-repl)
 
@@ -66,6 +67,7 @@ prompt."
   (catch 'return-to-shell
     (let ((*package* (find-package :shcl-user))
           (*fresh-prompt* t)
+          (*default-pathname-defaults* (uiop:parse-native-namestring (physical-pwd)))
           (stdin (make-editline-stream 'repl-prompt)))
       (loop
          (restart-case
