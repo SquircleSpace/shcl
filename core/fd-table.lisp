@@ -653,7 +653,7 @@ file-ptr without closing it, an error will be signaled."
           (fdopen
            (fclose fdopen))
           (new-fd
-           (close new-fd)))))))
+           (posix-close new-fd)))))))
 
 (defun close-file-ptr (file-ptr)
   "Close a file-ptr pointer created with `file-ptr-wrapper-for-fd'."
