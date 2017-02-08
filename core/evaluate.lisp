@@ -58,9 +58,10 @@ directly."))
         (error "file name expanded to ~A words.  Not implemented." (fset:size expansion)))
       (setf expansion (fset:first expansion))
       (fd-autorelease
-       (open-retained (coerce expansion 'simple-string)
-                      (open-args-for-redirect redirect)
-                      *umask*)))))
+       (openat-retained (current-working-directory-fd)
+                        (coerce expansion 'simple-string)
+                        (open-args-for-redirect redirect)
+                        *umask*)))))
 
 (defun bind-fd-description (fd description)
   "Bind `fd' to the fd implied by `description'."
