@@ -65,6 +65,7 @@ in specific circumstances.
 - If a soft word boundary is next to a hard word boundary, then the
   soft word boundary can be removed from the fragment sequence without
   changing the end result.")
+
 (defconstant +hard-word-boundary+ '+hard-word-boundary+
   "A marker indicating that a new field has begun.
 
@@ -75,6 +76,11 @@ side of the boundary.  As a result,
   introduce an empty field.
 - Consecutive hard boundaries introduce empty a sequence of empty
   fields.")
+
+(defun word-boundary ()
+  "Returns a marker which indicates that the previous string fragment
+should be considered a seperate word from the next one."
+  +soft-word-boundary+)
 
 (defun soft-word-boundary-p (thing)
   "Returns non-nil iff the given object is a soft word boundary."
