@@ -1,10 +1,65 @@
 (defpackage :shcl-test/posix
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/posix))
+  (:use :common-lisp :prove :cffi :shcl/core/utility :shcl/core/posix)
+  (:import-from :shcl/core/posix-types #:dirent #:d-name))
 (in-package :shcl-test/posix)
 
 (optimization-settings)
 
 (plan 1)
+
+(defcfun (opendir "opendir") dir-ptr
+  (name :string))
+
+(defun fork ()
+  #+sbcl (sb-posix:fork)
+  #-sbcl (error "Cannot fork on this compiler"))
+
+(defcfun (_exit "_exit") :void
+  (status :int))
+
+(defmacro forked (&body body)
+  (let ((pid (gensym "PID"))
+        (e (gensym "E")))
+    `(let ((,pid (fork)))
+       (cond
+         ((plusp ,pid)
+          ,pid)
+         ((zerop ,pid)
+          (unwind-protect
+               (handler-case (progn ,@body)
+                 (error (,e)
+                   (format *error-output* "ERROR: ~A~%" ,e)
+                   (finish-output *error-output*)
+                   (_exit 1)))
+            (_exit 0)))
+         ((minusp ,pid)
+          ;; The wrapper around posix fork should have taken care of this
+          ;; for us
+          (assert nil nil "This is impossible"))))))
+
+(defun open-fds ()
+  (let ((result (make-extensible-vector :element-type 'integer))
+        dir-fd
+        dir)
+    (unwind-protect
+         (progn
+           (setf dir (opendir "/dev/fd"))
+           (setf dir-fd (dirfd dir))
+           (loop
+              (block again
+                (let ((dirent (readdir dir))
+                      name-ptr)
+                  (when (null-pointer-p dirent)
+                    (return))
+                  (setf name-ptr (foreign-slot-pointer dirent '(:struct dirent) 'd-name))
+                  (let ((s (foreign-string-to-lisp name-ptr)))
+                    (when (equal #\. (aref s 0))
+                      (return-from again))
+                    (vector-push-extend (parse-integer s)
+                                        result))))))
+      (when dir
+        (closedir dir)))
+    (remove dir-fd result)))
 
 (defun verify-fds ()
   (let* ((exceptions (fset:union (fset:set 0 1 2)
