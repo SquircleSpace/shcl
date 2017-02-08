@@ -1,6 +1,6 @@
 (in-package :shcl/core/posix-types)
 
-(include "errno.h" "sys/types.h" "sys/stat.h" "fcntl.h" "spawn.h" "dirent.h")
+(include "errno.h" "sys/types.h" "sys/stat.h" "fcntl.h" "dirent.h")
 
 ;; Types
 (ctype size-t "size_t")
@@ -17,8 +17,6 @@
 (ctype blkcnt-t "blkcnt_t")
 (ctype time-t "time_t")
 
-(cstruct posix-spawn-file-actions-t "posix_spawn_file_actions_t")
-(cstruct posix-spawnattr-t "posix_spawnattr_t")
 (cstruct stat "struct stat"
          (st-dev "st_dev" :type dev-t)
          (st-ino "st_ino" :type ino-t)

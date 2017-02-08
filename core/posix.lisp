@@ -3,14 +3,10 @@
         :shcl/core/support :bordeaux-threads)
   (:import-from :fset)
   (:export
-   #:posix-spawn-file-actions-init #:posix-spawn-file-actions-destroy
-   #:with-posix-spawn-file-actions #:posix-spawn-file-actions-addclose
-   #:posix-spawn-file-actions-addopen #:posix-spawn-file-actions-adddup2
-   #:posix-spawnp #:posix-spawnattr-init #:posix-spawnattr-destroy
-   #:with-posix-spawnattr #:environment-iterator #:dir-ptr #:fdopendir
-   #:closedir #:dirfd #:readdir #:fchdir #:open-fds #:compiler-owned-fds
-   #:posix-read #:strlen #:posix-write #:fork #:_exit #:exit
-   #:waitpid #:forked #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
+   #:environment-iterator #:dir-ptr #:fdopendir
+   #:closedir #:dirfd #:readdir #:open-fds #:compiler-owned-fds
+   #:posix-read #:strlen #:posix-write #:exit
+   #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen #:fclose
    #:fileno #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig
    #:wstopsig))
@@ -32,31 +28,6 @@
                      (syscall-errno c)
                      (syscall-error-function c)
                      (strerror (syscall-errno c))))))
-
-(defstruct gc-wrapper
-  pointer)
-
-(defun wrapped-foreign-alloc (type &rest args &key initial-element initial-contents count null-terminated-p)
-  (declare (ignore initial-element initial-contents count null-terminated-p))
-  (let* ((the-pointer (apply #'foreign-alloc type args))
-         (the-wrapper (make-gc-wrapper :pointer the-pointer)))
-    (finalize the-wrapper (lambda () (foreign-free the-pointer)))
-    the-wrapper))
-
-(defun wrapped-foreign-free (pointer)
-  (foreign-free (gc-wrapper-pointer pointer))
-  (setf (gc-wrapper-pointer pointer) (null-pointer))
-  (cancel-finalization pointer)
-  nil)
-
-(defun wrap (pointer &optional extra-finalizer)
-  (let ((struct (make-gc-wrapper :pointer pointer)))
-    (when extra-finalizer
-      (finalize struct extra-finalizer))
-    struct))
-
-(defun unwrap (pointer)
-  (gc-wrapper-pointer pointer))
 
 (defun pass (value)
   (declare (ignore value))
@@ -101,55 +72,6 @@
            ,@arg-descriptions)
          ,(wrapper)))))
 
-(define-c-wrapper (posix-spawnp "posix_spawnp") (:int #'zerop)
-  (pid (:pointer pid-t))
-  (file :string)
-  (file-actions (:pointer (:struct posix-spawn-file-actions-t)))
-  (attrp (:pointer (:struct posix-spawnattr-t)))
-  (argv string-table)
-  (envp string-table))
-
-(define-c-wrapper (posix-spawn-file-actions-init "posix_spawn_file_actions_init") (:int #'zerop)
-  (file-actions (:pointer (:struct posix-spawn-file-actions-t))))
-
-(define-c-wrapper (posix-spawn-file-actions-destroy "posix_spawn_file_actions_destroy") (:int #'zerop)
-  (file-actions (:pointer (:struct posix-spawn-file-actions-t))))
-
-(defmacro with-posix-spawn-file-actions ((symbol) &body body)
-  `(with-foreign-object (,symbol '(:struct posix-spawn-file-actions-t))
-     (posix-spawn-file-actions-init ,symbol)
-     (unwind-protect (progn ,@body)
-       (posix-spawn-file-actions-destroy ,symbol))))
-
-(define-c-wrapper (posix-spawn-file-actions-addclose "posix_spawn_file_actions_addclose") (:int #'zerop)
-  (file-actions (:pointer (:struct posix-spawn-file-actions-t)))
-  (fildes :int))
-
-(define-c-wrapper (posix-spawn-file-actions-addopen "posix_spawn_file_actions_addopen") (:int #'zerop)
-  (file-actions (:pointer (:struct posix-spawn-file-actions-t)))
-  (fildes :int)
-  (path :string)
-  (oflag :int)
-  (mode mode-t))
-
-(define-c-wrapper (posix-spawn-file-actions-adddup2 "posix_spawn_file_actions_adddup2") (:int #'zerop)
-  (file-actions (:pointer (:struct posix-spawn-file-actions-t)))
-  (fildes :int)
-  (newfildes :int))
-
-
-(define-c-wrapper (posix-spawnattr-init "posix_spawnattr_init") (:int #'zerop)
-  (attr (:pointer (:struct posix-spawnattr-t))))
-
-(define-c-wrapper (posix-spawnattr-destroy "posix_spawnattr_destroy") (:int #'zerop)
-  (attr (:pointer (:struct posix-spawnattr-t))))
-
-(defmacro with-posix-spawnattr ((symbol) &body body)
-  `(with-foreign-object (,symbol '(:struct posix-spawnattr-t))
-     (posix-spawnattr-init ,symbol)
-     (unwind-protect (progn ,@body)
-       (posix-spawnattr-destroy ,symbol))))
-
 (defun environment-iterator ()
   (let ((environment-pointer environ)
         (index 0))
@@ -189,19 +111,6 @@
 (defun readdir (dirp)
   (setf errno 0)
   (%readdir dirp))
-
-(define-c-wrapper (%fchdir "fchdir") (:int #'not-negative-1-p)
-  (fildes :int))
-
-(defun fchdir (fildes)
-  (tagbody
-   retry
-     (handler-bind
-         ((syscall-error
-           (lambda (e)
-             (when (equal eintr (syscall-errno e))
-               (go retry)))))
-       (%fchdir fildes))))
 
 (defun open-fds ()
   (let ((result (make-extensible-vector :element-type 'integer))
@@ -301,13 +210,6 @@
     ((array (unsigned-byte 8))
      (posix-write-bytes fd buffer))))
 
-(defun fork ()
-  #+sbcl (sb-posix:fork)
-  #-sbcl (error "Cannot fork on this compiler"))
-
-(define-c-wrapper (_exit "_exit") (:void)
-  (status :int))
-
 (define-c-wrapper (exit "exit") (:void)
   (status :int))
 
@@ -320,26 +222,6 @@
   (with-foreign-object (status :int)
     (let ((pid-output (%waitpid pid status options)))
       (values pid-output (mem-ref status :int)))))
-
-(defmacro forked (&body body)
-  (let ((pid (gensym "PID"))
-        (e (gensym "E")))
-    `(let ((,pid (fork)))
-       (cond
-         ((plusp ,pid)
-          ,pid)
-         ((zerop ,pid)
-          (unwind-protect
-               (handler-case (progn ,@body)
-                 (error (,e)
-                   (format *error-output* "ERROR: ~A~%" ,e)
-                   (finish-output *error-output*)
-                   (_exit 1)))
-            (_exit 0)))
-         ((minusp ,pid)
-          ;; The wrapper around posix fork should have taken care of this
-          ;; for us
-          (assert nil nil "This is impossible"))))))
 
 (define-c-wrapper (dup "dup") (:int #'not-negative-1-p)
   (fd :int))
