@@ -135,17 +135,17 @@ done)"
    (shell "if true ; then true ; true ; fi")
    "Last exit code of then block is exit code of if")
 
-  (is (capture (:stdout) (shell "if echo condition ; then echo truthy ; else echo falsey ; fi"))
+  (is (capture (:streams '(:stdout)) (shell "if echo condition ; then echo truthy ; else echo falsey ; fi"))
       (format nil "condition~%truthy~%")
       :test #'equal
       "Only the true branch runs")
 
-  (is (capture (:stdout) (shell "if echo condition && false ; then echo truthy ; else echo falsey ; fi"))
+  (is (capture (:streams '(:stdout)) (shell "if echo condition && false ; then echo truthy ; else echo falsey ; fi"))
       (format nil "condition~%falsey~%")
       :test #'equal
       "Only the else branch runs")
 
-  (is (capture (:stdout) (shell "if echo condition && false ; then echo truthy ; elif echo condition2 ; then echo elif-branch ; fi"))
+  (is (capture (:streams '(:stdout)) (shell "if echo condition && false ; then echo truthy ; elif echo condition2 ; then echo elif-branch ; fi"))
       (format nil "condition~%condition2~%elif-branch~%")
       :test #'equal
       "Only the elif branch runs"))
@@ -158,7 +158,7 @@ done)"
 
 (deftest while
     (let ((count 0))
-      (is (capture (:stdout) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
+      (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
           (format nil "1~%2~%3~%")
           :test #'equal
           "Basic while loop test")))
