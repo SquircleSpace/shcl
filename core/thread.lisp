@@ -4,10 +4,7 @@
    ;; Semaphores
    #:semaphore #:make-semaphore #:semaphore-signal #:semaphore-wait
    #:semaphore-p
-   #:queue #:make-queue #:enqueue #:dequeue #:dequeue-no-block #:queue-p
-   #:queue-thread #:make-queue-thread #:close-queue-thread #:kill-queue-thread
-   #:queue-thread-p
-   #:async-f #:async #:sync-f #:sync))
+   #:queue #:make-queue #:enqueue #:dequeue #:dequeue-no-block #:queue-p))
 (in-package :shcl/core/thread)
 
 (optimization-settings)
@@ -87,55 +84,3 @@
     (if valid
         value
         default)))
-
-(defstruct (queue-thread
-             (:constructor %make-queue-thread)
-             (:include queue))
-  (stop-value (gensym "STOP"))
-  wrapper
-  thread)
-
-(defun make-queue-thread (&key name wrapper)
-  (let* ((queue (%make-queue-thread :wrapper wrapper))
-         (thread (make-thread (lambda () (work-loop queue)) :name name)))
-    (setf (queue-thread-thread queue) thread)
-    queue))
-
-(defun close-queue-thread (queue)
-  (enqueue (queue-thread-stop-value queue) queue))
-
-(defun kill-queue-thread (queue)
-  (interrupt-thread (queue-thread-thread queue)
-                    (lambda () (throw (queue-thread-stop-value queue) nil))))
-
-(defun work-loop (queue)
-  (let ((stop-value (queue-thread-stop-value queue))
-        (wrapper (or (queue-thread-wrapper queue)
-                     #'funcall))
-        job)
-    (catch stop-value
-      (loop
-         (setf job (dequeue queue))
-         (when (eq job stop-value)
-           (return))
-         (funcall wrapper job)))))
-
-(defun async-f (thread-queue function)
-  (enqueue function thread-queue))
-
-(defmacro async ((thread-queue) &body body)
-  `(async-f ,thread-queue (lambda () ,@body)))
-
-(defun sync-f (thread-queue function)
-  (let ((semaphore-1 (make-semaphore))
-        (semaphore-2 (make-semaphore)))
-    (labels ((semaphore-junk ()
-               (semaphore-signal semaphore-1)
-               (semaphore-wait semaphore-2)))
-      (async-f thread-queue #'semaphore-junk)
-      (semaphore-wait semaphore-1)
-      (unwind-protect (funcall function)
-        (semaphore-signal semaphore-2)))))
-
-(defmacro sync ((thread-queue) &body body)
-  `(sync-f ,thread-queue (lambda () ,@body)))
