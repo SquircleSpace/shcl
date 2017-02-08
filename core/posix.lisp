@@ -90,9 +90,6 @@
   (:documentation
    "The POSIX DIR * type."))
 
-(define-c-wrapper (opendir "opendir") (dir-ptr (lambda (x) (not (null-pointer-p x))))
-  (name :string))
-
 (define-c-wrapper (fdopendir "fdopendir") (dir-ptr (lambda (x) (not (null-pointer-p x))))
   (fd :int))
 
@@ -111,30 +108,6 @@
 (defun readdir (dirp)
   (setf errno 0)
   (%readdir dirp))
-
-(defun open-fds ()
-  (let ((result (make-extensible-vector :element-type 'integer))
-        dir-fd
-        dir)
-    (unwind-protect
-         (progn
-           (setf dir (opendir "/dev/fd"))
-           (setf dir-fd (dirfd dir))
-           (loop
-              (block again
-                (let ((dirent (readdir dir))
-                      name-ptr)
-                  (when (null-pointer-p dirent)
-                    (return))
-                  (setf name-ptr (foreign-slot-pointer dirent '(:struct dirent) 'd-name))
-                  (let ((s (foreign-string-to-lisp name-ptr)))
-                    (when (equal #\. (aref s 0))
-                      (return-from again))
-                    (vector-push-extend (parse-integer s)
-                                        result))))))
-      (when dir
-        (closedir dir)))
-    (remove dir-fd result)))
 
 (defun compiler-owned-fds ()
   #+sbcl
