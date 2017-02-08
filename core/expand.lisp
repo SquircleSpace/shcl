@@ -373,13 +373,6 @@ constructing the appropriate regex scanner."
                     (ingest char first-p quoted-p)))))))
 
         (final-segment)
-        (unless (zerop (length directories))
-          (symbol-macrolet
-              ((first-part (aref directories 0)))
-            (unless (or (not (stringp first-part))
-                        (find #\/ first-part :test-not 'equal))
-              (assert (not (zerop (length first-part))))
-              (setf first-part (if (equal 2 (length first-part)) "//" "/")))))
         path))))
 
 (defun directory-contents-iterator (dir-ptr)
