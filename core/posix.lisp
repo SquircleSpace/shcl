@@ -30,22 +30,31 @@
                      (strerror (syscall-errno c))))))
 
 (defun pass (value)
+  "Returns t."
   (declare (ignore value))
   t)
 
 (defun not-negative-p (number)
+  "Returns non-nil if `number' is non-negative."
   (not (minusp number)))
 
 (defun not-negative-1-p (number)
+  "Returns non-nil iff `number' is not -1."
   (not (equal -1 number)))
 
 (defmacro define-c-wrapper ((lisp-name c-name) (return-type &optional (error-checker ''pass)) &body arg-descriptions)
+  "Define a CFFI binding and wrapper function (or macro) which checks
+for errors."
   (let ((lisp-impl-name (intern (concatenate 'string "%" (symbol-name lisp-name))))
         (result (gensym "RESULT")))
     (labels
         ((defun-based ()
            (let ((args (mapcar 'first arg-descriptions)))
              `(defun ,lisp-name (,@args)
+                ,(format nil "This function is a wrapper around the ~A C function.
+
+It will signal a `syscall-error' if the following predicate returns nil.
+~S" c-name error-checker)
                 (let ((,result (,lisp-impl-name ,@args)))
                   (unless (funcall ,error-checker ,result)
                     (error 'syscall-error :function ',lisp-name))
@@ -73,6 +82,11 @@
          ,(wrapper)))))
 
 (defun environment-iterator ()
+  "Returns an iterator that emits the bindings in the current process
+environment.
+
+This function assumes that the process environment will not change
+during iteration."
   (let ((environment-pointer environ)
         (index 0))
     (make-iterator ()
@@ -106,6 +120,7 @@
   (dirp dir-ptr))
 
 (defun readdir (dirp)
+  "This function is a wrapper around the readdir C function."
   (setf errno 0)
   (%readdir dirp))
 
@@ -115,6 +130,12 @@
   (count size-t))
 
 (defun posix-read (fd count &key binary)
+  "Read a specific number of bytes from the given fd.
+
+This function doesn't try to prevent multi-byte characters from being
+split.  If you are using an encoding with characters requiring
+multiple bytes, you shouldn't use this function in non-binary mode."
+  ;; TODO: Stop using non-binary posix-read
   (with-foreign-object (buf :char count)
     (tagbody
      retry
@@ -143,6 +164,7 @@
   (count size-t))
 
 (defun posix-write-foreign (fd ptr count)
+  "Write `count' bytes starting at `ptr' to `fd'"
   (let ((original-count count))
     (tagbody
      retry
@@ -159,16 +181,21 @@
            (assert (plusp count)))))))
 
 (defun posix-write-string (fd string)
+  "Write a string to a file descriptor"
   (with-foreign-string (ptr string)
     (posix-write-foreign fd ptr (strlen ptr))))
 
 (defun posix-write-bytes (fd bytes)
+  "Write bytes to a file descriptor"
   (with-foreign-object (ptr :unsigned-char (length bytes))
     (loop :for index :below (length bytes) :do
        (setf (mem-aref ptr :unsigned-char index) (aref bytes index)))
     (posix-write-foreign fd ptr (length bytes))))
 
 (defun posix-write (fd buffer)
+  "Write to a file descriptor.
+
+Strings or unsigned-char arrays are supported."
   (etypecase buffer
     (string
      (posix-write-string fd buffer))
@@ -183,7 +210,11 @@
   (wstatus (:pointer :int))
   (options :int))
 
+
 (defun waitpid (pid options)
+  "This is a wrapper around the waitpid C function.
+
+The output parameters are returned as multiuple values."
   (with-foreign-object (status :int)
     (let ((pid-output (%waitpid pid status options)))
       (values pid-output (mem-ref status :int)))))
@@ -199,6 +230,7 @@
   &rest)
 
 (defun posix-open (pathname flags &optional mode)
+  "This is a wrapper around the open C function."
   (if mode
       (%open pathname flags mode-t mode)
       (%open pathname flags)))
@@ -210,6 +242,7 @@
   &rest)
 
 (defun openat (dirfd pathname flags &optional mode)
+  "This is a wrapper around the openat C function."
   (if mode
       (%openat dirfd pathname flags mode-t mode)
       (%openat dirfd pathname flags)))
@@ -219,16 +252,16 @@
   (cmd :int)
   &rest)
 
-(define-c-wrapper (%close "close") (:int #'not-negative-1-p)
+(define-c-wrapper (posix-close "close") (:int #'not-negative-1-p)
   (fd :int))
-
-(defun posix-close (fd)
-  (%close fd))
 
 (define-c-wrapper (%pipe "pipe") (:int #'not-negative-1-p)
   (fildes (:pointer :int)))
 
 (defun pipe ()
+  "This is a wrapper around the pipe C function.
+
+The pipe file descriptors are returned as multiple values."
   (with-foreign-object (fildes :int 2)
     (%pipe fildes)
     (values
@@ -236,12 +269,16 @@
      (mem-aref fildes :int 1))))
 
 (defmacro define-simple-struct-class (name-and-type)
+  "This macro defines a class which represents the given struct type."
   (unless (consp name-and-type)
     (setf name-and-type `(,name-and-type (:struct ,name-and-type))))
 
   (destructuring-bind (lisp-name type) name-and-type
     (labels
-        ((slot-definition (name) `(,name)))
+        ((slot-definition (name)
+           `(,name
+             :documentation
+             ,(format nil "This slot contains the value stored in the ~A slot of the foreign struct." name))))
       (let* ((structure-slot-names (foreign-slot-names type))
              (slots (mapcar #'slot-definition structure-slot-names))
              (instance (gensym "INSTANCE"))
@@ -249,7 +286,9 @@
              (pointer (gensym "POINTER")))
         `(progn
            (defclass ,lisp-name ()
-             ,slots)
+             ,slots
+             (:documentation
+              ,(format nil "Instances of this class represent instances of the ~A CFFI type." type)))
            (defmethod shared-initialize :after ((,instance ,lisp-name) ,slot-names &key ((:pointer ,pointer)) &allow-other-keys)
              (declare (ignore ,slot-names))
              (when ,pointer
@@ -264,6 +303,9 @@
   (buf (:pointer (:struct stat))))
 
 (defun fstat (fd)
+  "This is a wrapper around the fstat C function.
+
+The output parameter is returned as an instance of the `stat' class."
   (with-foreign-object (buf '(:struct stat))
     (%fstat fd buf)
     (make-instance 'stat :pointer buf)))
@@ -271,10 +313,13 @@
 (define-c-wrapper (%strerror "strerror") (:string)
   (err :int))
 
-(defvar *errno-lock* (make-lock))
+(defvar *strerror-lock* (make-lock)
+  "This lock prevents multiple shcl threads from calling `strerror'
+simultaneously")
 
 (defun strerror (err)
-  (with-lock-held (*errno-lock*)
+  "Convert the given errno value into a string."
+  (with-lock-held (*strerror-lock*)
     (%strerror err)))
 
 (define-foreign-type file-ptr ()
@@ -284,12 +329,12 @@
   (:documentation
    "The C standard library FILE * type."))
 
-(defcfun (fdopen "fdopen") file-ptr
+(define-c-wrapper (fdopen "fdopen") (file-ptr (lambda (p) (not (null-pointer-p p))))
   (fd :int)
   (mode :string))
 
-(defcfun (fclose "fclose") :int
+(define-c-wrapper (fclose "fclose") (:int #'zerop)
   (stream file-ptr))
 
-(defcfun (fileno "fileno") :int
+(define-c-wrapper (fileno "fileno") (:int #'not-negative-1-p)
   (stream file-ptr))
