@@ -1,6 +1,7 @@
 (defpackage :shcl-test/posix
   (:use :common-lisp :prove :cffi :shcl/core/utility :shcl/core/posix)
-  (:import-from :shcl/core/posix-types #:dirent #:d-name))
+  (:import-from :shcl/core/posix-types #:dirent #:d-name)
+  (:import-from :shcl/core/fd-table #:with-living-fds))
 (in-package :shcl-test/posix)
 
 (optimization-settings)
@@ -62,18 +63,21 @@
     (remove dir-fd result)))
 
 (defun verify-fds ()
-  (let* ((exceptions (fset:union (fset:set 0 1 2)
-                                 (fset:convert 'fset:set (compiler-owned-fds))))
-         (open-fds (fset:convert 'fset:set (open-fds)))
-         (bad (fset:set-difference open-fds exceptions)))
-    (cond
-      ((zerop (fset:size bad))
-       (_exit 0))
+  (with-living-fds (shcl-exceptions)
+    (let* ((compiler-exceptions (shcl/core/fd-table::compiler-owned-fds))
+           (exceptions (fset:convert 'fset:set (nconc (list 0 1 2) compiler-exceptions shcl-exceptions)))
+           (open-fds (fset:convert 'fset:set (open-fds)))
+           (bad (fset:set-difference open-fds exceptions)))
+      (cond
+        ((zerop (fset:size bad))
+         (_exit 0))
 
-      (t
-       (format *standard-output* "Unexpected fds: ~A~%" (fset:convert 'list bad))
-       (finish-output *standard-output*)
-       (_exit 1)))))
+        (t
+         (format *standard-output* "Unexpected fds: ~A~%" (fset:convert 'list bad))
+         (format *standard-output* "Exceptions: ~A~%" (fset:convert 'list exceptions))
+         (format *standard-output* "Open: ~A~%" (fset:convert 'list open-fds))
+         (finish-output *standard-output*)
+         (_exit 1))))))
 
 (deftest fds
   (block fds

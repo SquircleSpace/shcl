@@ -4,7 +4,7 @@
   (:import-from :fset)
   (:export
    #:environment-iterator #:dir-ptr #:fdopendir
-   #:closedir #:dirfd #:readdir #:open-fds #:compiler-owned-fds
+   #:closedir #:dirfd #:readdir #:open-fds
    #:posix-read #:strlen #:posix-write #:exit
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen #:fclose
@@ -108,14 +108,6 @@
 (defun readdir (dirp)
   (setf errno 0)
   (%readdir dirp))
-
-(defun compiler-owned-fds ()
-  #+sbcl
-  (vector (sb-sys:fd-stream-fd sb-sys:*tty*))
-  #-sbcl
-  (progn
-    (warn "Unsupported compiler.  Can't determine which fds the compiler owns.")
-    #()))
 
 (define-c-wrapper (%posix-read "read") (ssize-t #'not-negative-1-p)
   (fd :int)

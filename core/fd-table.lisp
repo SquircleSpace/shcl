@@ -252,6 +252,23 @@ Additionally, any manipulations to the fd table `*fd-bindings*' will
 be reverted when this scope exits."
   `(%with-fd-scope (lambda () ,@body)))
 
+(defun compiler-owned-fds ()
+  "Returns a list of file descriptors that the compiler owns."
+  #+sbcl
+  (list (sb-sys:fd-stream-fd sb-sys:*tty*))
+  #-sbcl
+  nil)
+
+(defun track-compiler-owned-fds ()
+  "Some compilers open fds for their own reasons.  Let's make sure
+we're aware of them."
+  (let ((fds (compiler-owned-fds)))
+    (when fds
+      (with-safe-fd-manipulation
+        (dolist (fd fds)
+          (track fd))))))
+(on-revival track-compiler-owned-fds)
+
 (defmacro with-living-fds ((fd-list-sym) &body body)
   "Lock the fd table and list all managed file descriptors.
 
