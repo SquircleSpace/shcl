@@ -255,125 +255,156 @@ components."
     (or (and file-name (not (stringp file-name)))
         (find-if-not 'stringp directories))))
 
+(defun split-fragments-into-segments (fragments)
+  (let ((result (fset:empty-seq))
+        (part (fset:empty-seq)))
+    (loop :while (not (zerop (fset:size fragments))) :do
+       (let* ((fragment (fset:pop-first fragments))
+              (s (string-fragment-string fragment))
+              (position (position #\/ s)))
+         (cond
+           ((not position)
+            (fset:push-last part fragment))
+
+           (t
+            (unless (zerop position)
+              (let ((f (copy-string-fragment fragment)))
+                (setf (string-fragment-string f)
+                      (make-array position :element-type (array-element-type s)
+                                  :displaced-to s :displaced-index-offset 0))
+                (fset:push-last part f)))
+            (fset:push-last result part)
+            (setf part (fset:empty-seq))
+            (unless (equal (1+ position) (length s))
+              (let ((f (copy-string-fragment fragment)))
+                (setf (string-fragment-string f)
+                      (make-array (- (length s) (1+ position))
+                                  :element-type (array-element-type s)
+                                  :displaced-to s :displaced-index-offset (1+ position)))
+                (fset:push-first fragments f)))))))
+    (fset:push-last result part)
+    result))
+
+(defun handle-leading-slashes (segments)
+  (let ((slash-stream (make-string-output-stream)))
+    (loop :while (and (< 1 (fset:size segments)) ;; Don't touch the last segment
+                      (zerop (fset:size (fset:first segments))))
+       :do
+       (progn
+         (write-char #\/ slash-stream)
+         (fset:pop-first segments)))
+    (let ((slashes (get-output-stream-string slash-stream)))
+      (values
+       (when (not (zerop (length slashes))) slashes)
+       segments))))
+
+(defstruct fragment-stream
+  (fragments (fset:empty-seq))
+  (index 0))
+
+(defun fragment-stream-read (fragment-stream)
+  (with-accessors
+        ((fragments fragment-stream-fragments)
+         (index fragment-stream-index))
+      fragment-stream
+    (tagbody
+     again
+       (let ((fragment (fset:first fragments)))
+         (unless fragment
+           (return-from fragment-stream-read))
+         (when (>= index (length (string-fragment-string fragment)))
+           (fset:pop-first fragments)
+           (setf index 0)
+           (go again))
+         (let ((char (aref (string-fragment-string fragment) index)))
+           (incf index)
+           (return-from fragment-stream-read (values char fragment)))))))
+
+(defun parse-char-class-glob (chars first-p)
+  (declare (ignore first-p))
+  ;; TODO: This isn't what the standard says to do!
+  (warn "[] glob patterns are not implemented.  Falling back on hacky (but almost right) behavior")
+  `(:regex ,(concatenate 'string "[" chars "]")))
+
+(defun make-wild-path-component-from-fragments (fragments)
+  (let ((fragment-stream (make-fragment-stream :fragments fragments))
+        (result (make-extensible-vector)))
+    (labels
+        ((ingest (char first-p quoted-p)
+           (cond
+             (quoted-p
+              (vector-push-extend char result))
+
+             ((equal char #\?)
+              (vector-push-extend
+               (if first-p
+                   '(:inverted-char-class #\.)
+                   :everything)
+               result))
+
+             ((equal char #\*)
+              (vector-push-extend
+               (if first-p
+                   '(:greedy-repetition 0 1
+                     (:sequence
+                      (:inverted-char-class #\.)
+                      (:greedy-repetition 0 nil
+                       :everything)))
+                   '(:greedy-repetition 0 nil :everything))
+               result))
+
+             ((equal char #\[)
+              (let ((lookahead-stream (copy-fragment-stream fragment-stream))
+                    (char-class (make-extensible-vector)))
+                (loop
+                   (multiple-value-bind (future-char fragment) (fragment-stream-read lookahead-stream)
+                     (unless future-char
+                       (return))
+                     (when (and (equal #\] future-char)
+                                (not (string-fragment-quoted fragment)))
+                       (setf fragment-stream lookahead-stream)
+                       (vector-push-extend (parse-char-class-glob char-class first-p) result)
+                       (return-from ingest))
+                     (vector-push-extend future-char char-class))))
+              (vector-push-extend char result))
+
+             (t
+              (vector-push-extend char result)))))
+      (loop
+         (multiple-value-bind (char fragment) (fragment-stream-read fragment-stream)
+           (unless char
+             (return))
+           (assert (not (equal #\/ char)))
+           (let ((quoted-p (string-fragment-quoted fragment))
+                 (first-p (equal 1 (fragment-stream-index fragment-stream))))
+             (ingest char first-p quoted-p)))))
+    (when (zerop (length result))
+      (return-from make-wild-path-component-from-fragments))
+
+    (if (find-if-not 'characterp result)
+        (create-scanner
+         (nconc (list :sequence :start-anchor) (coerce result 'list) (list :end-anchor))
+         :multi-line-mode t)
+        (coerce result 'simple-string))))
+
 (defun make-wild-path-from-fragments (fragments)
-  "Construct a `wild-path' from the given sequence of string
-fragments.
-
-This function is responsible for parsing glob patterns and
-constructing the appropriate regex scanner."
-  (let ((path-part (make-extensible-vector))
-        (path (make-wild-path)))
-    (with-accessors
-          ((directories wild-path-directories)
-           (file-name wild-path-file-name))
-        path
-      (labels
-          ;; Returns non-nil iff we're on the first path component and
-          ;; it consists of nothing but slashes.
-          ((leading-slashes-p ()
-             (and (zerop (length directories))
-                  (not (find-if-not (lambda (c) (equal c #\/)) path-part))))
-
-           ;; We're done with a part of the path.  Let's finalize it
-           ;; by turning it into a regex scanner or a string.
-           (prep-part (part)
-             (cond
-               ((find-if-not 'characterp part)
-                (create-scanner
-                 (nconc (list :sequence :start-anchor) (coerce part 'list) (list :end-anchor))
-                 :multi-line-mode t))
-               (t
-                (coerce part 'string))))
-
-           ;; Its time to take the current part and add it to the
-           ;; directory vector.
-           (finish-segment ()
-             (vector-push-extend (prep-part path-part) directories)
-             (setf path-part (make-extensible-vector)))
-
-           ;; We're all done!  Put anything left in the current part
-           ;; into the path.
-           (final-segment ()
-             (when (zerop (length path-part))
-               (return-from final-segment))
-
-             ;; Ordinarily, we would always treat the last `path-part'
-             ;; as a file (since encountering a slash causes us to
-             ;; call `finish-segment').  However, the leading slashes
-             ;; are treated specially, and we need to continue
-             ;; treating them specially, here.
-             (when (leading-slashes-p)
-               (finish-segment)
-               (return-from final-segment))
-
-             (setf file-name (prep-part path-part)))
-
-           ;; We just saw a #\/!
-           (ingest-/ ()
-             ;; If the very first component of the path is a slash,
-             ;; then we want to put it into the `path-part'.  You
-             ;; might naively think that is the end of the first part.
-             ;; However, POSIX says that the OS is allowed to treat
-             ;; two leading slashes differently from any other
-             ;; quantity.  So, let's just accumulate ALL the leading
-             ;; slashes into a single part and then simplify it later.
-             (when (leading-slashes-p)
-               (vector-push-extend #\/ path-part)
-               (return-from ingest-/))
-
-             (finish-segment))
-
-           ;; Act on any character other than #\/.
-           (ingest (char first-p quoted-p)
-             (cond
-               (quoted-p
-                (vector-push-extend char path-part))
-
-               ((equal char #\?)
-                (vector-push-extend
-                 (if first-p
-                     '(:inverted-char-class #\.)
-                     :everything)
-                 path-part))
-
-               ((equal char #\*)
-                (vector-push-extend
-                 (if first-p
-                     '(:greedy-repetition 0 1
-                       (:sequence
-                        (:inverted-char-class #\.)
-                        (:greedy-repetition 0 nil
-                         :everything)))
-                     '(:greedy-repetition 0 nil :everything))
-                 path-part))
-
-               ((equal char #\[)
-                (error "[] not implemented"))
-
-               (t
-                (vector-push-extend char path-part)))))
-
-        (fset:do-seq (fragment fragments)
-          (let ((quoted-p (string-fragment-quoted fragment))
-                (string (string-fragment-string fragment)))
-            (loop :for index :below (length string) :do
-               (let* ((char (aref string index))
-                      (first-p (zerop (length path-part))))
-
-                 (cond
-                   ((equal #\/ char)
-                    (ingest-/))
-
-                   ((leading-slashes-p)
-                    (unless (zerop (length path-part))
-                      (finish-segment))
-                    (ingest char first-p quoted-p))
-
-                   (t
-                    (ingest char first-p quoted-p)))))))
-
-        (final-segment)
-        path))))
+  (multiple-value-bind (absolute-part remaining-segments)
+      (handle-leading-slashes (split-fragments-into-segments fragments))
+    (let ((path (make-wild-path)))
+      (with-accessors
+            ((directories wild-path-directories)
+             (file-name wild-path-file-name))
+          path
+        (when absolute-part
+          (vector-push-extend absolute-part directories))
+        (assert (<= 1 (fset:size remaining-segments)))
+        (let* ((components (fset:image #'make-wild-path-component-from-fragments remaining-segments))
+               (file-component (fset:pop-last components)))
+          (when file-component
+            (setf file-name file-component))
+          (fset:do-seq (dir components)
+            (vector-push-extend (if dir dir "") directories))))
+      path)))
 
 (defun directory-contents-iterator (dir-ptr)
   "Return an iterator which returns the contents of the given directory.
