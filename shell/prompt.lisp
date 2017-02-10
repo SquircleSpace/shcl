@@ -66,43 +66,18 @@ as a second value."
     (let ((s (%el-gets e count)))
       (values s (mem-ref count :int)))))
 
-#|
-(defcfun (el-wgets "el_wgets" :library libedit) :pointer ;; to wchar
-  (e editline-ptr)
-  (count (:pointer :int)))
-|#
-
 (defcfun (el-getc "el_getc" :library libedit) :int
   (e editline-ptr)
   (ch (:pointer :char)))
-
-#|
-(defcfun (el-wgetc "el_wgetc" :library libedit) :int
-  (e editline-ptr)
-  (wc :pointer #| to wchar |#))
-|#
 
 (defcfun (el-push "el_push" :library libedit) :void
   (e editline-ptr)
   (mbs :string))
 
-#|
-(defcfun (el-wpush "el_wpush" :library libedit) :void
-  (e editline-ptr)
-  (wcs :pointer #| to wchar |#))
-|#
-
 (defcfun (el-parse "el_parse" :library libedit) :int
   (e editline-ptr)
   (argc :int)
   (argv string-table))
-
-#|
-(defcfun (el-wparse "el_wparse" :library libedit) :int
-  (e editline-ptr)
-  (argc :int)
-  (argv :pointer #| to wchar strings |#))
-|#
 
 (defcfun (el-set "el_set" :library libedit) :int
   (e editline-ptr)
@@ -134,17 +109,7 @@ the EL_ADDFN sub-routine of `el-set'."
 the EL_BIND sub-routine of `el-set'."
   (el-set e +el-bind+ :string key :string command :pointer (null-pointer)))
 
-(defcfun (el-wset "el_wset" :library libedit) :int
-  (e editline-ptr)
-  (op :int)
-  &rest)
-
 (defcfun (el-get "el_get" :library libedit) :int
-  (e editline-ptr)
-  (op :int)
-  &rest)
-
-(defcfun (el-wget "el_wget" :library libedit) :int
   (e editline-ptr)
   (op :int)
   &rest)
@@ -163,14 +128,7 @@ the EL_BIND sub-routine of `el-set'."
 (defcfun (el-line "el_line" :library libedit) (:pointer (:struct lineinfo))
   (e editline-ptr))
 
-(defcfun (el-wline "el_wline" :library libedit) :pointer #| to LineInfoW struct |#
-  (e editline-ptr))
-
 (defcfun (el-insertstr "el_insertstr" :library libedit) :int
-  (e editline-ptr)
-  (str :string))
-
-(defcfun (el-winsertstr "el_winsertstr" :library libedit) :int
   (e editline-ptr)
   (str :string))
 
@@ -178,28 +136,14 @@ the EL_BIND sub-routine of `el-set'."
   (e editline-ptr)
   (count :int))
 
-(defcfun (el-wdeletestr "el_wdeletestr" :library libedit) :void
-  (e editline-ptr)
-  (count :int))
-
 (defcfun (history-init "history_init" :library libedit) history-ptr)
-
-(defcfun (history-winit "history_winit" :library libedit) historyw-ptr)
 
 (defcfun (history-end "history_end" :library libedit) :void
   (h history-ptr))
 
-(defcfun (history-wend "history_wend" :library libedit) :void
-  (h historyw-ptr))
-
 (defcfun (history "history" :library libedit) :int
   (h history-ptr)
   (ev histevent-ptr)
-  (op :int))
-
-(defcfun (history-w "history_w" :library libedit) :int
-  (h historyw-ptr)
-  (ev histeventw-ptr)
   (op :int))
 
 (defvar *editline-sidetable* (make-hash-table)
