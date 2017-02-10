@@ -144,7 +144,8 @@ the EL_BIND sub-routine of `el-set'."
 (defcfun (history "history" :library libedit) :int
   (h history-ptr)
   (ev histevent-ptr)
-  (op :int))
+  (op :int)
+  &rest)
 
 (defvar *editline-sidetable* (make-hash-table)
   "This table provides a way to find the instance of the `editline'
