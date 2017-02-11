@@ -1,14 +1,6 @@
 (in-package :shcl/shell/prompt-types)
 
-(include "sys/ioctl.h" "histedit.h")
-
-(cstruct winsize "struct winsize"
-         (ws-row "ws_row" :type :unsigned-short)
-         (ws-col "ws_col" :type :unsigned-short)
-         (ws-xpixel "ws_xpixel" :type :unsigned-short)
-         (ws-ypixel "ws_ypixel" :type :unsigned-short))
-
-(constant (tiocgwinsz "TIOCGWINSZ"))
+(include "histedit.h")
 
 (cstruct lineinfo "LineInfo"
          (buffer "buffer" :type (:pointer :char))
