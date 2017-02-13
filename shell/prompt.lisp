@@ -10,7 +10,9 @@
    #:close-file-ptr)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
-  (:export #:get-line #:make-editline-stream))
+  (:export
+   #:with-history #:define-history #:history-set-size #:get-line
+   #:make-editline-stream))
 (in-package :shcl/shell/prompt)
 
 (optimization-settings)
@@ -109,6 +111,9 @@ the EL_ADDFN sub-routine of `el-set'."
 the EL_BIND sub-routine of `el-set'."
   (el-set e +el-bind+ :string key :string command :pointer (null-pointer)))
 
+(defun el-set-hist (e fn context)
+  (el-set e +el-hist+ :pointer fn :pointer context))
+
 (defcfun (el-get "el_get" :library libedit) :int
   (e editline-ptr)
   (op :int)
@@ -146,6 +151,47 @@ the EL_BIND sub-routine of `el-set'."
   (ev histevent-ptr)
   (op :int)
   &rest)
+
+(defmacro with-histevent ((sym) &body body)
+  `(with-foreign-object (,sym '(:struct histevent))
+     (setf (mem-ref (foreign-slot-pointer ,sym '(:struct histevent) 'str) :pointer) (null-pointer))
+     (setf (foreign-slot-value ,sym '(:struct histevent) 'num) 0)
+     ,@body))
+
+(defstruct foreign-history
+  ptr)
+
+(defun history-set-size (h size)
+  (with-histevent (ev)
+    (history (foreign-history-ptr h) ev +h-setsize+ :int size)))
+
+(defun history-enter (h str)
+  (with-histevent (ev)
+    (history (foreign-history-ptr h) ev +h-enter+ :string str)))
+
+(defgeneric history-low-level-parameters (history)
+  (:documentation
+   "Returns the function pointer and context pointer that should be
+passed to the editline library to bind editline to this history
+object."))
+(defmethod history-low-level-parameters ((history foreign-history))
+  (values (foreign-symbol-pointer "history" :library 'libedit)
+          (foreign-history-ptr history)))
+
+(defmacro with-history ((name) &body body)
+  (let ((history (gensym "HISTORY")))
+    `(let ((,history (history-init)))
+       (when (null-pointer-p ,history)
+         (error "Failed to create history"))
+       (unwind-protect
+            (let ((,name (make-foreign-history :ptr ,history)))
+              ,@body)
+         (history-end ,history)))))
+
+(defmacro define-history (name &optional documentation)
+  `(defvar ,name (make-foreign-history :ptr (history-init))
+     ,@(when documentation
+         (list documentation))))
 
 (defvar *editline-sidetable* (make-hash-table)
   "This table provides a way to find the instance of the `editline'
@@ -392,6 +438,11 @@ an error to bind to the same name twice."
   (with-slots (ptr) e
     (el-set-bind ptr key command)))
 
+(defun editline-set-history (e history)
+  (with-slots (ptr) e
+    (multiple-value-bind (fn context) (history-low-level-parameters history)
+      (el-set-hist ptr fn context))))
+
 (defstruct lineinfo
   "Information about the state of the editline input.
 
@@ -421,7 +472,7 @@ Returns a `lineinfo' instance."
   (with-slots (ptr) e
     (convert-lineinfo (el-line ptr))))
 
-(defun get-line (prompt)
+(defun get-line (prompt &key history)
   "This is intended to be the super-high-level auto-magic way to get
 input from the user.
 
@@ -431,6 +482,8 @@ This interacts with the user on symbolic fds 0, 1, and 2."
         (stderr-fd (get-fd 2)))
     (with-editline (e "shcl" stdin-fd stdout-fd stderr-fd)
       (setf (editline-prompt e) prompt)
+      (when history
+        (editline-set-history e history))
       (editline-gets e))))
 
 (defclass editline-stream (fundamental-character-input-stream)
@@ -443,7 +496,13 @@ This interacts with the user on symbolic fds 0, 1, and 2."
     :initarg :prompt-fn
     :documentation
     "This slot contains a function which produces the prompt string
-which the user sees when input is needed."))
+which the user sees when input is needed.")
+   (history
+    :initform nil
+    :initarg :history
+    :documentation
+    "The object which will provide history tracking for this
+stream."))
   (:documentation
    "An `editline-stream' is an input stream which retrieves its
 contents from the user (using `get-line').
@@ -456,12 +515,12 @@ The prompt the user sees is decided by the `prompt-fn'."))
 
 (defun extend-editline-stream (stream)
   "Add another line of content to an `editline-stream'."
-  (with-slots (text prompt-fn) stream
+  (with-slots (text prompt-fn history) stream
     (unless (open-stream-p stream)
       (error "Stream is closed"))
     (unless (zerop (fset:size text))
       (error "Stream isn't empty yet"))
-    (let ((next-line (get-line (funcall prompt-fn))))
+    (let ((next-line (get-line (funcall prompt-fn) :history history)))
       (cond
         (next-line
          (assert (plusp (length next-line)))
@@ -509,7 +568,7 @@ The prompt the user sees is decided by the `prompt-fn'."))
   (with-slots (text) s
     (setf text (fset:empty-seq))))
 
-(defun make-editline-stream (prompt-fn)
+(defun make-editline-stream (&key prompt-fn history)
   "Create a stream whose contents are retrieved from the user using
 the editline library."
-  (make-instance 'editline-stream :prompt-fn prompt-fn))
+  (make-instance 'editline-stream :prompt-fn prompt-fn :history history))

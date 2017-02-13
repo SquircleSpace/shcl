@@ -2,6 +2,10 @@
 
 (include "histedit.h")
 
+(cstruct histevent "HistEvent"
+         (num "num" :type :int)
+         (str "str" :type :string))
+
 (cstruct lineinfo "LineInfo"
          (buffer "buffer" :type (:pointer :char))
          (cursor "cursor" :type (:pointer :char))
@@ -12,6 +16,7 @@
 (constant (+el-editor+ "EL_EDITOR"))
 (constant (+el-addfn+ "EL_ADDFN"))
 (constant (+el-bind+ "EL_BIND"))
+(constant (+el-hist+ "EL_HIST"))
 
 (constant (+cc-norm+ "CC_NORM"))
 (constant (+cc-newline+ "CC_NEWLINE"))
@@ -23,3 +28,6 @@
 (constant (+cc-redisplay+ "CC_REDISPLAY"))
 (constant (+cc-error+ "CC_ERROR"))
 (constant (+cc-fatal+ "CC_FATAL"))
+
+(constant (+h-setsize+ "H_SETSIZE"))
+(constant (+h-enter+ "H_ENTER"))
