@@ -1,6 +1,7 @@
 (defpackage :shcl/shell/lisp-repl
   (:use :common-lisp :shcl/core/builtin :shcl/core/utility)
-  (:import-from :shcl/shell/prompt #:make-editline-stream)
+  (:import-from :shcl/shell/prompt
+   #:with-history #:history-set-size #:history-enter #:make-editline-stream)
   (:import-from :shcl/shell/directory #:physical-pwd)
   (:export #:return-to-shell #:shell-help))
 (in-package :shcl/shell/lisp-repl)
@@ -64,29 +65,34 @@ prompt."
 (define-builtin shcl-repl (args)
   "Enter the lisp repl."
   (declare (ignore args))
-  (catch 'return-to-shell
-    (let ((*package* (find-package :shcl-user))
-          (*fresh-prompt* t)
-          (*default-pathname-defaults* (uiop:parse-native-namestring (physical-pwd)))
-          (stdin (make-editline-stream 'repl-prompt)))
-      (loop
-         (restart-case
-             (progn
-               (fresh-line *standard-output*)
-               (finish-output *standard-output*)
-               (let ((form (shcl-repl-read stdin)))
-                 (setf *fresh-prompt* t)
-                 (case form
-                   (:shell
-                    (return-to-shell))
-                   (:help
-                    (shell-help)
-                    (values))
-                   (otherwise
-                    (print-list (multiple-value-list (eval form))
-                                *standard-output*)))))
-           (restart-lisp-repl ()
-             (fresh-line *standard-output*))
-           (exit-lisp-repl ()
-             (return-to-shell))))))
+  (with-history (h)
+    (history-set-size h 800)
+    (catch 'return-to-shell
+      (let* ((*package* (find-package :shcl-user))
+             (*fresh-prompt* t)
+             (*default-pathname-defaults* (uiop:parse-native-namestring (physical-pwd)))
+             (stdin-raw (make-editline-stream :prompt-fn 'repl-prompt :history h))
+             (captured-input (make-string-output-stream))
+             (stdin (make-echo-stream stdin-raw captured-input)))
+        (loop
+           (restart-case
+               (progn
+                 (fresh-line *standard-output*)
+                 (finish-output *standard-output*)
+                 (let ((form (shcl-repl-read stdin)))
+                   (history-enter h (get-output-stream-string captured-input))
+                   (setf *fresh-prompt* t)
+                   (case form
+                     (:shell
+                      (return-to-shell))
+                     (:help
+                      (shell-help)
+                      (values))
+                     (otherwise
+                      (print-list (multiple-value-list (eval form))
+                                  *standard-output*)))))
+             (restart-lisp-repl ()
+               (fresh-line *standard-output*))
+             (exit-lisp-repl ()
+               (return-to-shell)))))))
   0)

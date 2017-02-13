@@ -7,7 +7,8 @@
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/logs)
   (:import-from :shcl/shell/lisp-repl)
-  (:import-from :shcl/shell/prompt #:make-editline-stream)
+  (:import-from :shcl/shell/prompt
+   #:with-history #:history-enter #:history-set-size #:make-editline-stream)
   (:import-from :cl-cli)
   (:import-from :uiop)
   (:export #:main #:run-shell-commands-in-stream))
@@ -110,18 +111,22 @@ See `cl-cli:parse-cli'."
        (progv ,vars ,values
          ,@body))))
 
-(defun run-shell-commands-in-stream (stream)
+(defun run-shell-commands-in-stream (stream &key history)
   "Read and evaluate shell commands contained within the given
 stream.
 
 This function will not display prompts.  You probably want to provide
 a stream like the one created by `shcl/shell/prompt:make-editline-stream'."
   (let* ((form-queue (make-queue))
-         (commands (restartable-command-iterator stream form-queue))
+         (captured-input (when history (make-string-output-stream)))
+         (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
+         (commands (restartable-command-iterator wrapped-stream form-queue))
          (*fresh-prompt* t)
          last-result)
     (restart-case
         (do-iterator (tree commands)
+          (when history
+            (history-enter history (get-output-stream-string captured-input)))
           (loop
              (let* ((stop '#:stop)
                     (form (dequeue-no-block form-queue stop)))
@@ -173,5 +178,8 @@ example, that...
     (when *enable-lisp-splice*
       (setf *shell-readtable* *splice-table*))
 
-    (let ((*package* (find-package :shcl-user)))
-      (run-shell-commands-in-stream (make-editline-stream 'main-prompt)))))
+    (with-history (h)
+      (history-set-size h 800)
+      (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
+            (*package* (find-package :shcl-user)))
+        (run-shell-commands-in-stream stream :history h)))))
