@@ -255,7 +255,22 @@ components."
     (or (and file-name (not (stringp file-name)))
         (find-if-not 'stringp directories))))
 
-(defun split-fragments-into-segments (fragments)
+(defun split-fragments-into-directory-segments (fragments)
+  "Given a sequence of fragments, produce a sequence of sequences of
+fragments which contain no #\/ characters.
+
+The sequences of fragments are known as segments.  Each segment
+represents a directory component.  The final segment always represents
+the file name at the end of the path.  If the file name segment is
+empty, then the fragments ended in a #\
+
+Ignoring the final segment, empty segments indicate the presence of
+consecutive slashes.  Empty segments at the start of the sequence of
+segments represent slashes at the start of the path.
+
+The string \"//\" would result in a sequence of three empty segments.
+The first two represent the leading slashes and the last one
+represents the empty file name."
   (let ((result (fset:empty-seq))
         (part (fset:empty-seq)))
     (loop :while (not (zerop (fset:size fragments))) :do
@@ -286,6 +301,15 @@ components."
     result))
 
 (defun handle-leading-slashes (segments)
+  "Strip off empty segments from the start of the segment sequence.
+
+See `split-fragments-into-directory-segments'.
+
+Returns two values:
+1. A string containing the leading slashes implied by the leading
+   empty segments.
+2. The remaining segments after the leading non-file empty segments
+   are removed."
   (let ((slash-stream (make-string-output-stream)))
     (loop :while (and (< 1 (fset:size segments)) ;; Don't touch the last segment
                       (zerop (fset:size (fset:first segments))))
@@ -299,10 +323,20 @@ components."
        segments))))
 
 (defstruct fragment-stream
+  "A stream-like object that emits characters contained within an
+`fset:seq' of fragments.
+
+Use `fragment-stream-read' to read from this stream."
+  ;; Until `fragment-stream' becomes more widly used, there's no point
+  ;; in making it an actual stream object.
   (fragments (fset:empty-seq))
   (index 0))
 
 (defun fragment-stream-read (fragment-stream)
+  "Reads a character from the given `fragment-stream'.
+
+Returns two values: the character and the fragment it came from.
+Returns nil on EOF."
   (with-accessors
         ((fragments fragment-stream-fragments)
          (index fragment-stream-index))
@@ -327,6 +361,10 @@ components."
   `(:regex ,(concatenate 'string "[" chars "]")))
 
 (defun make-wild-path-component-from-fragments (fragments)
+  "Translate a `fset:seq' of fragments into a description of a path
+component.
+
+The return value is appropriate for storing in a `wild-path'."
   (let ((fragment-stream (make-fragment-stream :fragments fragments))
         (result (make-extensible-vector)))
     (labels
@@ -388,8 +426,9 @@ components."
         (coerce result 'simple-string))))
 
 (defun make-wild-path-from-fragments (fragments)
+  "Translate a `fset:seq' of fragments into a `wild-path'."
   (multiple-value-bind (absolute-part remaining-segments)
-      (handle-leading-slashes (split-fragments-into-segments fragments))
+      (handle-leading-slashes (split-fragments-into-directory-segments fragments))
     (let ((path (make-wild-path)))
       (with-accessors
             ((directories wild-path-directories)
