@@ -3,7 +3,8 @@
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export
-   #:graph-class-hierarchy #:undocumented-symbols #:verbose-echo-stream))
+   #:graph-class-hierarchy #:undocumented-symbols
+   #:undocumented-symbols-in-package #:verbose-echo-stream))
 (in-package :shcl/core/debug)
 
 (optimization-settings)
@@ -72,15 +73,26 @@ See `symbol-documentation-types'.")
          (return-from documented-p t))))
   nil)
 
-(defun undocumented-symbols ()
+(defun %undocumented-symbols-in-package (package syms)
+  "Store all the undocumented symbols from `package' in the adjustable
+array `syms'."
+  (do-external-symbols (sym package)
+    (unless (documented-p sym)
+      (vector-push-extend sym syms))))
+
+(defun undocumented-symbols-in-package (package)
+  "Return an array containing the undocumented symbols in `package'."
+  (let ((syms (make-extensible-vector)))
+    (%undocumented-symbols-in-package package syms)
+    syms))
+
+(defun undocumented-symbols (&key (package-predicate 'documented-shcl-package-p))
   "Returns an array of all shcl symbols that are undocumented."
   (let* ((all-packages (list-iterator (list-all-packages)))
-         (shcl-packages (filter-iterator all-packages 'documented-shcl-package-p))
+         (shcl-packages (filter-iterator all-packages package-predicate))
          (syms (make-extensible-vector)))
     (do-iterator (package shcl-packages)
-      (do-external-symbols (sym package)
-        (unless (documented-p sym)
-          (vector-push-extend sym syms))))
+      (%undocumented-symbols-in-package package syms))
     syms))
 
 (defclass verbose-echo-stream (fundamental-character-output-stream)
