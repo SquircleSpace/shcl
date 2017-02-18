@@ -71,11 +71,11 @@
       (let (success)
         (unwind-protect
              (let ((index 0))
-               (setf table (foreign-alloc :string :initial-element (null-pointer) :count seq-size :null-terminated-p t))
+               (setf table (foreign-alloc '(:pointer :char) :initial-element (null-pointer) :count (1+ seq-size)))
                (setf side-table (make-array seq-size :initial-element nil))
                (fset:do-seq (thing sequence)
                  (multiple-value-bind (converted-value param) (convert-to-foreign thing :string)
-                   (setf (mem-aref table :string index) converted-value)
+                   (setf (mem-aref table '(:pointer :char) index) converted-value)
                    (setf (aref side-table index) param)
                    (incf index)))
                (setf success t)
@@ -87,7 +87,8 @@
 
 (defmethod free-translated-object (translated (type string-table-type) param)
   (loop :for index :below (length param) :do
-     (free-converted-object (mem-aref translated :pointer index) :string (aref param index)))
+     (unless (null-pointer-p (mem-aref translated '(:pointer :char) index))
+       (free-converted-object (mem-aref translated '(:pointer :char) index) :string (aref param index))))
   (foreign-free translated))
 
 (defcfun (%%make-fd-actions "make_shcl_fd_actions") :pointer)
