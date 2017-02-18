@@ -2,6 +2,7 @@
   (:use
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
+  (:import-from :shcl/core/builtin #:define-builtin)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/posix #:file-ptr)
   (:import-from
@@ -76,10 +77,24 @@ as a second value."
   (e editline-ptr)
   (mbs :string))
 
-(defcfun (el-parse "el_parse" :library libedit) :int
+(defcfun (%el-parse "el_parse" :library libedit) :int
   (e editline-ptr)
   (argc :int)
   (argv string-table))
+
+(defun el-parse (e argv)
+  ;; el_parse takes in an array of strings in the argv argument.
+  ;; `%el-parse' defines the type of that argument as a
+  ;; `string-table'.  Now, the translator for that type helpfully puts
+  ;; a NULL pointer at the end of the table even though we're passsing
+  ;; in an explicit length.  However, el_parse is going to convert the
+  ;; strings into wide character strings.  When it does that, it will
+  ;; lose the terminating NULL pointer.  At least one of libedit's
+  ;; handler functions (map_bind in map.c) expects to be able to
+  ;; traverse the string table as though it was NULL terminated.  So,
+  ;; we need to make sure that we include the NULL terminator in the
+  ;; argc we pass to el_parse!
+  (%el-parse e (1+ (fset:size argv)) argv))
 
 (defcfun (el-set "el_set" :library libedit) :int
   (e editline-ptr)
@@ -485,6 +500,13 @@ This interacts with the user on symbolic fds 0, 1, and 2."
       (when history
         (editline-set-history e history))
       (editline-gets e))))
+
+(define-builtin -shcl-eval-editline (args)
+  "Pass the given arguments to el_parse."
+  (with-editline (e "shcl" (get-fd 0) (get-fd 1) (get-fd 2))
+    (with-slots (ptr) e
+      (el-parse ptr (fset:less-first args))))
+  0)
 
 (defclass editline-stream (fundamental-character-input-stream)
   ((text
