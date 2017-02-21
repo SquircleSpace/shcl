@@ -2,6 +2,8 @@
 
 (include "histedit.h")
 
+(ctype wchar-t "wchar_t")
+
 (cstruct histevent "HistEvent"
          (num "num" :type :int)
          (str "str" :type :string))
