@@ -1,6 +1,7 @@
 (defpackage :shcl/shell/prompt-types
   (:use :common-lisp :cffi-grovel)
   (:export
+   #:wchar-t
    #:lineinfo #:buffer #:cursor #:lastchar
    #:histevent #:num #:str
    #:+el-prompt+ #:+el-rprompt+ #:+el-editor+ #:+el-bind+ #:+el-addfn+

@@ -69,9 +69,14 @@ as a second value."
     (let ((s (%el-gets e count)))
       (values s (mem-ref count :int)))))
 
-(defcfun (el-getc "el_getc" :library libedit) :int
+(defcfun (%el-wgetc "el_wgetc" :library libedit) :int
   (e editline-ptr)
-  (ch (:pointer :char)))
+  (ch (:pointer wchar-t)))
+
+(defun el-wgetc (e)
+  (with-foreign-object (ch 'wchar-t)
+    (let ((s (%el-wgetc e ch)))
+      (values s (mem-ref ch 'wchar-t)))))
 
 (defcfun (el-push "el_push" :library libedit) :void
   (e editline-ptr)
