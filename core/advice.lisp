@@ -1,7 +1,8 @@
 (defpackage :shcl/core/advice
   (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
-  (:export #:define-advisable #:define-advice #:remove-advice #:list-advice))
+  (:export
+   #:define-advisable #:define-advice #:remove-advice #:list-advice))
 (in-package :shcl/core/advice)
 
 (optimization-settings)
@@ -19,12 +20,22 @@
    "A method representing advice on an advisable function.  See
 `define-advice'."))
 
-(defmethod initialize-instance :before ((method advice-method) &rest initargs &key specializers)
+(defmethod initialize-instance :before ((method advice-method) &rest initargs &key specializers qualifiers)
   (declare (ignore initargs))
   ;; No specialization allowed!
   (dolist (specializer specializers)
     (unless (eq specializer (find-class t))
-      (error "Cannot have specializers on an `advice-method',"))))
+      (error "Cannot have specializers on an `advice-method',")))
+  (unless (or (null qualifiers)
+              (find (first qualifiers) #(:before :after :around)))
+    (error "advice-method does not support the ~A qualifier" (first qualifiers))))
+
+;; The advisable method combination strategy only exists to avoid
+;; warnings about method qualifiers that aren't valid under the
+;; standard strategy.  All the work of creating a combined method is
+;; done (non-traditionally) in the compute-discriminating-function
+;; method.
+(define-method-combination advisable () ((all *)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun assert-pure-lambda-list (lambda-list)
@@ -48,11 +59,13 @@ then `define-advisable' is more or less equivalent to `defun'."
       (alexandria:parse-body body :documentation t :whole whole)
     (declare (ignore forms declarations))
     `(progn
-       (defgeneric ,name ,lambda-list
-         (:generic-function-class advisable-generic-function)
-         (:method-class advice-method)
-         ,@(when documentation
-             `((:documentation ,documentation))))
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (defgeneric ,name ,lambda-list
+           (:generic-function-class advisable-generic-function)
+           (:method-class advice-method)
+           (:method-combination advisable)
+           ,@(when documentation
+               `((:documentation ,documentation)))))
        (defmethod ,name ,lambda-list
          ,@body))))
 
@@ -110,43 +123,70 @@ with `define-advice'."
           (push qualifiers result))))
     result))
 
-(defmethod closer-mop:compute-effective-method ((gf advisable-generic-function) combin methods)
-  (let (primary-methods
-        before-methods
-        after-methods
-        around-methods)
-    (dolist (method methods)
-      (tagbody
-         (let ((qualifiers (method-qualifiers method)))
-           (unless qualifiers
-             (push method primary-methods)
-             (go next))
+(defmethod closer-mop:compute-discriminating-function ((gf advisable-generic-function))
+  (let* ((before-functions (make-array 0 :adjustable t :fill-pointer t))
+         (after-functions (make-array 0 :adjustable t :fill-pointer t))
+         (around-functions (make-array 0 :adjustable t :fill-pointer t))
+         primary-function)
 
-           (case (first qualifiers)
-             (:before
-              (push method before-methods)
-              (go next))
-             (:after
-              (push method after-methods)
-              (go next))
-             (:around
-              (push method around-methods)
-              (go next)))
-           (error "Unrecognized qualifier"))
-       next))
-    (unless primary-methods
-      (error "Need a primary method"))
+    (dolist (method (closer-mop:generic-function-methods gf))
+      (let ((qualifiers (method-qualifiers method)))
+        (cond
+          ((null qualifiers)
+           (assert (not primary-function))
+           (setf primary-function (closer-mop:method-function method)))
+          ((eq :before (first qualifiers))
+           (vector-push-extend (closer-mop:method-function method) before-functions))
+          ((eq :after (first qualifiers))
+           (vector-push-extend (closer-mop:method-function method) after-functions))
+          ((eq :around (first qualifiers))
+           (vector-push-extend (closer-mop:method-function method) around-functions))
+          (t
+           (assert nil nil "Unrecognized qualifier")))))
+
+    (unless primary-function
+      (return-from closer-mop:compute-discriminating-function
+        (lambda (&rest args)
+          (declare (ignore args))
+          (error "No primary method found"))))
+
     (labels
-        ((call-methods (methods)
-           (loop :for method :in methods :collect
-              `(call-method ,method))))
-      (destructuring-bind (primary &rest primary-rest) primary-methods
-        (let ((main-form
-               `(multiple-value-prog1
-                    (progn
-                      ,@(call-methods before-methods)
-                      (call-method ,primary ,primary-rest))
-                  ,@(call-methods (reverse after-methods)))))
-          (if around-methods
-              `(call-method ,(first around-methods) (,@(rest around-methods) (make-method ,main-form)))
-              main-form))))))
+        ((main-impl (&rest args)
+           (loop :for method :across before-functions :do
+              (funcall method args #() 0))
+           (multiple-value-prog1
+               (funcall primary-function args #() 0)
+             (loop :for method :across after-functions :do
+                (funcall method args #() 0)))))
+
+      (when (zerop (length around-functions))
+        (return-from closer-mop:compute-discriminating-function
+          #'main-impl))
+
+      (labels
+          ((main-method-function (args other-methods index)
+             (declare (ignore other-methods index))
+             (apply #'main-impl args))
+           (around-impl (&rest args)
+             (funcall (aref around-functions 0) args around-functions 1)))
+        (vector-push-extend #'main-method-function around-functions)
+        #'around-impl))))
+
+(defmethod closer-mop:make-method-lambda ((gf advisable-generic-function) (m advice-method) lambda env)
+  (let ((args (gensym "ARGS"))
+        (other-fns (gensym "OTHER-FNS"))
+        (index (gensym "INDEX"))
+        (replacement-args (gensym "REPLACEMENT-ARGS")))
+    `(lambda (,args ,other-fns ,index)
+       (declare (ignorable ,args ,other-fns ,index))
+       (labels
+           ((next-method-p ()
+              (< ,index (length ,other-fns)))
+            (call-next-method (&rest ,replacement-args)
+              (unless (next-method-p)
+                (error "There's no next method"))
+              (funcall (aref ,other-fns ,index) (or ,replacement-args ,args) ,other-fns (1+ ,index))))
+         (declare (inline next-method-p call-next-method)
+                  (ignorable #'next-method-p #'call-next-method))
+         (block ,(closer-mop:generic-function-name gf)
+           (apply ,lambda ,args))))))
