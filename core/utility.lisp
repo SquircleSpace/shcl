@@ -7,6 +7,7 @@
    #:as-> #:-> #:->> #:define-once-global #:required
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
+   #:symbol-nconc-gensym #:symbol-nconc-intern
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
    #:observe-revival #:on-dump #:observe-dump
@@ -346,6 +347,24 @@ adjustable array with a fill pointer."
 
     (t
      (make-array initial-size :adjustable t :fill-pointer fill-pointer :element-type element-type))))
+
+(defun %symbol-nconc (&rest bits)
+  (let ((stream (make-string-output-stream)))
+    (dolist (bit bits)
+      (etypecase bit
+        (string
+         (write-string bit stream))
+        (symbol
+         (write-string (symbol-name bit) stream))))
+    (get-output-stream-string stream)))
+
+(defun symbol-nconc-gensym (first-bit &rest other-bits)
+  (gensym (apply '%symbol-nconc first-bit other-bits)))
+
+(defun symbol-nconc-intern (package first-bit &rest other-bits)
+  (if package
+      (intern (apply '%symbol-nconc first-bit other-bits) package)
+      (intern (apply '%symbol-nconc first-bit other-bits))))
 
 (defclass iterator ()
   ((compute
