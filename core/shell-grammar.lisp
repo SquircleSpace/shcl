@@ -1,5 +1,6 @@
 (defpackage :shcl/core/shell-grammar
   (:use :common-lisp :shcl/core/parser :shcl/core/lexer :shcl/core/utility)
+  (:import-from :shcl/core/advice #:define-advice)
   (:export
    #:command-iterator
    ;; nonterminals
@@ -19,7 +20,7 @@
 
 (optimization-settings)
 
-(define-parser *shell-grammar*
+(define-parser shell-grammar
   (:start-symbol start)
   (:eof-symbol eof)
   (:terminals
@@ -269,13 +270,18 @@
    (semi linebreak)
    (newline-list)))
 
-(defmethod parse :around ((type (eql 'cmd-name)) iter)
+(define-advice parse-cmd-name :around posix-rule (iter)
   (when (typep (peek-lookahead-iterator iter) 'reserved-word)
-    (no-parse "Reserved words aren't allowed here" 'a-word))
+    (return-from parse-cmd-name
+      (values
+       nil
+       (make-internal-parse-error
+        :message "Reserved words aren't allowed here"
+        :expected-tokens '(a-word)))))
   (call-next-method))
 
 (defun command-iterator (token-iterator)
-  (syntax-iterator *shell-grammar* token-iterator))
+  (syntax-iterator #'parse-shell-grammar token-iterator))
 
 (defgeneric parse-shell (source))
 

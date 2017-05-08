@@ -1,8 +1,9 @@
 (defpackage :shcl/core/parser
   (:use :common-lisp :alexandria :shcl/core/lexer :shcl/core/utility)
+  (:import-from :shcl/core/advice #:define-advisable)
   (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
-  (:export #:define-parser #:syntax-iterator #:parse #:no-parse))
+  (:export #:define-parser #:syntax-iterator #:make-internal-parse-error))
 (in-package :shcl/core/parser)
 
 (optimization-settings)
@@ -53,31 +54,8 @@
     (make-load-form-saving-slots sy :slot-names slots :environment environment)))
 
 (defmethod print-object ((st syntax-tree) stream)
-  (format stream "~A" (cons (class-name (class-of st)) (slot-value st 'raw-matches))))
-
-(defgeneric parse (type iterator))
-
-(defmacro no-parse (message &rest expected-tokens)
-  `(throw 'no-parse-tag (list ,message (list ,@expected-tokens))))
-
-(defmacro try-parse ((iter-sym iter-form) no-parse-function &body body)
-  (let ((iter (gensym "ITER"))
-        (no-advance (gensym "NO-ADVANCE"))
-        (no-parse (gensym "NO-PARSE"))
-        (info (gensym "INFO")))
-    `(let* ((,iter ,iter-form)
-            (,iter-sym (fork-lookahead-iterator ,iter-form))
-            (,no-parse ,no-parse-function)
-            ,no-advance)
-       (unwind-protect
-            (try
-                (progn ,@body)
-              (no-parse-tag (,info)
-                (setf ,no-advance t)
-                (when ,no-parse
-                  (apply ,no-parse ,info))))
-         (unless ,no-advance
-           (move-lookahead-to ,iter ,iter-sym))))))
+  (print-unreadable-object (st stream :type t :identity nil)
+    (format stream "~A" (slot-value st 'raw-matches))))
 
 (define-condition abort-parse (error)
   ((message
@@ -97,8 +75,126 @@
                (when expected
                  (format s ", expected tokens ~A" expected))))))
 
-(defmacro abort-parse (message &rest expected-tokens)
-  `(error 'abort-parse :message ,message :expected-tokens (list ,@expected-tokens)))
+(defstruct internal-parse-error
+  message
+  expected-tokens
+  fatal)
+
+(defmacro define-parser-part (&whole whole name (iter-sym) &body body)
+  (multiple-value-bind (real-body declarations doc-string)
+      (parse-body body :documentation t :whole whole)
+    `(define-advisable ,name (,iter-sym)
+       ,@(when doc-string (list doc-string))
+       ,@declarations
+       (labels
+           ((no-parse (message &rest expected-tokens)
+              (return-from ,name
+                (values nil (make-internal-parse-error
+                             :message message
+                             :expected-tokens expected-tokens
+                             :fatal nil))))
+            (abort-parse (message &rest expected-tokens)
+              (return-from ,name
+                (values nil (make-internal-parse-error
+                             :message message
+                             :expected-tokens expected-tokens
+                             :fatal t))))
+            (emit (object)
+              (return-from ,name
+                (values object nil))))
+         (declare (inline no-parse abort-parse emit)
+                  (dynamic-extent #'no-parse #'abort-parse #'emit)
+                  (ignorable #'no-parse #'abort-parse #'emit))
+         (emit (progn ,@real-body))))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun parser-part-name (thing)
+    (symbol-nconc-intern nil "PARSE-" thing)))
+
+(defmacro define-nonterminal (nonterminal-name &body productions)
+  (let (the-body
+        hit-epsilon
+        (slots (make-hash-table)))
+
+    (macrolet
+        ((send-to (where &body rest)
+           `(progn
+              ,@(loop :for form :in rest :collect
+                   `(push ,form ,where)))))
+      (dolist (production productions)
+        (cond
+          (hit-epsilon
+           (error "Epsilon must be the last production"))
+
+          ((eq nil production)
+           (send-to the-body `(emit nil))
+           (setf hit-epsilon t))
+
+          ((symbolp production)
+           (send-to the-body
+                    `(let ((ahead (fork-lookahead-iterator iter)))
+                       (multiple-value-bind (value error) (,(parser-part-name production) ahead)
+                         (when (or value (and error (internal-parse-error-fatal error)))
+                           (move-lookahead-to iter ahead)
+                           (return-from ,(parser-part-name nonterminal-name)
+                             (values value error)))))))
+
+          ((consp production)
+           (dolist (thing production)
+             (unless (keywordp thing)
+               (setf (gethash (if (consp thing) (first thing) thing) slots) t)))
+
+           (let (let-body
+                 strict)
+             (dolist (thing production)
+               (block next
+                 (when (eq :strict thing)
+                   (setf strict t)
+                   (return-from next))
+                 (unless (consp thing)
+                   (setf thing (list thing thing)))
+                 (send-to let-body
+                          `(multiple-value-bind (value error) (,(parser-part-name (second thing)) ahead)
+                             ,(if strict
+                                  `(when error
+                                     (setf (internal-parse-error-fatal error) t)
+                                     (move-lookahead-to iter ahead)
+                                     (return-from ,(parser-part-name nonterminal-name)
+                                       (values value error)))
+                                  `(when error
+                                     (return-from next-production)))
+                             (setf (slot-value instance ',(car thing)) value)
+                             (vector-push-extend value matches)))))
+             (send-to the-body
+                      `(block next-production
+                         (let ((instance (make-instance ',nonterminal-name))
+                               (matches (make-extensible-vector))
+                               (ahead (fork-lookahead-iterator iter)))
+                           ,@(nreverse let-body)
+                           (setf (slot-value instance 'raw-matches) matches)
+                           (move-lookahead-to iter ahead)
+                           (return-from ,(parser-part-name nonterminal-name)
+                             (values instance nil))))))))))
+
+    `(progn
+       ,@(unless (zerop (hash-table-size slots))
+           `((defclass ,nonterminal-name (syntax-tree)
+               (,@(hash-table-keys slots)))))
+
+       (define-parser-part ,(parser-part-name nonterminal-name) (iter)
+         ,@(nreverse the-body)
+         (no-parse "Nonterminal failed to match" ',nonterminal-name))
+       ',nonterminal-name)))
+
+(defmacro define-terminal (name type)
+  `(define-parser-part ,(parser-part-name name) (iter)
+     (multiple-value-bind (value more) (peek-lookahead-iterator iter)
+       (unless more
+         (no-parse "unexpected EOF" ',name))
+       (unless (typep value ',type)
+         (no-parse "Token mismatch" ',name)))
+
+     (next iter)))
 
 (defmacro define-parser (name &body body)
   (let (result-forms)
@@ -116,23 +212,15 @@
             (error "Grammar has left recursion ~A" (left-recursion-p nonterminals)))
 
           ;; Easiest stuff first.  The root node
-          (send `(defparameter ,name ',name))
-          (send `(defmethod parse ((type (eql ',name)) (iter lookahead-iterator))
-                   (parse ',start-symbol iter)))
+          (send `(define-parser-part ,(parser-part-name name) (iter)
+                   (,(parser-part-name start-symbol) iter)))
 
           ;; Now parsers for the terminals
           (dolist (term terminals)
-            (send `(defmethod parse ((type (eql ',term)) (iter lookahead-iterator))
-                     (multiple-value-bind (value more) (peek-lookahead-iterator iter)
-                       (unless more
-                         (no-parse "unexpected EOF" ',term))
-                       (unless (typep value ',term)
-                         (no-parse "Token mismatch" ',term)))
-
-                     (next iter))))
+            (send `(define-terminal ,term ,term)))
 
           (when eof-symbol
-            (send `(defmethod parse ((type (eql ',eof-symbol)) (iter lookahead-iterator))
+            (send `(define-parser-part ,(parser-part-name eof-symbol) (iter)
                      (multiple-value-bind (value more) (peek-lookahead-iterator iter)
                        (declare (ignore value))
                        (when more
@@ -141,90 +229,19 @@
 
           ;; Now the nonterminals
           (dolist (nonterm nonterminals)
-            (destructuring-bind (nonterm-name &rest productions) nonterm
-              (let (the-body
-                    hit-epsilon
-                    slots)
-
-                (when (eq nonterm-name start-symbol)
-                  (send-to the-body
-                           `(multiple-value-bind (value more) (peek-lookahead-iterator iter)
-                              (declare (ignore value))
-                              (unless more
-                                (return-from parse nil)))))
-
-                (dolist (production productions)
-                  (cond
-                    (hit-epsilon
-                     (error "Epsilon must be the last production"))
-
-                    ((eq nil production)
-                     (send-to the-body `(return-from parse))
-                     (setf hit-epsilon t))
-
-                    ((symbolp production)
-                     (send-to the-body
-                              `(try-parse (iter iter) nil
-                                 (return-from parse (parse ',production iter)))))
-
-                    ((consp production)
-                     (labels ((slot-name (thing)
-                                (if (consp thing) (first thing) thing)))
-                       (dolist (thing production)
-                         (unless (keywordp thing)
-                           (push (slot-name thing) slots))))
-                     (send-to the-body
-                              `(let (strict)
-                                 (try-parse (iter iter) (lambda (message expected)
-                                                          (when strict
-                                                            (abort-parse message expected)))
-                                   (let ((instance (make-instance ',nonterm-name))
-                                         matches)
-                                     (dolist (thing ',production)
-                                       (block continue
-                                         (when (eq :strict thing)
-                                           (setf strict t)
-                                           (return-from continue))
-                                         (unless (consp thing)
-                                           (setf thing (list thing thing)))
-                                         (let ((match (parse (second thing) iter)))
-                                           (setf (slot-value instance (first thing)) match)
-                                           (push match matches))))
-                                     (setf (slot-value instance 'raw-matches) (nreverse matches))
-                                     (return-from parse instance))))))))
-
-                (when slots
-                  (let ((unique-slots (make-hash-table)))
-                    (dolist (slot slots)
-                      (setf (gethash slot unique-slots) slot))
-                    (send `(defclass ,nonterm-name (syntax-tree)
-                             (,@(hash-table-keys unique-slots))))))
-
-                (send `(defmethod parse
-                           ((type (eql ',nonterm-name)) (iter lookahead-iterator))
-                         ,@(nreverse the-body)
-                         (no-parse "Nonterminal failed to match" ',nonterm-name)))))))))
+            (send `(define-nonterminal ,(first nonterm)
+                     ,@(rest nonterm)))))))
     `(progn ,@(nreverse result-forms))))
 
-(defun syntax-iterator (grammar token-iterator)
+(defun syntax-iterator (parser-function token-iterator)
   (make-iterator ()
-    (try-parse (iter token-iterator)
-        (lambda (message expected) (error 'abort-parse :message message :expected-tokens expected))
-      (let ((value (parse grammar iter)))
-        (when (eq nil value)
-          (stop))
-        (emit value)))))
-
-(defparameter *depth* nil)
-
-(defmethod parse :around (type iterator)
-  (unless *depth*
-    (return-from parse (call-next-method)))
-
-  (let ((*depth* (+ 1 *depth*)))
-    (format *error-output* "~A" (make-string (* 2 *depth*) :initial-element #\Space))
-    (format *error-output* "~A~%" type)
-    (let ((result (call-next-method)))
-      (format *error-output* "~A" (make-string (* 2 *depth*) :initial-element #\-))
-      (format *error-output* "Good ~A ~A~%" type result)
-      result)))
+    (let ((methods (closer-mop:generic-function-methods parser-function)))
+      (dolist (m methods)
+        (check-type m shcl/core/advice::advice-method)))
+    (multiple-value-bind (value error) (funcall parser-function token-iterator)
+      (when error
+        (error 'abort-parse :message (internal-parse-error-message error)
+               :expected-tokens (internal-parse-error-expected-tokens error)))
+      (unless value
+        (stop))
+      (emit value))))
