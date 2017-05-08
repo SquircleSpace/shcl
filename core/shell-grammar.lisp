@@ -130,7 +130,7 @@
    (case-item case-list-tail))
 
   (case-list-tail
-   (case-item case-item-tail)
+   (case-item case-list-tail)
    ())
 
   (case-item-ns
