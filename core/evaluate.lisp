@@ -53,7 +53,7 @@ directly."))
   fd)
 (defmethod fd-from-description ((io-file io-file))
   (with-slots (redirect filename) io-file
-    (let ((expansion (expansion-for-words filename :split-fields nil :expand-pathname t)))
+    (let ((expansion (expansion-for-words (fset:seq filename) :split-fields nil :expand-pathname t)))
       (unless (equal 1 (fset:size expansion))
         (error "file name expanded to ~A words.  Not implemented." (fset:size expansion)))
       (setf expansion (fset:first expansion))
