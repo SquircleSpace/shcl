@@ -155,7 +155,9 @@ a stream like the one created by `shcl/shell/prompt:make-editline-stream'."
   (unless (find-package "SWANK-LOADER")
     (load #P"/usr/share/emacs/site-lisp/slime/swank-loader.lisp"))
   (unless (find-package "SWANK")
-    (funcall (intern "INIT" (find-package "SWANK-LOADER")))))
+    (handler-bind
+        ((style-warning #'muffle-warning))
+      (funcall (intern "INIT" (find-package "SWANK-LOADER"))))))
 
 (defun main ()
   "Start running SHCL's shell.
