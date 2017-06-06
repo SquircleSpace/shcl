@@ -1,5 +1,7 @@
 (defpackage :shcl/core/baking
-  (:use :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/thread)
+  (:use
+   :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/thread
+   :shcl/core/iterator)
   (:export #:bake-form-for-token #:bake-tokens))
 (in-package :shcl/core/baking)
 

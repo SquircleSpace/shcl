@@ -1,8 +1,8 @@
 (defpackage :shcl/shell/directory
-  (:use :common-lisp :cffi :shcl/core/utility :shcl/core/builtin
-        :shcl/core/environment :shcl/core/working-directory
-        :shcl/core/fd-table :shcl/core/lisp-interpolation
-        :shcl/core/posix :shcl/core/posix-types))
+  (:use
+   :common-lisp :cffi :shcl/core/utility :shcl/core/iterator :shcl/core/builtin
+   :shcl/core/environment :shcl/core/working-directory :shcl/core/fd-table
+   :shcl/core/lisp-interpolation :shcl/core/posix :shcl/core/posix-types))
 (in-package :shcl/shell/directory)
 
 (optimization-settings)

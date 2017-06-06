@@ -11,4 +11,5 @@
                "shcl-test/environment"
                "shcl-test/posix"
                "shcl-test/lisp-interpolation"
-               "shcl-test/data"))
+               "shcl-test/data"
+               "shcl-test/iterator"))

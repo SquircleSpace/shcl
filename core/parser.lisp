@@ -1,5 +1,7 @@
 (defpackage :shcl/core/parser
-  (:use :common-lisp :alexandria :shcl/core/lexer :shcl/core/utility)
+  (:use
+   :common-lisp :alexandria :shcl/core/lexer :shcl/core/utility
+   :shcl/core/iterator)
   (:import-from :shcl/core/advice #:define-advisable)
   (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)

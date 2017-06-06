@@ -1,5 +1,7 @@
 (defpackage :shcl/core/shell-grammar
-  (:use :common-lisp :shcl/core/parser :shcl/core/lexer :shcl/core/utility)
+  (:use
+   :common-lisp :shcl/core/parser :shcl/core/lexer :shcl/core/utility
+   :shcl/core/iterator)
   (:import-from :shcl/core/advice #:define-advice)
   (:export
    #:command-iterator

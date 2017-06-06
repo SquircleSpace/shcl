@@ -1,5 +1,7 @@
 (defpackage :shcl/core/lexer
-  (:use :common-lisp :shcl/core/utility :shcl/core/shell-readtable)
+  (:use
+   :common-lisp :shcl/core/utility :shcl/core/shell-readtable
+   :shcl/core/iterator)
   (:import-from :fset)
   (:import-from :closer-mop)
   (:import-from :cl-unicode)

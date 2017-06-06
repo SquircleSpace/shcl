@@ -1,7 +1,9 @@
 (defpackage :shcl/core/lisp-interpolation
-  (:use :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
-        :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/builtin :shcl/core/exit-info
-        :shcl/core/fd-table :shcl/core/shell-readtable)
+  (:use
+   :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
+   :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/builtin
+   :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
+   :shcl/core/shell-readtable)
   (:import-from :babel)
   (:import-from :cffi)
   (:import-from :fset)

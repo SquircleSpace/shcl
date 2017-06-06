@@ -1,6 +1,7 @@
 (defpackage :shcl/core/posix
-  (:use :common-lisp :cffi :trivial-garbage :shcl/core/posix-types :shcl/core/utility
-        :shcl/core/support :bordeaux-threads)
+  (:use
+   :common-lisp :cffi :trivial-garbage :bordeaux-threads :shcl/core/posix-types
+   :shcl/core/utility :shcl/core/iterator :shcl/core/support)
   (:import-from :fset)
   (:export
    #:environment-iterator #:dir-ptr #:fdopendir
