@@ -1,6 +1,7 @@
 (defpackage :shcl/core/environment
-  (:use :common-lisp :shcl/core/utility :shcl/core/posix
-        :shcl/core/shell-environment)
+  (:use
+   :common-lisp :shcl/core/utility :shcl/core/posix :shcl/core/shell-environment
+   :shcl/core/iterator)
   (:import-from :fset)
   (:export
    #:*environment* #:linearized-exported-environment #:with-environment-scope

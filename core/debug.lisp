@@ -1,5 +1,6 @@
 (defpackage :shcl/core/debug
-  (:use :common-lisp :trivial-gray-streams :shcl/core/utility)
+  (:use
+   :common-lisp :trivial-gray-streams :shcl/core/utility :shcl/core/iterator)
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export

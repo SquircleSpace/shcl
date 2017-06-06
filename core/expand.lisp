@@ -1,7 +1,7 @@
 (defpackage :shcl/core/expand
   (:use
    :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/environment
-   :shcl/core/working-directory)
+   :shcl/core/working-directory :shcl/core/iterator)
   (:import-from :fset)
   (:import-from :cl-ppcre #:create-scanner #:scan)
   (:import-from :cffi #:foreign-string-to-lisp #:foreign-slot-pointer #:null-pointer-p)

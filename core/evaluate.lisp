@@ -1,9 +1,10 @@
 (defpackage :shcl/core/evaluate
-  (:use :common-lisp :alexandria :bordeaux-threads
-        :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer :shcl/core/fork-exec
-        :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/builtin
-        :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
-        :shcl/core/working-directory :shcl/core/shell-environment)
+  (:use
+   :common-lisp :alexandria :bordeaux-threads
+   :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer :shcl/core/fork-exec
+   :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/builtin
+   :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
+   :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluate))
