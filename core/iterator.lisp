@@ -5,7 +5,8 @@
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
-   #:filter-iterator #:iterator-values #:lookahead-iterator-wrapper))
+   #:filter-iterator #:iterator-values #:lookahead-iterator-wrapper
+   #:lookahead-iterator-position-token))
 (in-package :shcl/core/iterator)
 
 (defclass iterator ()
@@ -140,6 +141,16 @@ them.  Using the `peek-lookahead-iterator' function, you can see what
 the next value will be.  Using `fork-lookahead-iterator', you can peek
 arbitrarily far into the future of the sequence.")
   (:metaclass closer-mop:funcallable-standard-class))
+
+(defun lookahead-iterator-position-token (iter)
+  "Returns a value representing the position of the iterator.
+
+This is an opaque value that can be compared to other position tokens
+with `eq'.  The exact nature of the token is unspecified and subject
+to change at any time.  If two lookahead iterators have `eq' position
+tokens then they are at the same place in the same stream."
+  (with-slots (buffer) iter
+    buffer))
 
 (defmethod initialize-instance :after ((iter lookahead-iterator) &key)
   (with-slots (compute buffer) iter
