@@ -24,11 +24,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (define-foreign-library libedit
-    (t (:default "libedit")))
-  (define-foreign-library libncursesw
-    (t (:default "libncursesw"))))
+    (t (:default "libedit"))))
 
-(use-foreign-library libncursesw)
 (use-foreign-library libedit)
 
 (defctype editline-ptr :pointer
