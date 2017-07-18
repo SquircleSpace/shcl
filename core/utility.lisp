@@ -4,7 +4,7 @@
   (:import-from :closer-mop)
   (:shadow #:when-let #:when-let*)
   (:export
-   #:as-> #:-> #:->> #:define-once-global #:required
+   #:whitespace-p #:as-> #:-> #:->> #:define-once-global #:required
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
    #:symbol-nconc-gensym #:symbol-nconc-intern
@@ -20,6 +20,16 @@ Put this at the top of every file!"
   `(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0))))
 
 (optimization-settings)
+
+(defconstant +whitespace-characters+
+  (if (boundp '+whitespace-characters+)
+      +whitespace-characters+
+      #(#\Space #\Linefeed #\Tab #\Return))
+  "The set of characters which should be considered whitespace")
+
+(defun whitespace-p (char)
+  "Returns non-nil iff the given character is a whitespace character"
+  (find char +whitespace-characters+))
 
 (defmacro as-> (value sigil &body forms)
   (let ((form value))

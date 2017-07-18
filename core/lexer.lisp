@@ -4,7 +4,6 @@
    :shcl/core/iterator)
   (:import-from :fset)
   (:import-from :closer-mop)
-  (:import-from :cl-unicode)
   (:export
    ;; Token classes
    #:token #:a-word #:eof #:simple-word #:compound-word
@@ -488,9 +487,6 @@
            (setf next-char (peek-char nil stream nil :eof))))
       (assert (done-p)))))
 
-(defun blank-p (char)
-  (cl-unicode:has-binary-property char "White_Space"))
-
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
     (let ((token (next-token stream :readtable readtable)))
@@ -787,7 +783,7 @@
                ;; If the current character is an unquoted <blank>, any
                ;; token containing the previous character is delimited
                ;; and the current character shall be discarded.
-               ((blank-p (next-char))
+               ((whitespace-p (next-char))
                 (unless (lexer-context-no-content-p context)
                   (delimit))
                 (lexer-context-consume-character context)
