@@ -705,7 +705,7 @@ you insert them into your return value."))
   "Return two values: a string containing the non-whitespace
 characters in `$ifs' and a string containing the whitespace characters
 in `$ifs'."
-  (labels ((blank (c) (cl-unicode:has-binary-property c "White_Space"))
+  (labels ((blank (c) (whitespace-p c))
            (not-blank (c) (not (blank c))))
     (values
      (remove-if #'not-blank ifs)
