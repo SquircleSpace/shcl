@@ -12,6 +12,7 @@
    #:with-history #:history-enter #:history-set-size #:make-editline-stream)
   (:import-from :cl-cli)
   (:import-from :uiop)
+  (:import-from :swank)
   (:export #:main #:run-shell-commands-in-stream))
 (in-package :shcl/shell/main)
 
@@ -152,14 +153,6 @@ a stream like the one created by `shcl/shell/prompt:make-editline-stream'."
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (unless (find-package "SWANK-LOADER")
-    (load #P"/usr/share/emacs/site-lisp/slime/swank-loader.lisp"))
-  (unless (find-package "SWANK")
-    (handler-bind
-        ((style-warning #'muffle-warning))
-      (funcall (intern "INIT" (find-package "SWANK-LOADER"))))))
-
 (defun main ()
   "Start running SHCL's shell.
 
@@ -176,7 +169,7 @@ example, that...
       (return-from main))
 
     (when *debug*
-      (funcall (intern "CREATE-SERVER" (find-package "SWANK")) :port 4005))
+      (swank:create-server :port 4005))
 
     (when *enable-lisp-splice*
       (setf *shell-readtable* *splice-table*))
