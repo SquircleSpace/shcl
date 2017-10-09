@@ -13,7 +13,7 @@ libshcl-support.so: ${SUPPORT_OBJS} Makefile
 	clang -shared -o $@ ${SUPPORT_OBJS}
 
 shcl: ${SHCL_DEPENDS} Makefile
-	sbcl --load make.lisp
+	sbcl --eval '(require :asdf)' --load make.lisp
 
 .PHONY: test
 test: test/*.lisp ${SHCL_DEPENDS} Makefile
