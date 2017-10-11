@@ -504,7 +504,11 @@ and io redirects."
                status)
           (setf arguments (with-environment-scope (new-environment)
                             (expansion-for-words arguments :expand-aliases t :expand-pathname t)))
-          (when-let ((builtin (lookup-builtin (fset:first arguments))))
+
+          (when-let* ((command (fset:first arguments))
+                      (builtin (and
+                                (not (find #\/ command))
+                                (lookup-builtin command))))
             (return-from evaluate
               (make-exit-info :exit-status (funcall builtin arguments))))
 

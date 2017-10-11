@@ -21,6 +21,8 @@ symbol and `builtin-name' is a string.  If `name' is simply a symbol,
 then the builtin name is the downcased symbol name."
   (when (symbolp name)
     (setf name (list name (string-downcase (symbol-name name)))))
+  (when (find #\/ name)
+    (warn "Builtin name ~W is not callable in shell commands due to #\/ character" name))
   (destructuring-bind (function-sym string-form) name
     (multiple-value-bind (body-forms declarations doc-string) (alexandria:parse-body body :documentation t)
       `(progn
