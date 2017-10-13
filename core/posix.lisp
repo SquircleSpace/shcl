@@ -5,7 +5,7 @@
   (:import-from :fset)
   (:export
    #:environment-iterator #:dir-ptr #:fdopendir
-   #:closedir #:dirfd #:readdir #:open-fds
+   #:closedir #:dirfd #:readdir
    #:posix-read #:strlen #:posix-write #:exit
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen #:fclose
