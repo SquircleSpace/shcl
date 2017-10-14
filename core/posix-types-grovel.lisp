@@ -59,6 +59,8 @@
 (constant (o-trunc "O_TRUNC"))
 (constant (o-append "O_APPEND"))
 (constant (f-getfd "F_GETFD"))
+(constant (f-setfd "F_SETFD"))
+(constant (fd-cloexec "FD_CLOEXEC"))
 (constant (wuntraced "WUNTRACED"))
 (constant (eintr "EINTR"))
 (constant (enoent "ENOENT"))
