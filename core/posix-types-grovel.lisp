@@ -42,8 +42,16 @@
 
 (constant (s-irusr "S_IRUSR"))
 (constant (s-iwusr "S_IWUSR"))
+(constant (s-ixusr "S_IXUSR"))
+
 (constant (s-irgrp "S_IRGRP"))
+(constant (s-iwgrp "S_IWGRP"))
+(constant (s-ixgrp "S_IXGRP"))
+
 (constant (s-iroth "S_IROTH"))
+(constant (s-iwoth "S_IWOTH"))
+(constant (s-ixoth "S_IXOTH"))
+
 (constant (o-rdonly "O_RDONLY"))
 (constant (o-wronly "O_WRONLY"))
 (constant (o-rdwr "O_RDWR"))
