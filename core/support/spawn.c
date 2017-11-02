@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
 
 enum shcl_fd_action {
     shcl_fd_action_close,
@@ -110,18 +113,21 @@ int shcl_spawn(
     }
 
     if (0 > fchdir(working_directory_fd)) {
+        fprintf(stderr, "shcl: %s: Invalid working directory: %s\n", path, strerror(errno));
         _exit(127);
     }
 
     shcl_fd_actions_take(fd_actions);
 
     if (0 != clearenv()) {
+        fprintf(stderr, "shcl: %s: Bug Detected. Environment corrupt: %s\n", path, strerror(errno));
         _exit(127);
     }
 
     for (int i = 0; NULL != envp[i]; ++i) {
         char *env_str = envp[i];
         if (0 != putenv(env_str)) {
+            fprintf(stderr, "shcl: %s: Invalid environment entry: %s\n", path, strerror(errno));
             _exit(127);
         }
     }
@@ -131,5 +137,6 @@ int shcl_spawn(
     } else {
         execv(path, argv);
     }
+    fprintf(stderr, "shcl: %s: %s\n", path, strerror(errno));
     _exit(127);
 }
