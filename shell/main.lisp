@@ -13,6 +13,7 @@
   (:import-from :cl-cli)
   (:import-from :uiop)
   (:import-from :swank)
+  (:import-from :fset)
   (:export #:main #:run-shell-commands-in-stream))
 (in-package :shcl/shell/main)
 
@@ -153,6 +154,21 @@ a stream like the one created by `shcl/shell/prompt:make-editline-stream'."
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
+(define-builtin -shcl-start-swank (args)
+  "Start a swank server.
+
+Optional argument is the port to start the server on."
+  (let ((port 4005))
+    (case (fset:size args)
+      (1)
+      (2
+       (setf port (parse-integer (fset:lookup args 1) :junk-allowed nil)))
+      (otherwise
+       (format *error-output* "-shcl-start-swank: Invalid arguments~%")
+       (return-from -shcl-start-swank 2)))
+    (swank:create-server :port port)
+    0))
+
 (defun main ()
   "Start running SHCL's shell.
 
@@ -169,7 +185,7 @@ example, that...
       (return-from main))
 
     (when *debug*
-      (swank:create-server :port 4005))
+      (-shcl-start-swank (fset:seq "-shcl-start-swank")))
 
     (when *enable-lisp-splice*
       (setf *shell-readtable* *splice-table*))
