@@ -152,7 +152,7 @@
        ;; Step 9
        (setf pwd-curpath curpath)
        (when (>= (path-byte-length curpath) path-max)
-         (error "Long paths are not implemented"))
+         (error 'not-implemented :feature "Long paths"))
 
      step-10
        (let (pwd-string
