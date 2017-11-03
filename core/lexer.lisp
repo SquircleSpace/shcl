@@ -360,7 +360,7 @@
 
 (defun read-backquote (stream)
   (declare (ignore stream))
-  (error "Backquote is not implemented.  It sucks anyway.  Use $()"))
+  (error 'not-implemented :feature "Backquote (it sucks and you should use $())"))
 
 (defclass command-word (a-word)
   ((tokens
@@ -406,7 +406,7 @@
   (assert nil nil "This function doesn't return normally"))
 
 (defun read-dollar-paren-paren (stream)
-  (error "$(()) is not implemented")
+  (error 'not-implemented :feature "$(())")
   (let ((next-char (peek-char nil stream nil :eof))
         (result (make-extensible-vector :element-type 'character)))
     (labels ((take ()
@@ -445,7 +445,7 @@
 
 (defun read-dollar-curly (stream)
   (declare (ignore stream))
-  (error "${} is not implemented"))
+  (error 'not-implemented :feature "${}"))
 
 (defun read-dollar-word (stream)
   (assert (equal #\$ (read-char stream nil :eof)))

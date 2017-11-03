@@ -8,6 +8,8 @@
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
    #:symbol-nconc-gensym #:symbol-nconc-intern
+   ;; Conditions
+   #:not-implemented
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
    #:observe-revival #:on-dump #:observe-dump))
@@ -184,6 +186,17 @@ initialized at most once.  Redefining the variable with
        (loop :for line :across chunk :do
           (emit-log-line line output-stream)))
     (values)))
+
+(define-condition not-implemented (warning error)
+  ((feature
+    :initarg :feature
+    :initform ""
+    :accessor not-implemented-feature
+    :type string))
+  (:report (lambda (c s) (format s "NOT IMPLEMENTED ~A~%" (not-implemented-feature c))))
+  (:documentation
+   "A condition indicating that a feature hasn't been implemented
+yet."))
 
 (defstruct hook
   (functions (fset:empty-set)))

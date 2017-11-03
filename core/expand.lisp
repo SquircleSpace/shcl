@@ -357,7 +357,7 @@ Returns nil on EOF."
 (defun parse-char-class-glob (chars first-p)
   (declare (ignore first-p))
   ;; TODO: This isn't what the standard says to do!
-  (warn "[] glob patterns are not implemented.  Falling back on hacky (but almost right) behavior")
+  (warn 'not-implemented :feature "[] glob patterns (falling back on hacky (but almost right) behavior)")
   `(:regex ,(concatenate 'string "[" chars "]")))
 
 (defun make-wild-path-component-from-fragments (fragments)
@@ -588,7 +588,7 @@ fragments."
            (new-first (make-string-fragment $home :quoted t :literal nil)))
       (unless (or (zerop (length shortened))
                   (equal #\/ (aref shortened 0)))
-        (error "~~name/ is not implemented"))
+        (error 'not-implemented :feature "~~name/"))
       (setf (string-fragment-string replacement-fragment) shortened)
       (fset:with-first (fset:with-first less-first replacement-fragment) new-first))))
 
@@ -693,7 +693,7 @@ you insert them into your return value."))
           (cond
             ((or (equal variable "@")
                  (equal variable "*"))
-             (error "Not implemented"))
+             (error 'not-implemented :feature "Special variables"))
 
             (t
              (env variable)))))

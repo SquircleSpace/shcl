@@ -16,17 +16,6 @@
   (logior s-irusr s-iwusr s-irgrp s-iroth)
   "The umask that should be used when creating new files.")
 
-(define-condition not-implemented (warning error)
-  ((message
-    :initarg :message
-    :initform ""
-    :accessor not-implemented-message
-    :type string))
-  (:report (lambda (c s) (format s "NOT-IMPLEMENTED ~A~%" (not-implemented-message c))))
-  (:documentation
-   "A condition indicating that a feature hasn't been implemented
-yet."))
-
 (defgeneric open-args-for-redirect (redirect)
   (:documentation
    "Returns the flags that should be passed to the posix open function
@@ -56,7 +45,7 @@ directly."))
   (with-slots (redirect filename) io-file
     (let ((expansion (expansion-for-words (fset:seq filename) :split-fields nil :expand-pathname t)))
       (unless (equal 1 (fset:size expansion))
-        (error "file name expanded to ~A words.  Not implemented." (fset:size expansion)))
+        (error 'not-implemented :feature "file name expanded to multiple words"))
       (setf expansion (fset:first expansion))
       (fd-autorelease
        (openat-retained (current-working-directory-fd)
@@ -93,7 +82,7 @@ directly."))
     (with-slots (io-number io-file io-here) r
       (cond
         ((slot-boundp r 'io-here)
-         (error 'not-implemented :message "Here-documents are not implemented"))
+         (error 'not-implemented :feature "Here-documents"))
 
         ((slot-boundp r 'io-file)
          (handle-redirect io-file (to-int io-number)))
@@ -132,7 +121,7 @@ directly."))
 
 (defmethod handle-redirect ((r io-here) &optional fd-override)
   (declare (ignore fd-override))
-  (error 'not-implemented :message "Here-documents are not implemented"))
+  (error 'not-implemented :feature "Here-documents"))
 
 (defmethod handle-redirect ((r redirect-list) &optional fd-override)
   (when fd-override
@@ -154,7 +143,7 @@ directly."))
 
 (defun evaluate-background-job (sy)
   (declare (ignore sy))
-  (error 'not-implemented :message "Background jobs aren't implemented")
+  (error 'not-implemented :feature "Background jobs")
   (truthy-exit-info))
 
 (defun evaluate-synchronous-job (sy)
@@ -198,7 +187,7 @@ It is analogous to `eval' for Common Lisp.
 The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod evaluate (sy)
-  (error 'not-implemented :message (format nil "Cannot eval ~A" (class-name (class-of sy)))))
+  (error 'not-implemented :feature (format nil "Cannot eval ~A" (class-name (class-of sy)))))
 
 (defmethod evaluate ((sy complete-command))
   (with-slots (newline-list complete-command command-list) sy
@@ -474,7 +463,7 @@ and io redirects."
                      :expand-pathname nil
                      :split-fields nil)))
       (unless (equal 1 (fset:size expanded))
-        (error "Handling of variables with multiple fields is not implemented"))
+        (error 'not-implemented :feature "Variables with multiple fields"))
       (setf (env (simple-word-text name)) (fset:first expanded)))))
 
 (defun evaluate-command-free (assignments redirects)
