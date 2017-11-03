@@ -156,8 +156,9 @@ bindings."
 (defun preserve-fd-bindings ()
   "Create a version of the current fd bindings that can be revived
 later."
-  (retain-fd-bindings *fd-bindings*)
-  *fd-bindings*)
+  (let ((bindings (or *fd-bindings* (fset:empty-map))))
+    (retain-fd-bindings bindings)
+    bindings))
 
 (defun destroy-fd-bindings (bindings)
   "Reclaim the resources associated with the given fd bindings.
