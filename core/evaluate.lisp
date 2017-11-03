@@ -323,8 +323,9 @@ The methods on this function are tightly coupled to the shell grammar."))
       (return-from evaluate (evaluate-synchronous-job compound-command)))))
 
 (defmethod evaluate ((sy subshell))
-  (declare (ignore sy))
-  (error 'not-implemented :message "Subshells not implemented"))
+  (with-slots (compound-list) sy
+    (with-restored-shell-environment (preserve-shell-environment)
+      (return-from evaluate (evaluate-synchronous-job compound-list)))))
 
 (defmethod evaluate ((sy compound-list))
   (with-slots (newline-list term) sy
