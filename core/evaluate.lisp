@@ -500,7 +500,7 @@ and io redirects."
                                 (not (find #\/ command))
                                 (lookup-builtin command))))
             (return-from evaluate
-              (make-exit-info :exit-status (funcall builtin arguments))))
+              (funcall builtin arguments)))
 
           (with-living-fds (fds)
             (setf pid (run arguments
