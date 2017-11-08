@@ -3,7 +3,7 @@
   (:export
    #:exit-info #:exit-info-p #:exit-info-true-p #:exit-info-false-p
    #:invert-exit-info #:make-exit-info #:truthy-exit-info #:falsey-exit-info
-   #:internal-error-exit-info))
+   #:internal-error-exit-info #:exit-info-code))
 (in-package :shcl/core/exit-info)
 
 (optimization-settings)
@@ -78,11 +78,11 @@ sucesfully."
       (make-exit-info :exit-status 0)))
 
 (defun exit-info-code (exit-info)
-  "Turn an exit-info into an integer.  This probably isn't something you want."
-  (with-slots (exit-code exit-signal stop-signal) exit-info
-    (+ (if exit-code exit-code 0)
-       (if exit-signal (ash exit-signal 7) 0)
-       (if stop-signal (ash stop-signal 8) 0))))
+  "Turn an exit-info into an integer."
+  (with-slots (exit-status exit-signal stop-signal) exit-info
+    (+ (if exit-status exit-status 0)
+       (if exit-signal exit-signal 0)
+       (if stop-signal stop-signal 0))))
 
 (defun make-exit-info (&key pid exit-status exit-signal stop-signal)
   "Produce an exit info that incorperates the given information."
