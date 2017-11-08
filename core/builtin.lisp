@@ -5,7 +5,7 @@
   (:import-from :shcl/core/fd-table #:with-fd-streams)
   (:import-from :shcl/core/exit-info #:exit-info #:make-exit-info)
   (:shadow #:dump-logs)
-  (:export #:define-builtin #:lookup-builtin))
+  (:export #:define-builtin #:lookup-builtin #:builtin-argument-error #:wrap-errors))
 (in-package :shcl/core/builtin)
 
 (optimization-settings)

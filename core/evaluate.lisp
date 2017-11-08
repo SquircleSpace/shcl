@@ -336,6 +336,85 @@ The methods on this function are tightly coupled to the shell grammar."))
 (defmethod evaluate ((sy term-tail))
   (evaluate-term sy))
 
+(define-condition loop-jump ()
+  ((count
+    :initarg :count
+    :initform 1
+    :accessor loop-jump-count)
+   (exit-info
+    :initarg :exit-info
+    :initform (truthy-exit-info)
+    :reader loop-jump-exit-info)))
+
+(defun stop-loop-jump (condition)
+  (setf (loop-jump-count condition) 0))
+
+(defmacro loop-jump-boundary (&body body)
+  `(handler-bind
+       ((loop-jump 'stop-loop-jump))
+     ,@body))
+
+(define-condition loop-break (loop-jump)
+  ())
+
+(define-builtin (builtin-break "break") (args)
+  (wrap-errors
+    (when (> (fset:size args) 2)
+      (error "Invalid arguments"))
+    (let ((count (if (equal 1 (fset:size args))
+                     1
+                     (parse-integer (fset:lookup args 1) :junk-allowed nil))))
+      (unless (plusp count)
+        (error "Count must be positive"))
+      (signal 'loop-break :count count))
+    (error "No loops detected")))
+
+(define-condition loop-continue (loop-jump)
+  ())
+
+(define-builtin (builtin-continue "continue") (args)
+  (wrap-errors
+    (when (> (fset:size args) 2)
+      (error "Invalid arguments"))
+    (let ((count (if (equal 1 (fset:size args))
+                     1
+                     (parse-integer (fset:lookup args 1) :junk-allowed nil))))
+      (unless (plusp count)
+        (error "Count must be positive"))
+      (signal 'loop-continue :count count))
+    (error "No loops detected")))
+
+(defun %shell-while-loop (condition-fn body-fn)
+  (let (result)
+    (macrolet
+        ((%loop-jump-propagate (&body body)
+           (let ((err (gensym "ERR")))
+             `(lambda (,err)
+                (when (plusp (loop-jump-count ,err))
+                  (decf (loop-jump-count ,err))
+                  (setf result (loop-jump-exit-info ,err))
+                  (when (plusp (loop-jump-count ,err))
+                    (signal ,err))
+                  ,@body)))))
+      (loop :while (funcall condition-fn)
+         :do
+         (block continue
+           (restart-case
+               (handler-bind
+                   ((loop-break
+                       (%loop-jump-propagate (return)))
+                    (loop-continue
+                       (%loop-jump-propagate (return-from continue))))
+                 (setf result (funcall body-fn)))
+             (break-loop ()
+               (return))
+             (continue-loop ()
+               (return-from continue))))))
+    (or result (truthy-exit-info))))
+
+(defmacro shell-while-loop (condition &body body)
+  `(%shell-while-loop (lambda () ,condition) (lambda () ,@body)))
+
 (defun wordlist-words (wordlist)
   (let ((result (make-extensible-vector)))
     (labels
@@ -359,11 +438,14 @@ The methods on this function are tightly coupled to the shell grammar."))
                #())))
            (words (expansion-for-words wordlist :expand-pathname t))
            (name (simple-word-text (slot-value name-nt 'name)))
-           result)
-      (do-iterator (word (iterator words))
-        (setf (env name) word)
-        (setf result (evaluate-synchronous-job do-group)))
-      (or result (make-exit-info :exit-status 0)))))
+           (iter (iterator words))
+           current-word)
+      (shell-while-loop
+          (multiple-value-bind (value valid) (next iter)
+            (setf current-word value)
+            valid)
+        (setf (env name) current-word)
+        (evaluate-synchronous-job do-group)))))
 
 (defun evaluate-if-clause (sy)
   (check-type sy (or if-clause else-part))
@@ -384,10 +466,9 @@ The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod evaluate ((sy while-clause))
   (with-slots (compound-list do-group) sy
-    (let (result)
-      (loop :while (exit-info-true-p (evaluate-synchronous-job compound-list)) :do
-         (setf result (evaluate-synchronous-job do-group)))
-      (or result (truthy-exit-info)))))
+    (shell-while-loop
+        (exit-info-true-p (evaluate-synchronous-job compound-list))
+      (evaluate-synchronous-job do-group))))
 
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
