@@ -163,6 +163,21 @@ environment in which this function call appears.  They will be
 evauluated in the null lexical environment."
   (eval `(evaluate-constant-shell-string ,string ,@(when readtable `(:readtable ,readtable)))))
 
+(define-builtin (builtin-eval "eval") (args)
+  (setf args (fset:less-first args))
+  (let* (sep-needed
+         (command
+          (with-output-to-string (s)
+            (fset:do-seq (word args)
+              (unless (zerop (length word))
+                (when sep-needed
+                  (write-char #\space s))
+                (write-string word s)
+                (setf sep-needed t))))))
+    (when (zerop (length command))
+      (return-from builtin-eval 0))
+    (evaluate-shell-string command :readtable +standard-shell-readtable+)))
+
 (defmacro parse-token-sequence (tokens)
   "This macro is responsible for parsing (at macro expansion time) a
 sequence of tokens and producing code which evaulates the shell
