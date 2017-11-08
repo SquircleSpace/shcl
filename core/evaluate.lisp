@@ -537,6 +537,7 @@ and io redirects."
 
 (defmethod evaluate :around (sy)
   (let ((result (call-next-method)))
-    (unless (exit-info-p result)
-      (warn 'not-an-exit-info :actual-type (class-name (class-of result)) :eval-target sy))
+    (if (exit-info-p result)
+        (setf (env "?") (format nil "~A" (exit-info-code result)))
+        (warn 'not-an-exit-info :actual-type (class-name (class-of result)) :eval-target sy))
     result))
