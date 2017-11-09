@@ -34,19 +34,12 @@ Put this at the top of every file!"
   (find char +whitespace-characters+))
 
 (defmacro as-> (value sigil &body forms)
-  (let ((form value))
-    (dolist (fn-call forms)
-      (let (found)
-        (setf form
-              (loop :for elt :in fn-call :collecting
-                 (if (eq elt sigil)
-                     (if found
-                         (error "Multiple sigils found in ~A" fn-call)
-                         (progn (setf found t) form))
-                     elt)))
-        (unless found
-          (error "No sigils found in ~A" fn-call))))
-    form))
+  (labels
+      ((binding (form)
+         `(,sigil ,form)))
+    `(let* ((,sigil ,value)
+            ,@(mapcar #'binding forms))
+       ,sigil)))
 
 (defmacro -> (value &body forms)
   (let ((sigil (gensym "SIGIL")))
