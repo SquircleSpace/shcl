@@ -574,7 +574,8 @@ and io redirects."
                pid
                status)
           (setf arguments (with-environment-scope (new-environment)
-                            (expansion-for-words arguments :expand-aliases t :expand-pathname t)))
+                            (with-fd-streams ()
+                              (expansion-for-words arguments :expand-aliases t :expand-pathname t))))
 
           (when-let* ((command (fset:first arguments))
                       (builtin (and
