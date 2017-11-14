@@ -57,27 +57,34 @@ Tokens are read using `*shell-readtable*', and their bake forms (see
         (emit token)))
     form-queue)))
 
-(defun restartable-command-iterator (stream form-queue)
+(defun restartable-command-iterator (stream form-queue &key history)
   "Return an iterator that emits the fully parsed commands that
 `stream' contains.
 
 Tokens are read using `main-token-iterator', and bake forms are placed
 in `form-queue'.  See `shcl/core/baking:bake-tokens'."
-  (let* ((tokens (main-token-iterator stream form-queue))
+  (let* ((captured-input (when history (make-string-output-stream)))
+         (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
+         (tokens (main-token-iterator wrapped-stream form-queue))
          (commands (command-iterator tokens)))
     (labels
-        ((reset-token-iterator ()
-           (loop :while (read-char-no-hang stream nil nil))
-           (setf tokens (main-token-iterator stream form-queue)
-                 commands (command-iterator tokens))))
+        ((record-history ()
+           (when history
+             (history-enter history (get-output-stream-string captured-input))))
+         (reset-token-iterator ()
+           (loop :while (read-char-no-hang wrapped-stream nil nil))
+           (setf tokens (main-token-iterator wrapped-stream form-queue)
+                 commands (command-iterator tokens))
+           (record-history)))
       (make-iterator ()
         (tagbody
          start
            (restart-case
-               (multiple-value-bind (value more) (next commands)
-                 (if more
-                     (emit value)
-                     (stop)))
+               (progn
+                 (do-iterator (value commands)
+                   (record-history)
+                   (emit value))
+                 (stop))
              (ignore ()
                (reset-token-iterator)
                (go start))))))))
@@ -114,38 +121,30 @@ See `cl-cli:parse-cli'."
        (progv ,vars ,values
          ,@body))))
 
-(defun run-shell-commands-in-stream (stream &key history)
-  "Read and evaluate shell commands contained within the given
-stream.
-
-This function will not display prompts.  You probably want to provide
-a stream like the one created by `shcl/shell/prompt:make-editline-stream'."
+(defun exit-info-iterator (stream &key history)
   (let* ((form-queue (make-queue))
-         (captured-input (when history (make-string-output-stream)))
-         (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
-         (commands (restartable-command-iterator wrapped-stream form-queue))
-         (*fresh-prompt* t)
-         last-result)
-    (restart-case
-        (do-iterator (tree commands)
-          (when history
-            (history-enter history (get-output-stream-string captured-input)))
-          (loop
-             (let* ((stop '#:stop)
-                    (form (dequeue-no-block form-queue stop)))
-               (when (eq stop form)
-                 (return))
-               (debug-log status "EVAL ~A" form)
-               (eval form)))
-          (debug-log status "TREE: ~A" tree)
-          (restart-case
-              (let ((result (evaluate tree)))
-                (setf last-result result)
-                (debug-log status "RESULT ~A" result))
-            (skip ()))
-          (setf *fresh-prompt* t))
-      (die () (exit 1)))
-    last-result))
+         (commands (restartable-command-iterator stream form-queue :history history)))
+    (make-iterator ()
+      (let ((*fresh-prompt* t))
+        (restart-case
+            (progn
+              (do-iterator (tree commands)
+                (setf *fresh-prompt* t)
+                (loop
+                   (let* ((stop '#:stop)
+                          (form (dequeue-no-block form-queue stop)))
+                     (when (eq stop form)
+                       (return))
+                     (debug-log status "EVAL ~A" form)
+                     (eval form)))
+                (debug-log status "TREE: ~A" tree)
+                (restart-case
+                    (let ((result (evaluate tree)))
+                      (debug-log status "RESULT ~A" result)
+                      (emit result))
+                  (skip ())))
+              (stop))
+          (die () (exit 1)))))))
 
 (define-builtin enable-lisp-syntax (args)
   "Permit the use of lisp splice forms in shell expressions."
@@ -194,4 +193,5 @@ example, that...
       (history-set-size h 800)
       (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
             (*package* (find-package :shcl-user)))
-        (run-shell-commands-in-stream stream :history h)))))
+        (do-iterator (exit-info (exit-info-iterator stream :history h))
+          (declare (ignore exit-info)))))))
