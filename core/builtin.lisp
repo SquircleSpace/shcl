@@ -89,3 +89,7 @@ the provided string name.
 
 Returns nil if there is no builtin by the given name."
   (fset:lookup *builtin-table* name))
+
+(define-builtin (colon ":") (args)
+  (declare (ignore args))
+  0)
