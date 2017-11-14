@@ -5,7 +5,7 @@
   (:import-from :shcl/core/advice #:define-advisable)
   (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
-  (:export #:define-parser #:syntax-iterator #:make-internal-parse-error))
+  (:export #:define-parser #:syntax-iterator #:make-internal-parse-error #:abort-parse))
 (in-package :shcl/core/parser)
 
 (optimization-settings)
