@@ -32,6 +32,7 @@
           for lbrace rbrace bang in semi par pipe lparen rparen great less))
 
   (start
+   eof
    complete-command)
 
   (complete-command
@@ -283,7 +284,13 @@
   (call-next-method))
 
 (defun command-iterator (token-iterator)
-  (syntax-iterator #'parse-shell-grammar token-iterator))
+  (let ((iter (syntax-iterator #'parse-shell-grammar token-iterator)))
+    (make-iterator ()
+      (do-iterator (value iter)
+        (when (eq value 'eof)
+          (stop))
+        (emit value))
+      (stop))))
 
 (defgeneric parse-shell (source))
 
