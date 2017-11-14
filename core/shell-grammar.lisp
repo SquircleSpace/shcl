@@ -291,7 +291,7 @@
   (parse-shell (make-string-input-stream s)))
 
 (defmethod parse-shell ((s stream))
-  (parse-shell (token-iterator s)))
+  (parse-shell (lookahead-iterator-wrapper (token-iterator s))))
 
 (defmethod parse-shell ((iter lookahead-iterator))
   (next (command-iterator iter)))
