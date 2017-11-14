@@ -86,14 +86,16 @@ control transfer out of the body of `make-iterator'."
   "Iterate across the values produced by an iterator"
   (let ((iter-sym (gensym "ITER-SYM"))
         (more-sym (gensym "MORE-SYM"))
-        (iter-fun (gensym "ITER-FUN")))
+        (iter-fun (gensym "ITER-FUN"))
+        (internal-value-sym (gensym "INTERNAL-VALUE-SYM")))
     `(let* ((,iter-sym ,iter)
             (,iter-fun (iterate-function ,iter-sym)))
        (loop
-          (multiple-value-bind (,value-sym ,more-sym) (funcall ,iter-fun ,iter-sym)
+          (multiple-value-bind (,internal-value-sym ,more-sym) (funcall ,iter-fun ,iter-sym)
             (unless ,more-sym
               (return ,result))
-            ,@body)))))
+            (let ((,value-sym ,internal-value-sym))
+              ,@body))))))
 
 (defun map-iterator (iter function)
   "Create a new iterator that applies the given function to each value
