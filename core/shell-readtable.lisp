@@ -330,38 +330,35 @@ The result of this macro is equivalent to
 
 (defun %shell-extensible-read (stream readtable initiation-sequence fallback context)
   (let ((next-char (peek-char nil stream nil :eof)))
-    ;; TODO: Isn't it a bit insane for default handlers to get a
-    ;; single peek'd character when normal handlers only get read
-    ;; characters?
-    (vector-push-extend next-char initiation-sequence)
     (multiple-value-bind (value found) (table-handler readtable next-char)
       (when (not found)
         (return-from %shell-extensible-read (funcall (or value fallback) stream initiation-sequence context)))
 
-    (read-char stream nil :eof)
-    (let ((result
-           (typecase value
-             (dispatch-table
-              (let ((inner-fallback (table-default value)))
-                (%shell-extensible-read stream
-                                        value
-                                        initiation-sequence
-                                        (or inner-fallback
-                                            (lambda (s i c)
-                                              (declare (ignore s c))
-                                              (error "Unhandled dispatch character sequence ~A" i)))
-                                        context)))
+      (vector-push-extend (read-char stream nil :eof) initiation-sequence)
 
-             (t
-              (funcall value stream initiation-sequence context)))))
+      (let ((result
+             (typecase value
+               (dispatch-table
+                (let ((inner-fallback (table-default value)))
+                  (%shell-extensible-read stream
+                                          value
+                                          initiation-sequence
+                                          (or inner-fallback
+                                              (lambda (s i c)
+                                                (declare (ignore s c))
+                                                (error "Unhandled dispatch character sequence ~A" i)))
+                                          context)))
 
-      result))))
+               (t
+                (funcall value stream initiation-sequence context)))))
+
+        result))))
 
 (defun shell-extensible-read (stream context readtable)
   (labels
       ((fallback (s initiation-sequence c)
          (declare (ignore s c))
-         (assert (equal 1 (length initiation-sequence)) nil
+         (assert (equal 0 (length initiation-sequence)) nil
                  "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
          (return-from shell-extensible-read nil)))
     (%shell-extensible-read stream readtable (make-extensible-vector) #'fallback context)))
