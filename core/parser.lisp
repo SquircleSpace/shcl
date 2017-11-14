@@ -107,7 +107,8 @@
          (declare (inline no-parse abort-parse emit)
                   (dynamic-extent #'no-parse #'abort-parse #'emit)
                   (ignorable #'no-parse #'abort-parse #'emit))
-         (emit (progn ,@real-body))))))
+         (progn ,@real-body)
+         (error "Explicit emit is required")))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun parser-part-name (thing)
@@ -196,7 +197,7 @@
        (unless (typep value ',type)
          (no-parse "Token mismatch" ',name)))
 
-     (next iter)))
+     (emit (next iter))))
 
 (defmacro define-parser (name &body body)
   (let (result-forms)
@@ -215,7 +216,7 @@
 
           ;; Easiest stuff first.  The root node
           (send `(define-parser-part ,(parser-part-name name) (iter)
-                   (,(parser-part-name start-symbol) iter)))
+                   (return-from ,(parser-part-name name) (,(parser-part-name start-symbol) iter))))
 
           ;; Now parsers for the terminals
           (dolist (term terminals)
@@ -227,7 +228,7 @@
                        (declare (ignore value))
                        (when more
                          (no-parse "expected EOF" ',eof-symbol))
-                       ',eof-symbol))))
+                       (emit ',eof-symbol)))))
 
           ;; Now the nonterminals
           (dolist (nonterm nonterminals)
