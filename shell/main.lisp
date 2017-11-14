@@ -8,6 +8,7 @@
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/logs)
   (:import-from :shcl/shell/lisp-repl)
+  (:import-from :shcl/core/parser #:abort-parse)
   (:import-from :shcl/shell/prompt
    #:with-history #:history-enter #:history-set-size #:make-editline-stream)
   (:import-from :cl-cli)
@@ -67,27 +68,29 @@ in `form-queue'.  See `shcl/core/baking:bake-tokens'."
          (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
          (tokens (main-token-iterator wrapped-stream form-queue))
          (commands (command-iterator tokens)))
-    (labels
-        ((record-history ()
-           (when history
-             (history-enter history (get-output-stream-string captured-input))))
-         (reset-token-iterator ()
-           (loop :while (read-char-no-hang wrapped-stream nil nil))
-           (setf tokens (main-token-iterator wrapped-stream form-queue)
-                 commands (command-iterator tokens))
-           (record-history)))
-      (make-iterator ()
-        (tagbody
-         start
-           (restart-case
-               (progn
-                 (do-iterator (value commands)
-                   (record-history)
-                   (emit value))
-                 (stop))
-             (ignore ()
-               (reset-token-iterator)
-               (go start))))))))
+    (make-iterator ()
+      (let ((*fresh-prompt* t))
+        (labels
+            ((record-history ()
+               (when history
+                 (history-enter history (get-output-stream-string captured-input)))
+               (setf *fresh-prompt* t))
+             (reset-token-iterator ()
+               (loop :while (read-char-no-hang wrapped-stream nil nil))
+               (setf tokens (main-token-iterator wrapped-stream form-queue)
+                     commands (command-iterator tokens))
+               (record-history)))
+          (tagbody
+           start
+             (restart-case
+                 (progn
+                   (do-iterator (value commands)
+                     (record-history)
+                     (emit value))
+                   (stop))
+               (ignore ()
+                 (reset-token-iterator)
+                 (go start)))))))))
 
 (defparameter *enable-lisp-splice* nil
   "SHCL should permit splicing in lisp forms.
@@ -125,26 +128,24 @@ See `cl-cli:parse-cli'."
   (let* ((form-queue (make-queue))
          (commands (restartable-command-iterator stream form-queue :history history)))
     (make-iterator ()
-      (let ((*fresh-prompt* t))
-        (restart-case
-            (progn
-              (do-iterator (tree commands)
-                (setf *fresh-prompt* t)
-                (loop
-                   (let* ((stop '#:stop)
-                          (form (dequeue-no-block form-queue stop)))
-                     (when (eq stop form)
-                       (return))
-                     (debug-log status "EVAL ~A" form)
-                     (eval form)))
-                (debug-log status "TREE: ~A" tree)
-                (restart-case
-                    (let ((result (evaluate tree)))
-                      (debug-log status "RESULT ~A" result)
-                      (emit result))
-                  (skip ())))
-              (stop))
-          (die () (exit 1)))))))
+      (restart-case
+          (progn
+            (do-iterator (tree commands)
+              (loop
+                 (let* ((stop '#:stop)
+                        (form (dequeue-no-block form-queue stop)))
+                   (when (eq stop form)
+                     (return))
+                   (debug-log status "EVAL ~A" form)
+                   (eval form)))
+              (debug-log status "TREE: ~A" tree)
+              (restart-case
+                  (let ((result (evaluate tree)))
+                    (debug-log status "RESULT ~A" result)
+                    (emit result))
+                (skip ())))
+            (stop))
+        (die () (exit 1))))))
 
 (define-builtin enable-lisp-syntax (args)
   "Permit the use of lisp splice forms in shell expressions."
@@ -193,5 +194,11 @@ example, that...
       (history-set-size h 800)
       (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
             (*package* (find-package :shcl-user)))
-        (do-iterator (exit-info (exit-info-iterator stream :history h))
-          (declare (ignore exit-info)))))))
+        (handler-bind
+            ((abort-parse
+              (lambda (e)
+                (when-let ((restart (find-restart 'ignore)))
+                  (format *error-output* "Parse error: ~A~%" e)
+                  (invoke-restart restart)))))
+          (do-iterator (exit-info (exit-info-iterator stream :history h))
+            (declare (ignore exit-info))))))))
