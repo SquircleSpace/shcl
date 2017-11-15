@@ -307,7 +307,6 @@
         (parts (make-extensible-vector :element-type 'token))
         (literal-string (make-extensible-vector :element-type 'character))
         (next-char (peek-char nil stream nil :eof)))
-    (assert (equal next-char #\"))
     (labels ((keep ()
                (vector-push-extend next-char literal-string)
                (skip))
@@ -321,7 +320,6 @@
                (unless (equal 0 (length literal-string))
                  (vector-push-extend literal-string parts)
                  (setf literal-string (make-extensible-vector :element-type 'character)))))
-      (skip)
       (loop
          (reset-next-char)
          (cond ((equal :eof next-char)
@@ -499,10 +497,16 @@
   (lexer-context-consume-character context)
   t)
 
+(defun handle-double-quote (stream initiation-sequence context)
+  (declare (ignore initiation-sequence))
+  (lexer-context-add-part context (read-double-quote stream))
+  t)
+
 (define-once-global +standard-shell-readtable+
     (as-> *empty-shell-readtable* x
       (with-handler x "'" 'handle-quote)
-      (with-handler x "\\" 'handle-backslash)))
+      (with-handler x "\\" 'handle-backslash)
+      (with-handler x "\"" 'handle-double-quote)))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
@@ -726,23 +730,6 @@
                 (delimit))
 
                ((handle-extensible-syntax context readtable)
-                (again))
-
-               ;; If the current character is backslash, single-quote,
-               ;; or double-quote ( '\', '", or ' )' and it is not
-               ;; quoted, it shall affect quoting for subsequent
-               ;; characters up to the end of the quoted text. The rules
-               ;; for quoting are as described in Quoting. During token
-               ;; recognition no substitutions shall be actually
-               ;; performed, and the result token shall contain exactly
-               ;; the characters that appear in the input (except for
-               ;; <newline> joining), unmodified, including any embedded
-               ;; or enclosing quotes or substitution operators, between
-               ;; the quote mark and the end of the quoted text. The
-               ;; token shall not be delimited by the end of the quoted
-               ;; field.
-               ((equal (next-char) #\")
-                (lexer-context-add-part context (read-double-quote stream))
                 (again))
 
                ;; If the current character is an unquoted '$' or '`',
