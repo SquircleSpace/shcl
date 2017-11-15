@@ -4,7 +4,7 @@
   (:export
    #:shell-extensible-read #:build-shell-readtable #:define-shell-readtable
    #:with-dispatch-character #:with-default-handler #:with-handler #:use-table
-   #:+standard-shell-readtable+))
+   #:*empty-shell-readtable*))
 (in-package :shcl/core/shell-readtable)
 
 (optimization-settings)
@@ -30,7 +30,6 @@
     (format stream "~A" (dispatch-table-characters table))))
 
 (defparameter *empty-shell-readtable* (make-instance 'dispatch-table))
-(define-symbol-macro +standard-shell-readtable+ *empty-shell-readtable*)
 
 (defun table-handler (readtable character)
   "Look up the handler for the given character."

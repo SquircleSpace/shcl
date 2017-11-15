@@ -33,7 +33,8 @@
 
    ;; Extensible reading
    #:lexer-context-mark-end-of-token
-   #:lexer-context-shell-extensible-read-from-stream))
+   #:lexer-context-shell-extensible-read-from-stream
+   #:+standard-shell-readtable+))
 (in-package :shcl/core/lexer)
 
 (optimization-settings)
@@ -277,8 +278,6 @@
              (skip ()
                (read-char stream nil :eof)
                (setf next-char (peek-char nil stream nil :eof))))
-      (assert (equal next-char #\'))
-      (skip)
       (loop :while (not (equal next-char #\'))
          :do (if (equal :eof next-char)
                  (eof-error :comment "Single quote expected")
@@ -486,6 +485,15 @@
            (read-char stream nil :eof)
            (setf next-char (peek-char nil stream nil :eof))))
       (assert (done-p)))))
+
+(defun handle-quote (stream initiation-sequence context)
+  (declare (ignore initiation-sequence))
+  (lexer-context-add-part context (read-single-quote stream))
+  t)
+
+(define-once-global +standard-shell-readtable+
+    (as-> *empty-shell-readtable* x
+      (with-handler x "'" 'handle-quote)))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
@@ -724,9 +732,6 @@
                ;; the quote mark and the end of the quoted text. The
                ;; token shall not be delimited by the end of the quoted
                ;; field.
-               ((equal (next-char) #\')
-                (lexer-context-add-part context (read-single-quote stream))
-                (again))
                ((equal (next-char) #\\ )
                 (lexer-context-consume-character context)
                 (unless (equal (next-char) #\Linefeed)
