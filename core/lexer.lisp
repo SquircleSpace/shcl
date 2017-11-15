@@ -708,6 +708,9 @@
                        (not (operator-p (concatenate 'string simple-word (string (next-char)))))))
                 (delimit))
 
+               ((handle-extensible-syntax context readtable)
+                (again))
+
                ;; If the current character is backslash, single-quote,
                ;; or double-quote ( '\', '", or ' )' and it is not
                ;; quoted, it shall affect quoting for subsequent
@@ -787,9 +790,6 @@
                 (unless (lexer-context-no-content-p context)
                   (delimit))
                 (lexer-context-consume-character context)
-                (again))
-
-               ((handle-extensible-syntax context readtable)
                 (again))
 
                ;; If the previous character was part of a word, the
