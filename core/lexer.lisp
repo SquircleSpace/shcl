@@ -337,6 +337,7 @@
 
                ((equal #\` next-char)
                 (take-literal)
+                (skip)
                 (let* ((backquote (read-backquote stream))
                        (backquote-string (token-value backquote)))
                   (vector-push-extend backquote parts)
@@ -345,6 +346,7 @@
 
                ((equal #\$ next-char)
                 (take-literal)
+                (skip)
                 (let* ((dollar (read-dollar stream))
                        (dollar-string (token-value dollar)))
                   (vector-push-extend dollar parts)
@@ -459,9 +461,6 @@
 
 (defun read-dollar (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
-    (assert (equal #\$ next-char))
-    (read-char stream nil :eof)
-    (setf next-char (peek-char nil stream nil :eof))
     (let ((new-stream (make-concatenated-stream (make-string-input-stream "$") stream)))
       (cond ((equal #\{ next-char)
              (read-dollar-curly new-stream))
@@ -502,11 +501,32 @@
   (lexer-context-add-part context (read-double-quote stream))
   t)
 
-(define-once-global +standard-shell-readtable+
+(defun handle-dollar (stream initiation-sequence context)
+  (declare (ignore initiation-sequence))
+  (lexer-context-add-part context (read-dollar stream))
+  t)
+
+(defun handle-backtick (stream initiation-sequence context)
+  (declare (ignore initiation-sequence))
+  (lexer-context-add-part context (read-backquote stream))
+  t)
+
+(define-once-global +quote-table+
     (as-> *empty-shell-readtable* x
       (with-handler x "'" 'handle-quote)
       (with-handler x "\\" 'handle-backslash)
       (with-handler x "\"" 'handle-double-quote)))
+
+(define-once-global +substitution-table+
+    (as-> *empty-shell-readtable* x
+      (with-dispatch-character x "$")
+      (with-default-handler x "$" 'handle-dollar)
+      (with-handler x "`" 'handle-backtick)))
+
+(define-once-global +standard-shell-readtable+
+    (as-> *empty-shell-readtable* x
+      (use-table x +quote-table+)
+      (use-table x +substitution-table+)))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
@@ -730,33 +750,6 @@
                 (delimit))
 
                ((handle-extensible-syntax context readtable)
-                (again))
-
-               ;; If the current character is an unquoted '$' or '`',
-               ;; the shell shall identify the start of any candidates
-               ;; for parameter expansion ( Parameter Expansion),
-               ;; command substitution ( Command Substitution), or
-               ;; arithmetic expansion ( Arithmetic Expansion) from
-               ;; their introductory unquoted character sequences: '$'
-               ;; or "${", "$(" or '`', and "$((", respectively. The
-               ;; shell shall read sufficient input to determine the end
-               ;; of the unit to be expanded (as explained in the cited
-               ;; sections). While processing the characters, if
-               ;; instances of expansions or quoting are found nested
-               ;; within the substitution, the shell shall recursively
-               ;; process them in the manner specified for the construct
-               ;; that is found. The characters found from the beginning
-               ;; of the substitution to its end, allowing for any
-               ;; recursion necessary to recognize embedded constructs,
-               ;; shall be included unmodified in the result token,
-               ;; including any embedded or enclosing substitution
-               ;; operators or quotes. The token shall not be delimited
-               ;; by the end of the substitution.
-               ((equal (next-char) #\$)
-                (lexer-context-add-part context (read-dollar stream))
-                (again))
-               ((equal (next-char) #\`)
-                (lexer-context-add-part context (read-backquote stream))
                 (again))
 
                ;; If the current character is not quoted and can be used
