@@ -26,7 +26,7 @@ Put this at the top of every file!"
 (defconstant +whitespace-characters+
   (if (boundp '+whitespace-characters+)
       +whitespace-characters+
-      #(#\Space #\Linefeed #\Tab #\Return))
+      #(#\Space #\Linefeed #\Formfeed #\Vt #\Tab #\Return))
   "The set of characters which should be considered whitespace")
 
 (defun whitespace-p (char)
