@@ -491,9 +491,18 @@
   (lexer-context-add-part context (read-single-quote stream))
   t)
 
+(defun handle-backslash (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (let ((next-char (lexer-context-next-char context)))
+    (unless (equal next-char #\Linefeed)
+      (lexer-context-add-part context (make-escaped-character next-char))))
+  (lexer-context-consume-character context)
+  t)
+
 (define-once-global +standard-shell-readtable+
     (as-> *empty-shell-readtable* x
-      (with-handler x "'" 'handle-quote)))
+      (with-handler x "'" 'handle-quote)
+      (with-handler x "\\" 'handle-backslash)))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
@@ -732,12 +741,6 @@
                ;; the quote mark and the end of the quoted text. The
                ;; token shall not be delimited by the end of the quoted
                ;; field.
-               ((equal (next-char) #\\ )
-                (lexer-context-consume-character context)
-                (unless (equal (next-char) #\Linefeed)
-                  (lexer-context-add-part context (make-escaped-character (next-char))))
-                (lexer-context-consume-character context)
-                (again))
                ((equal (next-char) #\")
                 (lexer-context-add-part context (read-double-quote stream))
                 (again))
