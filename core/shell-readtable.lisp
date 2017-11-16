@@ -4,7 +4,7 @@
   (:export
    #:shell-extensible-read #:build-shell-readtable #:define-shell-readtable
    #:with-dispatch-character #:with-default-handler #:with-handler #:use-table
-   #:subtable #:*empty-shell-readtable*))
+   #:subtable #:*empty-shell-readtable* #:dispatch-table))
 (in-package :shcl/core/shell-readtable)
 
 (optimization-settings)
