@@ -33,8 +33,8 @@
 
    ;; Extensible reading
    #:lexer-context-mark-end-of-token
-   #:lexer-context-shell-extensible-read-from-stream
-   #:+standard-shell-readtable+))
+   #:lexer-context-shell-extensible-read-from-stream #:lexer-context-readtable
+   #:lexer-context-stream #:+standard-shell-readtable+))
 (in-package :shcl/core/lexer)
 
 (optimization-settings)
@@ -302,60 +302,18 @@
 (defmethod print-object ((double-quote double-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
 
-(defun read-double-quote (stream)
-  (let ((token-value (make-extensible-vector :element-type 'character))
-        (parts (make-extensible-vector :element-type 'token))
-        (literal-string (make-extensible-vector :element-type 'character))
-        (next-char (peek-char nil stream nil :eof)))
-    (labels ((keep ()
-               (vector-push-extend next-char literal-string)
-               (skip))
-             (skip ()
-               (vector-push-extend next-char token-value)
-               (read-char stream nil :eof)
-               (reset-next-char))
-             (reset-next-char ()
-               (setf next-char (peek-char nil stream nil :eof)))
-             (take-literal ()
-               (unless (equal 0 (length literal-string))
-                 (vector-push-extend literal-string parts)
-                 (setf literal-string (make-extensible-vector :element-type 'character)))))
-      (loop
-         (reset-next-char)
-         (cond ((equal :eof next-char)
-                (eof-error :comment "Double quote expected"))
-
-               ((equal #\" next-char)
-                (skip)
-                (take-literal)
-                (return-from read-double-quote (make-instance 'double-quote :parts parts :value token-value)))
-
-               ((equal #\\ next-char)
-                (skip)
-                (if (find next-char '(#\$ #\` #\" #\\ #\Linefeed))
-                    (keep)))
-
-               ((equal #\` next-char)
-                (take-literal)
-                (skip)
-                (let* ((backquote (read-backquote stream))
-                       (backquote-string (token-value backquote)))
-                  (vector-push-extend backquote parts)
-                  (loop :for char :across backquote-string
-                     :do (vector-push-extend char token-value))))
-
-               ((equal #\$ next-char)
-                (take-literal)
-                (skip)
-                (let* ((dollar (read-dollar stream))
-                       (dollar-string (token-value dollar)))
-                  (vector-push-extend dollar parts)
-                  (loop :for char :across dollar-string
-                     :do (vector-push-extend char token-value))))
-
-               (t
-                (keep)))))
-    (assert nil nil "This function shouldn't return via this path")))
+(defun read-double-quote (context)
+  (let* ((stream (lexer-context-stream context))
+         (readtable (subtable (lexer-context-readtable context) #(double-quote)))
+         (inner-context
+          (make-instance 'lexer-context :stream stream :readtable (lexer-context-readtable context))))
+    (loop
+       :while (not (lexer-context-end-marked-p inner-context)) :do
+       (if (eq :eof (lexer-context-next-char inner-context))
+           (error "EOF while reading double-quote")
+           (lexer-context-shell-extensible-read inner-context :readtable readtable)))
+    (let ((token (lexer-context-delimit inner-context)))
+      (make-instance 'double-quote :parts (vector token)))))
 
 (defun read-backquote (stream)
   (declare (ignore stream))
@@ -497,8 +455,8 @@
   t)
 
 (defun handle-double-quote (stream initiation-sequence context)
-  (declare (ignore initiation-sequence))
-  (lexer-context-add-part context (read-double-quote stream))
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-add-part context (read-double-quote context))
   t)
 
 (defun handle-dollar (stream initiation-sequence context)
@@ -509,6 +467,26 @@
 (defun handle-backtick (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
   (lexer-context-add-part context (read-backquote stream))
+  t)
+
+(defun handle-double-quote-backslash (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-add-chars context (string (lexer-context-consume-character context)))
+  t)
+
+(defun handle-double-quote-backslash-newline (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence context))
+  ;; This never happened.
+  t)
+
+(defun handle-double-quote-termination (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-mark-end-of-token context)
+  t)
+
+(defun handle-double-quote-default (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-add-chars context (string (lexer-context-consume-character context)))
   t)
 
 (define-once-global +quote-table+
@@ -523,10 +501,20 @@
       (with-default-handler x "$" 'handle-dollar)
       (with-handler x "`" 'handle-backtick)))
 
+(define-once-global +double-quote-readtable+
+    (as-> *empty-shell-readtable* x
+      (use-table x +substitution-table+)
+      (with-default-handler x "" 'handle-double-quote-default)
+      (with-dispatch-character x "\\")
+      (with-default-handler x "\\" 'handle-double-quote-backslash)
+      (with-handler x #(#\\ #\Linefeed) 'handle-double-quote-backslash-newline)
+      (with-handler x "\"" 'handle-double-quote-termination)))
+
 (define-once-global +standard-shell-readtable+
     (as-> *empty-shell-readtable* x
       (use-table x +quote-table+)
-      (use-table x +substitution-table+)))
+      (use-table x +substitution-table+)
+      (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()
@@ -572,7 +560,12 @@
    (readtable
     :type dispatch-table
     :initarg :readtable
-    :initform (required))))
+    :initform (required)
+    :reader lexer-context-readtable)
+   (end-marked
+    :type boolean
+    :initform nil
+    :reader lexer-context-end-marked-p)))
 (defmethod print-object ((lc lexer-context) stream)
   (with-slots (pending-word parts) lc
     (format stream "#<~A parts ~A pending-word ~A>" (class-name (class-of lc)) parts pending-word)))
@@ -649,8 +642,9 @@
        nil))))
 
 (defun lexer-context-mark-end-of-token (context)
-  (with-slots (stream) context
-    (setf stream (make-string-input-stream ""))))
+  (with-slots (stream end-marked) context
+    (setf stream (make-string-input-stream ""))
+    (setf end-marked t)))
 
 (defun lexer-context-delimit (context)
   (lexer-context-word-boundary context)
@@ -687,8 +681,10 @@
             (t
              (error "All cases should be covered above"))))))
 
-(defun lexer-context-shell-extensible-read (context)
-  (with-slots (stream readtable) context
+(defun lexer-context-shell-extensible-read (context &key readtable)
+  (with-slots (stream (context-readtable readtable)) context
+    (unless readtable
+      (setf readtable context-readtable))
     (let ((result (shell-extensible-read stream context readtable)))
       (unless (or (eq result nil) (eq result t) (typep result '(or string token)))
         (error "Lexer extensions must return a token, got ~A" result))
