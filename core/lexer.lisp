@@ -568,7 +568,11 @@
     :initform nil)
    (parts
     :type array
-    :initform (make-extensible-vector))))
+    :initform (make-extensible-vector))
+   (readtable
+    :type dispatch-table
+    :initarg :readtable
+    :initform (required))))
 (defmethod print-object ((lc lexer-context) stream)
   (with-slots (pending-word parts) lc
     (format stream "#<~A parts ~A pending-word ~A>" (class-name (class-of lc)) parts pending-word)))
@@ -683,19 +687,19 @@
             (t
              (error "All cases should be covered above"))))))
 
-(defun lexer-context-shell-extensible-read (context readtable)
-  (with-slots (stream) context
+(defun lexer-context-shell-extensible-read (context)
+  (with-slots (stream readtable) context
     (let ((result (shell-extensible-read stream context readtable)))
       (unless (or (eq result nil) (eq result t) (typep result '(or string token)))
         (error "Lexer extensions must return a token, got ~A" result))
       result)))
 
 (defun lexer-context-shell-extensible-read-from-stream (stream readtable)
-  (let ((c (make-instance 'lexer-context :stream stream)))
-    (lexer-context-shell-extensible-read c readtable)))
+  (let ((c (make-instance 'lexer-context :stream stream :readtable readtable)))
+    (lexer-context-shell-extensible-read c)))
 
-(defun handle-extensible-syntax (context readtable)
-  (let ((value (lexer-context-shell-extensible-read context readtable)))
+(defun handle-extensible-syntax (context)
+  (let ((value (lexer-context-shell-extensible-read context)))
     (unless value
       (return-from handle-extensible-syntax nil))
     (when (eq t value)
@@ -707,7 +711,7 @@
   t)
 
 (defun next-token (stream &key (readtable +standard-shell-readtable+))
-  (let* ((context (make-instance 'lexer-context :stream stream)))
+  (let* ((context (make-instance 'lexer-context :stream stream :readtable readtable)))
     (labels ((next-char () (lexer-context-next-char context)))
 
       ;; The lexing rules depend on whether the current character
@@ -749,7 +753,7 @@
                        (not (operator-p (concatenate 'string simple-word (string (next-char)))))))
                 (delimit))
 
-               ((handle-extensible-syntax context readtable)
+               ((handle-extensible-syntax context)
                 (again))
 
                ;; If the current character is not quoted and can be used
