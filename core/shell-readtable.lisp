@@ -313,7 +313,7 @@ For information about the `on-conflict' and `handler' arguments, see
                (setf (table-handler result key) (%use-table base-value other-value key-stack))
                (return-from merge-tables))
 
-             (error "Conflict for handler at ~A" key-stack))))
+             (error "Conflict for handler at ~A.  Have ~A, tried to add ~A" key-stack base-value other-value))))
 
       ;; Merge handlers
       (loop :while (not (funcall other-iter :done?)) :do
