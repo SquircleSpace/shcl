@@ -4,7 +4,7 @@
   (:export
    #:shell-extensible-read #:build-shell-readtable #:define-shell-readtable
    #:with-dispatch-character #:with-default-handler #:with-handler #:use-table
-   #:*empty-shell-readtable*))
+   #:subtable #:*empty-shell-readtable*))
 (in-package :shcl/core/shell-readtable)
 
 (optimization-settings)
@@ -124,7 +124,23 @@ the character sequence."
       (%subtable entry rest handled-characters))))
 
 (defun subtable (readtable character-sequence)
-  (%subtable readtable (fset:convert 'list character-sequence) nil))
+  "Retrieve the readtable for the given character sequence.
+
+If you have nominated a character as a dispatch character, this
+function will return the readtable associated with that dispatch
+character.  This function signals an error if the given character
+sequence hasn't been designated as a dispatch character sequence.
+
+This is a `setf'-able place, but keep in mind that readtables are
+immutable.  So, this will only mutate the place where `readtable' is
+stored."
+  (etypecase character-sequence
+    (list)
+    (sequence
+     (setf character-sequence (coerce character-sequence 'list)))
+    (fset:seq
+     (setf character-sequence (fset:convert 'list character-sequence))))
+  (%subtable readtable character-sequence nil))
 
 (define-setf-expander subtable (readtable character-sequence &environment env)
   (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion readtable env)
