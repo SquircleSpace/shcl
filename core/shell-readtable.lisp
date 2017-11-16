@@ -191,7 +191,7 @@ is not `eq' to it.
                      :value default))))))
     (map-subtable readtable character-sequence #'fn)))
 
-(defun with-dispatch-character (readtable character-sequence &key (on-conflict :error))
+(defun with-dispatch-character (readtable character-sequence &key (on-conflict :error) use-table)
   "Return a readtable where the given character sequence is a dispatch
 character sequence.
 
@@ -213,10 +213,19 @@ character sequence is already bound to a handler.  If the character
 sequence is already a dispatch character sequence, there is no
 conflict.  Valid values are `:error', `:replace', and `:convert'.
 
-`:replace' will replace the existing handler with an empty dispatch
+`:replace' will replace the existing handler with a new dispatch
 table.  `:convert' will replace any existing handler with a dispatch
-table with the given handler as the default handler.  `:error' signals
-an error."
+table with the existing handler as the default handler.  `:error' signals
+an error.
+
+The `use-table' argument allows you to provide a dispatch table that
+should be merged (with the `use-table' function) into the dispatch
+table for the given character sequence.  The following forms are
+semantically equivalent.
+
+    (with-dispatch-character table sequence :on-conflict strategy :use-table other-table)
+    (progn (with-dispatch-character table sequence :on-conflict strategy)
+           (setf (subtable table sequence) (use-table (subtable table sequence) other-table)))"
   (unless (find on-conflict #(:error :replace :convert))
     (error "on-conflict argument must be either :error, :replace:, or :convert"))
   (let* ((seq (fset:convert 'fset:seq character-sequence))
@@ -225,23 +234,28 @@ an error."
     (when (zerop (fset:size seq))
       (error "Character sequence must not be empty"))
     (labels
-        ((fn (subtable)
+        ((merge-tables (subtable)
+           (when use-table
+             (let ((handler (table-handler subtable terminal-character)))
+               (setf (table-handler subtable terminal-character) (use-table handler use-table))))
+           subtable)
+         (fn (subtable)
            (multiple-value-bind (entry found) (table-handler subtable terminal-character)
              (cond
                ((typep entry 'dispatch-table)
-                subtable)
+                (merge-tables subtable))
 
                ((or (eq :replace on-conflict)
                     (not found))
                 (setf (table-handler subtable terminal-character)
                       (make-instance 'dispatch-table))
-                subtable)
+                (merge-tables subtable))
 
                ((eq :convert on-conflict)
                 (let ((replacement (make-instance 'dispatch-table)))
                   (setf (table-default replacement) entry)
                   (setf (table-handler subtable terminal-character) replacement)
-                  subtable))
+                  (merge-tables subtable)))
 
                (t
                 (error 'character-already-set :character-sequence character-sequence
