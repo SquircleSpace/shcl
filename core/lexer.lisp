@@ -362,7 +362,7 @@
       (assert (equal #\( next-char))
       (take))))
 
-(defun read-name (stream)
+(defun read-name (stream &key (error-on-invalid-name-p nil))
   (let ((next-char (peek-char nil stream nil :eof))
         (result (make-extensible-vector :element-type 'character)))
     (labels ((non-digit ()
@@ -375,7 +375,10 @@
                (vector-push-extend next-char result)
                (read-char stream nil :eof)
                (setf next-char (peek-char nil stream nil :eof))))
-      (assert (non-digit) nil "Names can't start with ~S" next-char)
+      (unless (non-digit)
+        (if error-on-invalid-name-p
+            (error "Names can't start with ~S" next-char)
+            (return-from read-name nil)))
       (loop :while (and (not (eq :eof next-char)) (any-valid))
          :do (take))
       result)))
@@ -392,18 +395,6 @@
 (defun read-dollar-curly (stream)
   (declare (ignore stream))
   (error 'not-implemented :feature "${}"))
-
-(defun read-dollar-word (stream)
-  (let ((next-char (peek-char nil stream nil :eof)))
-    (when (or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
-              (digit-char-p next-char))
-      (read-char stream nil :eof)
-      (return-from read-dollar-word
-        (make-instance 'variable-expansion-word
-                       :variable (string next-char)
-                       :value (concatenate 'string "$" (string next-char))))))
-  (let ((name (read-name stream)))
-    (make-instance 'variable-expansion-word :variable name :value (concatenate 'string "$" name))))
 
 (defun read-comment (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -436,8 +427,25 @@
   t)
 
 (defun handle-dollar (stream initiation-sequence context)
-  (declare (ignore initiation-sequence))
-  (lexer-context-add-part context (read-dollar-word stream))
+  (let ((next-char (lexer-context-next-char context))
+        name)
+    (cond
+      ((or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
+           (digit-char-p next-char))
+       (lexer-context-consume-character context)
+       (let ((part (make-instance 'variable-expansion-word
+                                  :variable (string next-char)
+                                  :value (concatenate 'string "$" (string next-char)))))
+         (lexer-context-add-part context part)))
+
+      ((setf name (read-name stream :error-on-invalid-name-p nil))
+       (let ((part (make-instance 'variable-expansion-word
+                                  :variable name
+                                  :value (concatenate 'string "$" name))))
+         (lexer-context-add-part context part)))
+
+      (t
+       (lexer-context-add-chars context initiation-sequence))))
   t)
 
 (defun handle-dollar-paren (stream initiation-sequence context)
