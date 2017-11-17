@@ -331,35 +331,24 @@
 (defmethod print-object ((command-word command-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
 
-(defun read-dollar-paren (stream)
-  (let ((next-char (peek-char nil stream nil :eof)))
-    (assert (equal #\$ next-char))
-    (read-char stream nil :eof)
-    (setf next-char (peek-char nil stream nil :eof))
-    (assert (equal #\( next-char))
-    (read-char stream nil :eof)
-    (setf next-char (peek-char nil stream nil :eof))
-    (when (equal #\( next-char)
-      (return-from read-dollar-paren
-        (read-dollar-paren-paren
-         (make-concatenated-stream (make-string-input-stream "$(")
-                                   stream)))))
+(defun read-dollar-paren (context)
   ;; We need to parse a full command.  The best way to do that is with
   ;; our `NEXT-TOKEN' function, but that returns tokens instead of
   ;; strings.  We need a string containing everything it read!
   ;; Luckily, an echo stream allows us to know exactly what was read
   ;; by `NEXT-TOKEN'.
-  (let ((out-stream (make-string-output-stream)))
+  (let ((stream (lexer-context-stream context))
+        (out-stream (make-string-output-stream)))
     (format out-stream "$(")
     (let* ((echo-stream (make-echo-stream stream out-stream))
-           (token-iterator (token-iterator echo-stream))
+           (token-iterator (token-iterator echo-stream :readtable (lexer-context-readtable context)))
            (tokens (make-extensible-vector)))
 
       (do-iterator (token token-iterator)
         (when (typep token 'rparen)
           (return-from read-dollar-paren (make-instance 'command-word :tokens tokens :value (get-output-stream-string out-stream))))
         (vector-push-extend token tokens))
-      (eof-error ") expected")))
+      (eof-error :comment ") expected")))
   (assert nil nil "This function doesn't return normally"))
 
 (defun read-dollar-paren-paren (stream)
@@ -405,7 +394,6 @@
   (error 'not-implemented :feature "${}"))
 
 (defun read-dollar-word (stream)
-  (assert (equal #\$ (read-char stream nil :eof)))
   (let ((next-char (peek-char nil stream nil :eof)))
     (when (or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
               (digit-char-p next-char))
@@ -416,18 +404,6 @@
                        :value (concatenate 'string "$" (string next-char))))))
   (let ((name (read-name stream)))
     (make-instance 'variable-expansion-word :variable name :value (concatenate 'string "$" name))))
-
-(defun read-dollar (stream)
-  (let ((next-char (peek-char nil stream nil :eof)))
-    (let ((new-stream (make-concatenated-stream (make-string-input-stream "$") stream)))
-      (cond ((equal #\{ next-char)
-             (read-dollar-curly new-stream))
-
-            ((equal #\( next-char)
-             (read-dollar-paren new-stream))
-
-            (t
-             (read-dollar-word new-stream))))))
 
 (defun read-comment (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -461,7 +437,17 @@
 
 (defun handle-dollar (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
-  (lexer-context-add-part context (read-dollar stream))
+  (lexer-context-add-part context (read-dollar-word stream))
+  t)
+
+(defun handle-dollar-paren (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-add-part context (read-dollar-paren context))
+  t)
+
+(defun handle-dollar-paren-paren (stream initiation-sequence context)
+  (declare (ignore initiation-sequence))
+  (lexer-context-add-part context (read-dollar-paren-paren stream))
   t)
 
 (defun handle-backtick (stream initiation-sequence context)
@@ -499,6 +485,10 @@
     (as-> *empty-shell-readtable* x
       (with-dispatch-character x "$")
       (with-default-handler x "$" 'handle-dollar)
+      (with-handler x "${" 'handle-dollar-curly)
+      (with-dispatch-character x "$(")
+      (with-default-handler x "$(" 'handle-dollar-paren)
+      (with-handler x "$((" 'handle-dollar-paren-paren)
       (with-handler x "`" 'handle-backtick)))
 
 (define-once-global +double-quote-readtable+
