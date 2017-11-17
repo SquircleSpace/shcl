@@ -29,7 +29,7 @@
 
    ;; Functions
    #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream
-   #:next-token
+   #:next-token #:token-iterator-symbolic-readtable
 
    ;; Extensible reading
    #:lexer-context-mark-end-of-token
@@ -513,6 +513,13 @@
       (use-table x +quote-table+)
       (use-table x +substitution-table+)
       (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)))
+
+(defun token-iterator-symbolic-readtable (stream readtable-sym)
+  (make-iterator ()
+    (let ((token (next-token stream :readtable (symbol-value readtable-sym))))
+      (when (typep token 'eof)
+        (stop))
+      (emit token))))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
   (make-iterator ()

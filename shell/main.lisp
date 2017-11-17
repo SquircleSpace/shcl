@@ -50,12 +50,10 @@ Tokens are read using `*shell-readtable*', and their bake forms (see
 `shcl/core/baking:bake-tokens') are added to form-queue."
   (lookahead-iterator-wrapper
    (bake-tokens
-    (make-iterator ()
-      (let ((token (next-token stream :readtable *shell-readtable*)))
-        (debug-log status "TOKEN: ~A" token)
-        (when (typep token 'eof)
-          (stop))
-        (emit token)))
+    (map-iterator (token-iterator-symbolic-readtable stream '*shell-readtable*)
+                  (lambda (token)
+                    (debug-log status "TOKEN: ~A" token)
+                    token))
     form-queue)))
 
 (defun restartable-command-iterator (stream form-queue &key history)
