@@ -487,7 +487,7 @@
   (lexer-context-mark-end-of-token context)
   t)
 
-(defun handle-double-quote-default (stream initiation-sequence context)
+(defun handle-add-next-char (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (lexer-context-add-chars context (string (lexer-context-consume-character context)))
   t)
@@ -511,7 +511,7 @@
 (define-once-global +double-quote-readtable+
     (as-> *empty-shell-readtable* x
       (use-table x +substitution-table+)
-      (with-default-handler x "" 'handle-double-quote-default)
+      (with-default-handler x "" 'handle-add-next-char)
       (with-dispatch-character x "\\")
       (with-default-handler x "\\" 'handle-double-quote-backslash)
       (with-handler x #(#\\ #\Linefeed) 'handle-double-quote-backslash-newline)
