@@ -302,18 +302,32 @@
 (defmethod print-object ((double-quote double-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
 
+(define-condition unexpected-eof (error)
+  ())
+
+(defun lexer-context-extensible-read-loop (context readtable)
+  "Read using the given context's readtable until end is marked.
+
+EOF results in the `unexpected-eof' error being signaled."
+  (loop
+     :while (not (lexer-context-end-marked-p context)) :do
+     (if (eq :eof (lexer-context-next-char context))
+         (error 'unexpected-eof)
+         (lexer-context-shell-extensible-read context :readtable readtable)))
+  (lexer-context-delimit context))
+
 (defun read-double-quote (context)
   (let* ((stream (lexer-context-stream context))
          (readtable (subtable (lexer-context-readtable context) #(double-quote)))
          (inner-context
-          (make-instance 'lexer-context :stream stream :readtable (lexer-context-readtable context))))
-    (loop
-       :while (not (lexer-context-end-marked-p inner-context)) :do
-       (if (eq :eof (lexer-context-next-char inner-context))
-           (error "EOF while reading double-quote")
-           (lexer-context-shell-extensible-read inner-context :readtable readtable)))
-    (let ((token (lexer-context-delimit inner-context)))
-      (make-instance 'double-quote :parts (vector token)))))
+          (make-instance 'lexer-context :stream stream :readtable (lexer-context-readtable context)))
+         (token (handler-case
+                    (lexer-context-extensible-read-loop inner-context readtable)
+                  (unexpected-eof (e)
+                    (declare (ignore e))
+                    (error "Expected double quote to end before EOF")))))
+
+    (make-instance 'double-quote :parts (vector token))))
 
 (defun read-backquote (stream)
   (declare (ignore stream))
