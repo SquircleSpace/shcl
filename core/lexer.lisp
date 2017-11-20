@@ -362,26 +362,43 @@
       (assert (equal #\( next-char))
       (take))))
 
-(defun read-name (stream &key (error-on-invalid-name-p nil))
-  (let ((next-char (peek-char nil stream nil :eof))
-        (result (make-extensible-vector :element-type 'character)))
-    (labels ((non-digit ()
+(defun read-name (stream &key error-on-invalid-name-p greedy-digits)
+  (let* ((next-char (peek-char nil stream nil :eof))
+         (result (make-extensible-vector :element-type 'character)))
+    (labels ((any-valid ()
                (or (equal #\_ next-char)
-                   (alpha-char-p next-char)))
-             (any-valid ()
-               (or (non-digit)
+                   (alpha-char-p next-char)
                    (digit-char-p next-char)))
              (take ()
                (vector-push-extend next-char result)
                (read-char stream nil :eof)
                (setf next-char (peek-char nil stream nil :eof))))
-      (unless (non-digit)
-        (if error-on-invalid-name-p
-            (error "Names can't start with ~S" next-char)
-            (return-from read-name nil)))
-      (loop :while (and (not (eq :eof next-char)) (any-valid))
-         :do (take))
-      result)))
+      (cond
+        ((or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
+             (and (not greedy-digits) (digit-char-p next-char)))
+         (string (read-char stream)))
+
+        ((and greedy-digits (digit-char-p next-char))
+         (loop :do
+            (progn
+              (vector-push-extend next-char result)
+              (read-char stream)
+              (setf next-char (peek-char nil stream nil :eof)))
+            :while (and (not (eq :eof next-char)) (digit-char-p next-char)))
+         result)
+
+        ((any-valid)
+         (assert (not (digit-char-p next-char)))
+         (loop
+            :do (take)
+            :while (and (not (eq :eof next-char)) (any-valid)))
+         result)
+
+        (error-on-invalid-name-p
+         (error "Names can't start with ~S" next-char))
+
+        (t
+         nil)))))
 
 (defclass variable-expansion-word (a-word)
   ((variable
@@ -430,14 +447,6 @@
   (let ((next-char (lexer-context-next-char context))
         name)
     (cond
-      ((or (find next-char #(#\@ #\* #\# #\? #\- #\$ #\!))
-           (digit-char-p next-char))
-       (lexer-context-consume-character context)
-       (let ((part (make-instance 'variable-expansion-word
-                                  :variable (string next-char)
-                                  :value (concatenate 'string "$" (string next-char)))))
-         (lexer-context-add-part context part)))
-
       ((setf name (read-name stream :error-on-invalid-name-p nil))
        (let ((part (make-instance 'variable-expansion-word
                                   :variable name
