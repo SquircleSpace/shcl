@@ -419,13 +419,30 @@ EOF results in the `unexpected-eof' error being signaled."
     :initarg :variable
     :initform (required)
     :accessor variable-expansion-word-variable
-    :type string)))
+    :type string)
+   (policy
+    :initarg :policy
+    :initform nil
+    :accessor variable-expansion-word-policy)))
 (defmethod print-object ((word variable-expansion-word) stream)
-  (format stream "#<~A ~S>" (class-name (class-of word)) (variable-expansion-word-variable word)))
+  (print-unreadable-object (word stream :type t)
+    (format stream "~S" (variable-expansion-word-variable word))
+    (when-let ((policy (variable-expansion-word-policy word)))
+      (format stream " ~S" policy))))
 
-(defun read-dollar-curly (stream)
-  (declare (ignore stream))
-  (error 'not-implemented :feature "${}"))
+(defun handle-dollar-curly (stream initiation-sequence context)
+  (declare (ignore initiation-sequence))
+  (let* ((name (read-name stream :greedy-digits t :error-on-invalid-name-p t))
+         (captured-chars (make-string-output-stream))
+         (wrapped-stream (make-echo-stream stream captured-chars))
+         (readtable (subtable (lexer-context-readtable context) #(variable-expansion-policy)))
+         (inner-context (make-instance 'lexer-context
+                                       :stream wrapped-stream
+                                       :readtable (lexer-context-readtable context))))
+    (unless (shell-extensible-read stream inner-context readtable)
+      (error "Failed to identify expansion policy for variable ~A.  Found ~W" name (get-output-stream-string captured-chars)))
+    (let ((token (lexer-context-delimit inner-context :if-empty nil)))
+      (make-instance 'variable-expansion-word :variable name :policy token))))
 
 (defun read-comment (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -458,8 +475,7 @@ EOF results in the `unexpected-eof' error being signaled."
   t)
 
 (defun handle-dollar (stream initiation-sequence context)
-  (let ((next-char (lexer-context-next-char context))
-        name)
+  (let (name)
     (cond
       ((setf name (read-name stream :error-on-invalid-name-p nil))
        (let ((part (make-instance 'variable-expansion-word
@@ -506,6 +522,70 @@ EOF results in the `unexpected-eof' error being signaled."
   (lexer-context-add-chars context (string (lexer-context-consume-character context)))
   t)
 
+(defun generic-policy-handler (context initiation-sequence class)
+  (let* ((include-null-p (equal #\: (aref initiation-sequence 0)))
+         (policy-readtable (subtable (lexer-context-readtable context) #(variable-expansion-word)))
+         (inner-context
+          (make-instance 'lexer-context
+                         :stream (lexer-context-stream context)
+                         :readtable (lexer-context-readtable context)))
+         (token (lexer-context-extensible-read-loop inner-context policy-readtable))
+         (part (make-instance class :word token :include-null-p include-null-p)))
+    (lexer-context-add-part context part)))
+
+(defclass builtin-variable-expansion-policy (token)
+  ((word
+    :initarg :word
+    :accessor builtin-variable-expansion-policy-word
+    :initform (required))
+   (include-null-p
+    :initarg :include-null-p
+    :accessor builtin-variable-expansion-policy-include-null-p
+    :initform nil)))
+(defmethod print-object ((policy builtin-variable-expansion-policy) stream)
+  (print-unreadable-object (policy stream :type t)
+    (when-let ((include-null-p (builtin-variable-expansion-policy-include-null-p policy)))
+      (declare (ignore include-null-p))
+      (format stream ":include-null-p "))
+    (format stream "~S" (builtin-variable-expansion-policy-word policy))))
+
+(defclass default-value-policy (builtin-variable-expansion-policy)
+  ())
+
+(defclass assign-default-value-policy (builtin-variable-expansion-policy)
+  ())
+
+(defclass error-policy (builtin-variable-expansion-policy)
+  ())
+
+(defclass alternate-value-policy (builtin-variable-expansion-policy)
+  ())
+
+(defun handle-use-default-policy (stream initiation-sequence context)
+  (declare (ignore stream))
+  (generic-policy-handler context initiation-sequence 'default-value-policy)
+  t)
+
+(defun handle-assign-default-policy (stream initiation-sequence context)
+  (declare (ignore stream))
+  (generic-policy-handler context initiation-sequence 'assign-default-value-policy)
+  t)
+
+(defun handle-error-policy (stream initiation-sequence context)
+  (declare (ignore stream))
+  (generic-policy-handler context initiation-sequence 'error-policy)
+  t)
+
+(defun handle-alternate-policy (stream initiation-sequence context)
+  (declare (ignore stream))
+  (generic-policy-handler context initiation-sequence 'alternate-value-policy)
+  t)
+
+(defun end-variable-expansion-word (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-mark-end-of-token context)
+  t)
+
 (define-once-global +quote-table+
     (as-> *empty-shell-readtable* x
       (with-handler x "'" 'handle-quote)
@@ -531,11 +611,32 @@ EOF results in the `unexpected-eof' error being signaled."
       (with-handler x #(#\\ #\Linefeed) 'handle-double-quote-backslash-newline)
       (with-handler x "\"" 'handle-double-quote-termination)))
 
+(define-once-global +variable-expansion-policy+
+    (let ((policies
+           (as-> *empty-shell-readtable* x
+             (with-handler x "-" 'handle-use-default-policy)
+             (with-handler x "=" 'handle-assign-default-policy)
+             (with-handler x "?" 'handle-error-policy)
+             (with-handler x "+" 'handle-alternate-policy))))
+      (as-> *empty-shell-readtable* x
+        (with-dispatch-character x ":" :use-table policies)
+        (use-table x policies)
+        (with-handler x "}" 'end-variable-expansion-word))))
+
+(define-once-global +variable-expansion-word+
+    (as-> *empty-shell-readtable* x
+      (use-table x +quote-table+)
+      (use-table x +substitution-table+)
+      (with-default-handler x "" 'handle-add-next-char)
+      (with-handler x "}" 'end-variable-expansion-word)))
+
 (define-once-global +standard-shell-readtable+
     (as-> *empty-shell-readtable* x
       (use-table x +quote-table+)
       (use-table x +substitution-table+)
-      (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)))
+      (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)
+      (with-dispatch-character x #(variable-expansion-policy) :use-table +variable-expansion-policy+)
+      (with-dispatch-character x #(variable-expansion-word) :use-table +variable-expansion-word+)))
 
 (defun token-iterator-symbolic-readtable (stream readtable-sym)
   (make-iterator ()
@@ -674,7 +775,10 @@ EOF results in the `unexpected-eof' error being signaled."
     (setf stream (make-string-input-stream ""))
     (setf end-marked t)))
 
-(defun lexer-context-delimit (context)
+(defun lexer-context-delimit (context &key (if-empty :error))
+  (unless (or (eq if-empty :error) (eq if-empty nil))
+    (error "if-empty arg must be :error or nil"))
+
   (lexer-context-word-boundary context)
   (with-slots (parts all-chars-stream) context
     (let* ((part-count (length parts))
@@ -705,6 +809,10 @@ EOF results in the `unexpected-eof' error being signaled."
 
             ((< 1 part-count)
              (make-instance 'compound-word :parts parts :value (get-output-stream-string all-chars-stream)))
+
+            ((equal 0 part-count)
+             (when (eq :error if-empty)
+               (error "Empty token detected")))
 
             (t
              (error "All cases should be covered above"))))))
