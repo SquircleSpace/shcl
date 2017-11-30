@@ -314,13 +314,13 @@ EOF results in the `unexpected-eof' error being signaled."
      (if (eq :eof (lexer-context-next-char context))
          (error 'unexpected-eof)
          (lexer-context-shell-extensible-read context :readtable readtable)))
-  (lexer-context-delimit context))
+  (shell-lexer-context-delimit context))
 
 (defun read-double-quote (context)
   (let* ((stream (lexer-context-stream context))
          (readtable (subtable (lexer-context-readtable context) #(double-quote)))
          (inner-context
-          (make-instance 'lexer-context :stream stream :readtable (lexer-context-readtable context)))
+          (make-instance 'shell-lexer-context :stream stream :readtable (lexer-context-readtable context)))
          (token (handler-case
                     (lexer-context-extensible-read-loop inner-context readtable)
                   (unexpected-eof (e)
@@ -441,7 +441,7 @@ EOF results in the `unexpected-eof' error being signaled."
                                        :readtable (lexer-context-readtable context))))
     (unless (shell-extensible-read stream inner-context readtable)
       (error "Failed to identify expansion policy for variable ~A.  Found ~W" name (get-output-stream-string captured-chars)))
-    (let ((token (lexer-context-delimit inner-context :if-empty nil)))
+    (let ((token (shell-lexer-context-delimit inner-context :if-empty nil)))
       (make-instance 'variable-expansion-word :variable name :policy token))))
 
 (defun read-comment (stream)
@@ -458,20 +458,20 @@ EOF results in the `unexpected-eof' error being signaled."
 
 (defun handle-quote (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
-  (lexer-context-add-part context (read-single-quote stream))
+  (shell-lexer-context-add-part context (read-single-quote stream))
   t)
 
 (defun handle-backslash (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (let ((next-char (lexer-context-next-char context)))
     (unless (equal next-char #\Linefeed)
-      (lexer-context-add-part context (make-escaped-character next-char))))
+      (shell-lexer-context-add-part context (make-escaped-character next-char))))
   (lexer-context-consume-character context)
   t)
 
 (defun handle-double-quote (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
-  (lexer-context-add-part context (read-double-quote context))
+  (shell-lexer-context-add-part context (read-double-quote context))
   t)
 
 (defun handle-dollar (stream initiation-sequence context)
@@ -481,30 +481,30 @@ EOF results in the `unexpected-eof' error being signaled."
        (let ((part (make-instance 'variable-expansion-word
                                   :variable name
                                   :value (concatenate 'string "$" name))))
-         (lexer-context-add-part context part)))
+         (shell-lexer-context-add-part context part)))
 
       (t
-       (lexer-context-add-chars context initiation-sequence))))
+       (shell-lexer-context-add-chars context initiation-sequence))))
   t)
 
 (defun handle-dollar-paren (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
-  (lexer-context-add-part context (read-dollar-paren context))
+  (shell-lexer-context-add-part context (read-dollar-paren context))
   t)
 
 (defun handle-dollar-paren-paren (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
-  (lexer-context-add-part context (read-dollar-paren-paren stream))
+  (shell-lexer-context-add-part context (read-dollar-paren-paren stream))
   t)
 
 (defun handle-backtick (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
-  (lexer-context-add-part context (read-backquote stream))
+  (shell-lexer-context-add-part context (read-backquote stream))
   t)
 
 (defun handle-double-quote-backslash (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
-  (lexer-context-add-chars context (string (lexer-context-consume-character context)))
+  (shell-lexer-context-add-chars context (string (lexer-context-consume-character context)))
   t)
 
 (defun handle-double-quote-backslash-newline (stream initiation-sequence context)
@@ -519,7 +519,7 @@ EOF results in the `unexpected-eof' error being signaled."
 
 (defun handle-add-next-char (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
-  (lexer-context-add-chars context (string (lexer-context-consume-character context)))
+  (shell-lexer-context-add-chars context (string (lexer-context-consume-character context)))
   t)
 
 (defun generic-policy-handler (context initiation-sequence class)
@@ -531,7 +531,7 @@ EOF results in the `unexpected-eof' error being signaled."
                          :readtable (lexer-context-readtable context)))
          (token (lexer-context-extensible-read-loop inner-context policy-readtable))
          (part (make-instance class :word token :include-null-p include-null-p)))
-    (lexer-context-add-part context part)))
+    (shell-lexer-context-add-part context part)))
 
 (defclass builtin-variable-expansion-policy (token)
   ((word
@@ -680,24 +680,17 @@ EOF results in the `unexpected-eof' error being signaled."
     :type stream
     :initarg :stream
     :initform (required))
-   (pending-word
-    :type (or null string)
-    :initform nil)
-   (parts
-    :type array
-    :initform (make-extensible-vector))
+   (end-marked
+    :type boolean
+    :initform nil
+    :reader lexer-context-end-marked-p)
    (readtable
     :type dispatch-table
     :initarg :readtable
     :initform (required)
-    :reader lexer-context-readtable)
-   (end-marked
-    :type boolean
-    :initform nil
-    :reader lexer-context-end-marked-p)))
+    :reader lexer-context-readtable)))
 (defmethod print-object ((lc lexer-context) stream)
-  (with-slots (pending-word parts) lc
-    (format stream "#<~A parts ~A pending-word ~A>" (class-name (class-of lc)) parts pending-word)))
+  (format stream "#<~A>" (class-name (class-of lc))))
 
 (defmethod shared-initialize :around ((instance lexer-context) slots &rest args &key &allow-other-keys)
   (declare (ignore args))
@@ -709,22 +702,33 @@ EOF results in the `unexpected-eof' error being signaled."
         (setf stream (make-echo-stream raw-stream all-chars-stream)))
       result)))
 
-(defun lexer-context-add-pending-word (context)
+(defclass shell-lexer-context (lexer-context)
+  ((pending-word
+    :type (or null string)
+    :initform nil)
+   (parts
+    :type array
+    :initform (make-extensible-vector))))
+(defmethod print-object ((lc shell-lexer-context) stream)
+  (with-slots (pending-word parts) lc
+    (format stream "#<~A parts ~A pending-word ~A>" (class-name (class-of lc)) parts pending-word)))
+
+(defun shell-lexer-context-add-pending-word (context)
   (with-slots (pending-word parts) context
     (when pending-word
-      (return-from lexer-context-add-pending-word))
+      (return-from shell-lexer-context-add-pending-word))
     (setf pending-word (make-extensible-vector :element-type 'character))))
 
 (defun lexer-context-next-char (context)
   (with-slots (stream) context
     (peek-char nil stream nil :eof)))
 
-(defun lexer-context-no-content-p (context)
+(defun shell-lexer-context-no-content-p (context)
   (with-slots (parts pending-word) context
     (and (equal 0 (length parts))
          (equal 0 (length pending-word)))))
 
-(defun lexer-context-assignment-p (context)
+(defun shell-lexer-context-assignment-p (context)
   (with-slots (parts pending-word) context
     (if (equal 0 (length parts))
         (assignment-word-p pending-word)
@@ -735,28 +739,28 @@ EOF results in the `unexpected-eof' error being signaled."
   (with-slots (stream) context
     (read-char stream nil :eof)))
 
-(defun lexer-context-add-chars (context chars)
-  (lexer-context-add-pending-word context)
+(defun shell-lexer-context-add-chars (context chars)
+  (shell-lexer-context-add-pending-word context)
   (with-slots (pending-word) context
     (loop :for char :across chars :do
        (vector-push-extend char pending-word))))
 
-(defun lexer-context-extend-word (context)
-  (lexer-context-add-chars context (string (lexer-context-next-char context)))
+(defun shell-lexer-context-extend-word (context)
+  (shell-lexer-context-add-chars context (string (lexer-context-next-char context)))
   (lexer-context-consume-character context))
 
-(defun lexer-context-word-boundary (context)
+(defun shell-lexer-context-word-boundary (context)
   (with-slots (parts pending-word) context
     (when pending-word
       (vector-push-extend (make-instance 'simple-word :text pending-word) parts)
       (setf pending-word nil))))
 
-(defun lexer-context-add-part (context part)
-  (lexer-context-word-boundary context)
+(defun shell-lexer-context-add-part (context part)
+  (shell-lexer-context-word-boundary context)
   (with-slots (parts) context
     (vector-push-extend part parts)))
 
-(defun lexer-context-simple-word (context)
+(defun shell-lexer-context-simple-word (context)
   (with-slots (parts pending-word) context
     (cond
       ((equal 0 (length parts))
@@ -775,14 +779,14 @@ EOF results in the `unexpected-eof' error being signaled."
     (setf stream (make-string-input-stream ""))
     (setf end-marked t)))
 
-(defun lexer-context-delimit (context &key (if-empty :error))
+(defun shell-lexer-context-delimit (context &key (if-empty :error))
   (unless (or (eq if-empty :error) (eq if-empty nil))
     (error "if-empty arg must be :error or nil"))
 
-  (lexer-context-word-boundary context)
+  (shell-lexer-context-word-boundary context)
   (with-slots (parts all-chars-stream) context
     (let* ((part-count (length parts))
-           (simple-word (lexer-context-simple-word context)))
+           (simple-word (shell-lexer-context-simple-word context)))
       (cond ((and simple-word
                   (operator-p simple-word))
              (make-operator simple-word (get-output-stream-string all-chars-stream)))
@@ -801,7 +805,7 @@ EOF results in the `unexpected-eof' error being signaled."
                   (name-p simple-word))
              (make-instance 'name :value (get-output-stream-string all-chars-stream) :text simple-word))
 
-            ((lexer-context-assignment-p context)
+            ((shell-lexer-context-assignment-p context)
              (make-assignment-word-from-parts parts (get-output-stream-string all-chars-stream)))
 
             ((equal 1 part-count)
@@ -827,7 +831,7 @@ EOF results in the `unexpected-eof' error being signaled."
       result)))
 
 (defun lexer-context-shell-extensible-read-from-stream (stream readtable)
-  (let ((c (make-instance 'lexer-context :stream stream :readtable readtable)))
+  (let ((c (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
     (lexer-context-shell-extensible-read c)))
 
 (defun handle-extensible-syntax (context)
@@ -838,12 +842,12 @@ EOF results in the `unexpected-eof' error being signaled."
       (return-from handle-extensible-syntax t))
 
     (typecase value
-      (string (lexer-context-add-chars context value))
-      (token (lexer-context-add-part context value))))
+      (string (shell-lexer-context-add-chars context value))
+      (token (shell-lexer-context-add-part context value))))
   t)
 
 (defun next-token (stream &key (readtable +standard-shell-readtable+))
-  (let* ((context (make-instance 'lexer-context :stream stream :readtable readtable)))
+  (let* ((context (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
     (labels ((next-char () (lexer-context-next-char context)))
 
       ;; The lexing rules depend on whether the current character
@@ -852,14 +856,14 @@ EOF results in the `unexpected-eof' error being signaled."
       (loop
          (block again
            (labels ((again () (return-from again))
-                    (delimit () (return-from next-token (lexer-context-delimit context))))
+                    (delimit () (return-from next-token (shell-lexer-context-delimit context))))
              (cond
                ;; If the end of input is recognized, the current token
                ;; shall be delimited. If there is no current token, the
                ;; end-of-input indicator shall be returned as the token.
                ((eq :eof (next-char))
-                (when (lexer-context-no-content-p context)
-                  (lexer-context-add-part context +eof+))
+                (when (shell-lexer-context-no-content-p context)
+                  (shell-lexer-context-add-part context +eof+))
                 (delimit))
 
                ;; If the previous character was used as part of an
@@ -867,11 +871,11 @@ EOF results in the `unexpected-eof' error being signaled."
                ;; can be used with the current characters to form an
                ;; operator, it shall be used as part of that (operator)
                ;; token.
-               ((let ((simple-word (lexer-context-simple-word context)))
+               ((let ((simple-word (shell-lexer-context-simple-word context)))
                   (and simple-word
                        (operator-p simple-word)
                        (operator-p (concatenate 'string simple-word (string (next-char))))))
-                (lexer-context-extend-word context)
+                (shell-lexer-context-extend-word context)
                 (again))
 
                ;; If the previous character was used as part of an
@@ -879,7 +883,7 @@ EOF results in the `unexpected-eof' error being signaled."
                ;; the current characters to form an operator, the
                ;; operator containing the previous character shall be
                ;; delimited.
-               ((let ((simple-word (lexer-context-simple-word context)))
+               ((let ((simple-word (shell-lexer-context-simple-word context)))
                   (and simple-word
                        (operator-p simple-word)
                        (not (operator-p (concatenate 'string simple-word (string (next-char)))))))
@@ -894,32 +898,32 @@ EOF results in the `unexpected-eof' error being signaled."
                ;; character shall be used as the beginning of the next
                ;; (operator) token.
                ((operator-p (string (next-char)))
-                (unless (lexer-context-no-content-p context)
+                (unless (shell-lexer-context-no-content-p context)
                   (delimit))
-                (lexer-context-extend-word context)
+                (shell-lexer-context-extend-word context)
                 (again))
 
                ;; If the current character is an unquoted <newline>, the
                ;; current token shall be delimited.
                ((equal #\linefeed (next-char))
-                (when (lexer-context-no-content-p context)
+                (when (shell-lexer-context-no-content-p context)
                   (lexer-context-consume-character context)
-                  (lexer-context-add-part context +newline+))
+                  (shell-lexer-context-add-part context +newline+))
                 (delimit))
 
                ;; If the current character is an unquoted <blank>, any
                ;; token containing the previous character is delimited
                ;; and the current character shall be discarded.
                ((whitespace-p (next-char))
-                (unless (lexer-context-no-content-p context)
+                (unless (shell-lexer-context-no-content-p context)
                   (delimit))
                 (lexer-context-consume-character context)
                 (again))
 
                ;; If the previous character was part of a word, the
                ;; current character shall be appended to that word.
-               ((not (lexer-context-no-content-p context))
-                (lexer-context-extend-word context)
+               ((not (shell-lexer-context-no-content-p context))
+                (shell-lexer-context-extend-word context)
                 (again))
 
                ;; If the current character is a '#', it and all
@@ -934,5 +938,5 @@ EOF results in the `unexpected-eof' error being signaled."
                ;; The current character is used as the start of a new
                ;; word.
                (t
-                (lexer-context-extend-word context)
+                (shell-lexer-context-extend-word context)
                 (again)))))))))
