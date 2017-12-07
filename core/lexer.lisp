@@ -418,31 +418,55 @@ EOF results in the `unexpected-eof' error being signaled."
   ((variable
     :initarg :variable
     :initform (required)
-    :accessor variable-expansion-word-variable
-    :type string)
-   (policy
-    :initarg :policy
-    :initform nil
-    :accessor variable-expansion-word-policy)))
+    :reader variable-expansion-word-variable
+    :type string)))
 (defmethod print-object ((word variable-expansion-word) stream)
   (print-unreadable-object (word stream :type t)
-    (format stream "~S" (variable-expansion-word-variable word))
-    (when-let ((policy (variable-expansion-word-policy word)))
-      (format stream " ~S" policy))))
+    (format stream "~S" (variable-expansion-word-variable word))))
+
+(defclass variable-expansion-length-word (a-word)
+  ((variable
+    :initarg :variable
+    :initform (required)
+    :reader variable-expansion-length-word-variable
+    :type string)))
+(defmethod print-object ((word variable-expansion-length-word) stream)
+  (print-unreadable-object (word stream :type t)
+    (format stream "~S" (variable-expansion-length-word-variable word))))
+
+(defclass dollar-curly-lexer-context (lexer-context)
+  ((base-token
+    :initarg :base-token
+    :initform (required)
+    :accessor dollar-curly-lexer-context-base-token
+    :type token)))
 
 (defun handle-dollar-curly (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
-  (let* ((name (read-name stream :greedy-digits t :error-on-invalid-name-p t))
-         (captured-chars (make-string-output-stream))
-         (wrapped-stream (make-echo-stream stream captured-chars))
-         (readtable (subtable (lexer-context-readtable context) #(variable-expansion-policy)))
-         (inner-context (make-instance 'lexer-context
-                                       :stream wrapped-stream
-                                       :readtable (lexer-context-readtable context))))
-    (unless (shell-extensible-read stream inner-context readtable)
-      (error "Failed to identify expansion policy for variable ~A.  Found ~W" name (get-output-stream-string captured-chars)))
-    (let ((token (shell-lexer-context-delimit inner-context :if-empty nil)))
-      (make-instance 'variable-expansion-word :variable name :policy token))))
+  (labels
+      ((get-name-token ()
+         (when (equal #\# (lexer-context-next-char context))
+           (lexer-context-consume-character context)
+           (let ((name (read-name stream :greedy-digits t :error-on-invalid-name-p nil)))
+             (return-from get-name-token
+               (if name
+                   (make-instance 'variable-expansion-length-word :variable name)
+                   (make-instance 'variable-expansion-word :variable "#")))))
+
+         (let ((name (read-name stream :greedy-digits t :error-on-invalid-name-p t)))
+           (make-instance 'variable-expansion-word :variable name))))
+
+    (let* ((base-token (get-name-token))
+           (captured-chars (make-string-output-stream))
+           (wrapped-stream (make-echo-stream stream captured-chars))
+           (readtable (subtable (lexer-context-readtable context) #(variable-expansion-policy)))
+           (inner-context (make-instance 'dollar-curly-lexer-context
+                                         :stream wrapped-stream
+                                         :readtable (lexer-context-readtable context)
+                                         :base-token base-token))
+           (read-value (shell-extensible-read stream inner-context readtable)))
+      (shell-lexer-context-add-part context read-value)
+      t)))
 
 (defun read-comment (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -530,61 +554,65 @@ EOF results in the `unexpected-eof' error being signaled."
                          :stream (lexer-context-stream context)
                          :readtable (lexer-context-readtable context)))
          (token (lexer-context-extensible-read-loop inner-context policy-readtable))
-         (part (make-instance class :word token :include-null-p include-null-p)))
-    (shell-lexer-context-add-part context part)))
+         (part (make-instance class
+                              :original-token (dollar-curly-lexer-context-base-token context)
+                              :replacement-token token
+                              :include-null-p include-null-p)))
+    part))
 
-(defclass builtin-variable-expansion-policy (token)
-  ((word
-    :initarg :word
-    :accessor builtin-variable-expansion-policy-word
+(defclass conditional-replacement-policy (token)
+  ((original-token
+    :initarg :original-token
+    :reader conditional-replacement-policy-original-token
+    :initform (required))
+   (replacement-token
+    :initarg :replacement-token
+    :reader conditional-replacement-policy-replacement-token
     :initform (required))
    (include-null-p
     :initarg :include-null-p
-    :accessor builtin-variable-expansion-policy-include-null-p
+    :reader conditional-replacement-policy-include-null-p
     :initform nil)))
-(defmethod print-object ((policy builtin-variable-expansion-policy) stream)
+(defmethod print-object ((policy conditional-replacement-policy) stream)
   (print-unreadable-object (policy stream :type t)
-    (when-let ((include-null-p (builtin-variable-expansion-policy-include-null-p policy)))
+    (when-let ((include-null-p (conditional-replacement-policy-include-null-p policy)))
       (declare (ignore include-null-p))
       (format stream ":include-null-p "))
-    (format stream "~S" (builtin-variable-expansion-policy-word policy))))
+    (format stream "~S ~S" (conditional-replacement-policy-original-token policy)
+            (conditional-replacement-policy-replacement-token policy))))
 
-(defclass default-value-policy (builtin-variable-expansion-policy)
+(defclass default-value-policy (conditional-replacement-policy)
   ())
 
-(defclass assign-default-value-policy (builtin-variable-expansion-policy)
+(defclass assign-default-value-policy (conditional-replacement-policy)
   ())
 
-(defclass error-policy (builtin-variable-expansion-policy)
+(defclass error-policy (conditional-replacement-policy)
   ())
 
-(defclass alternate-value-policy (builtin-variable-expansion-policy)
+(defclass alternate-value-policy (conditional-replacement-policy)
   ())
 
 (defun handle-use-default-policy (stream initiation-sequence context)
   (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'default-value-policy)
-  t)
+  (generic-policy-handler context initiation-sequence 'default-value-policy))
 
 (defun handle-assign-default-policy (stream initiation-sequence context)
   (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'assign-default-value-policy)
-  t)
+  (generic-policy-handler context initiation-sequence 'assign-default-value-policy))
 
 (defun handle-error-policy (stream initiation-sequence context)
   (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'error-policy)
-  t)
+  (generic-policy-handler context initiation-sequence 'error-policy))
 
 (defun handle-alternate-policy (stream initiation-sequence context)
   (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'alternate-value-policy)
-  t)
+  (generic-policy-handler context initiation-sequence 'alternate-value-policy))
 
 (defun end-variable-expansion-word (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
-  t)
+  (dollar-curly-lexer-context-base-token context))
 
 (define-once-global +quote-table+
     (as-> *empty-shell-readtable* x
@@ -596,7 +624,9 @@ EOF results in the `unexpected-eof' error being signaled."
     (as-> *empty-shell-readtable* x
       (with-dispatch-character x "$")
       (with-default-handler x "$" 'handle-dollar)
-      (with-handler x "${" 'handle-dollar-curly)
+      (with-dispatch-character x "${")
+      (with-default-handler x "${" 'handle-dollar-curly)
+      (with-handler x "${#" 'handle-dollar-curly-hash)
       (with-dispatch-character x "$(")
       (with-default-handler x "$(" 'handle-dollar-paren)
       (with-handler x "$((" 'handle-dollar-paren-paren)

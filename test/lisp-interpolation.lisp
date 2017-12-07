@@ -104,8 +104,10 @@
        "Inequality comparison works"))
 
 (deftest variables
-  (run "FOO=123 ; testing-assert-equal $FOO 123"
-       "Variable expansion works"))
+  (run "FOO=123 ; testing-assert-equal \"$FOO\" 123"
+       "$variable expansion works")
+  (run "FOO=123 ; testing-assert-equal \"${FOO}\" 123"
+       "${variable} expansion works"))
 
 (deftest for-loops
   (run "testing-assert-equal '' \"$(for VAR in ; do
