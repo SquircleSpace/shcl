@@ -1,3 +1,5 @@
+SHCL_INCLUDES_TESTS=
+
 SHCL_DEPENDS= core/*.lisp shell/*.lisp shcl.asd libshcl-support.so make.lisp
 SUPPORT_OBJS= core/support/macros.o core/support/spawn.o
 
