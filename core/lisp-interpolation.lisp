@@ -88,15 +88,18 @@ lisp form and turns each element into a separate word."))
   (lexer-context-mark-end-of-token context)
   t)
 
-(define-shell-readtable *splice-table*
-  "A shell readtable which supports injecting lisp forms."
+(define-shell-readtable *splice-table-mixin*
   (with-dispatch-character ",")
   (with-default-handler "," 'read-lisp-form)
   (with-handler ",@" 'read-lisp-splice-form))
 
-(define-shell-readtable *exit-reader-macro-table*
-  "A shell readtable which allows the shell reader macro to
-terminate."
+(define-shell-readtable *splice-table*
+  "A shell readtable which supports injecting lisp forms."
+  (use-table +standard-shell-readtable+)
+  (use-table *splice-table-mixin*))
+
+(define-shell-readtable *exit-reader-macro-table-mixin*
+  "A readtable which allows the shell reader macro to terminate."
   (with-dispatch-character "#")
   (with-default-handler "#" 'hash-default-handler)
   (with-handler "#$" 'end-shell-parse))
@@ -104,8 +107,9 @@ terminate."
 (define-shell-readtable *interpolation-table*
   "A shell readtable which is suitable for use with the shell reader
 macro."
-  (use-table *splice-table*)
-  (use-table *exit-reader-macro-table*))
+  (use-table +standard-shell-readtable+)
+  (use-table *splice-table-mixin*)
+  (use-table *exit-reader-macro-table-mixin*))
 
 (defvar *proper-end-found* nil
   "This is used by `end-shell-parse' and `read-shell-command' to
