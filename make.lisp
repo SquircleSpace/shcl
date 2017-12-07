@@ -48,6 +48,14 @@
       (reduce-compile-noise
         (asdf:compile-system :shcl))
       (asdf:load-system :shcl)
+      (when (uiop:getenv "SHCL_INCLUDES_TESTS")
+        (push (make-pathname :directory (concatenate 'list (pathname-directory *load-truename*) '("test"))
+                               :name nil :type nil
+                               :defaults *load-truename*)
+              asdf:*central-registry*)
+        (reduce-compile-noise
+          (asdf:load-system :shcl-test)))
+
       (funcall (intern "OBSERVE-DUMP" (find-package "SHCL/CORE/UTILITY")))
       (let ((main (intern "MAIN" (find-package "SHCL/SHELL/MAIN"))))
         #+sbcl (sb-ext:save-lisp-and-die "shcl" :toplevel main :executable t :save-runtime-options t :purify t)
