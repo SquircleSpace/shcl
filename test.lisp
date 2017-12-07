@@ -11,19 +11,15 @@
           (format *error-output* "Fatal error: ~A~%" c)
           (uiop:quit 1)))))
   (asdf:load-system :shcl-test)
-  (symbol-macrolet
-      ((enable-colors (symbol-value (intern "*ENABLE-COLORS*" (find-package "PROVE"))))
-       (test-result-output (symbol-value (intern "*TEST-RESULT-OUTPUT*" (find-package "PROVE"))))
-       (env-sym (intern "ENV" (find-package "SHCL/ENVIRONMENT")))
-       (run-test-all-sym (intern "RUN-TEST-ALL" (find-package "PROVE"))))
-    (unless (interactive-stream-p *standard-output*)
-      (setf enable-colors nil)
-      (setf test-result-output
-           (open (funcall env-sym "TEST_OUTPUT" "test-results.txt")
-                 :direction :output :if-exists :supersede :external-format :utf8)))
 
-    (funcall run-test-all-sym)
-
-    (unless (interactive-stream-p *standard-output*)
-      (finish-output test-result-output)))
+  (let* ((env-sym (intern "ENV" (find-package "SHCL/CORE/ENVIRONMENT")))
+         (run-tests-sym (intern "RUN-TESTS" (find-package "SHCL-TEST/MAIN")))
+         (interactive-p (interactive-stream-p *standard-output*))
+         (target-file (funcall env-sym "TEST_OUTPUT" nil))
+         (stream
+          (if target-file
+              (open target-file :direction :output :if-exists :supersede :external-format :utf8)
+              *standard-output*)))
+    (funcall run-tests-sym :enable-colors interactive-p :output-stream stream)
+    (finish-output stream))
   (uiop:quit 0))
