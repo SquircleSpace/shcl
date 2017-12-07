@@ -12,4 +12,5 @@
                "shcl-test/posix"
                "shcl-test/lisp-interpolation"
                "shcl-test/data"
-               "shcl-test/iterator"))
+               "shcl-test/iterator"
+               "shcl-test/main"))
