@@ -17,4 +17,4 @@ shcl: ${SHCL_DEPENDS} Makefile
 
 .PHONY: test
 test: test/*.lisp ${SHCL_DEPENDS} Makefile
-	sbcl --load test.lisp
+	sbcl --eval '(require :asdf)' --load test.lisp
