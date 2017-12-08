@@ -12,10 +12,9 @@
           (uiop:quit 1)))))
   (asdf:load-system :shcl-test)
 
-  (let* ((env-sym (intern "ENV" (find-package "SHCL/CORE/ENVIRONMENT")))
-         (run-tests-sym (intern "RUN-TESTS" (find-package "SHCL-TEST/MAIN")))
+  (let* ((run-tests-sym (intern "RUN-TESTS" (find-package "SHCL-TEST/MAIN")))
          (interactive-p (interactive-stream-p *standard-output*))
-         (target-file (funcall env-sym "TEST_OUTPUT" nil))
+         (target-file (uiop:getenv "TEST_OUTPUT"))
          (stream
           (if target-file
               (open target-file :direction :output :if-exists :supersede :external-format :utf8)
