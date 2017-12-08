@@ -176,7 +176,7 @@ SHCL has total control over the process environment.  This means, for
 example, that...
 * SHCL is soley responsible for all file descriptor manipulations
 * SHCL may install or remove any signal handlers it wishes"
-  (observe-revival)
+  ;; We assume that shcl/core/utility:observe-revival has already run
   (with-options ((uiop:raw-command-line-arguments))
     (when *help*
       (cl-cli:help *options* nil :prog-name "shcl")
