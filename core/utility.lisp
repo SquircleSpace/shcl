@@ -233,6 +233,8 @@ hook is run with `run-hook', each function will be called once."
   "The process has started!"
   (run-hook *revival-hook*))
 
+(push 'observe-revival uiop:*image-restore-hook*)
+
 (define-hook *dump-hook*
   "This hook is run when an executable is being prepared.
 
@@ -246,6 +248,8 @@ for lisp compilers like ECL.")
 (defun observe-dump ()
   "We're saving an executable!"
   (run-hook *dump-hook*))
+
+(push 'observe-dump uiop:*image-dump-hook*)
 
 (defun %when-let (let-sym bindings body)
   (let ((block (gensym (format nil "WHEN-~A-BLOCK" (symbol-name let-sym)))))
