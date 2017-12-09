@@ -107,7 +107,9 @@
   (run "FOO=123 ; testing-assert-equal \"$FOO\" 123"
        "$variable expansion works")
   (run "FOO=123 ; testing-assert-equal \"${FOO}\" 123"
-       "${variable} expansion works"))
+       "${variable} expansion works")
+  (run "FOO=123 ; testing-assert-equal ${#FOO} 3"
+       "${#variable} expansion works"))
 
 (deftest for-loops
   (run "testing-assert-equal '' \"$(for VAR in ; do
