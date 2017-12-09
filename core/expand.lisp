@@ -687,19 +687,30 @@ you insert them into your return value."))
                (setf result (fset:with-last result sub-part))))))
       result)))
 
-(defmethod expand ((thing variable-expansion-word))
-  (let* ((variable (variable-expansion-word-variable thing))
-         (value
-          (cond
-            ((or (equal variable "@")
-                 (equal variable "*"))
-             (error 'not-implemented :feature "Special variables"))
+(defun expand-variable (variable)
+  (let ((value
+         (cond
+           ((or (equal variable "@")
+                (equal variable "*"))
+            (error 'not-implemented :feature "Special variables"))
 
-            (t
-             (env variable)))))
+           (t
+            (env variable)))))
     (if *split-fields*
         (split value)
         (fset:seq (make-string-fragment value)))))
+
+(defmethod expand ((thing variable-expansion-word))
+  (expand-variable (variable-expansion-word-variable thing)))
+
+(defmethod expand ((thing variable-expansion-length-word))
+  (let* ((*split-fields* nil)
+         (fragments (expand-variable (variable-expansion-length-word-variable thing)))
+         (length 0))
+    (fset:do-seq (fragment fragments)
+      (when (string-fragment-p fragment)
+        (incf length (length (string-fragment-string fragment)))))
+    (fset:seq (make-string-fragment (format nil "~A" length)))))
 
 (defun ifs-parts (ifs)
   "Return two values: a string containing the non-whitespace
