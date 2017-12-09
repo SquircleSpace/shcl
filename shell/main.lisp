@@ -145,10 +145,10 @@ See `cl-cli:parse-cli'."
             (stop))
         (die () (exit 1))))))
 
-(define-builtin enable-lisp-syntax (args)
+(define-builtin shcl-enable-lisp-syntax (args)
   "Permit the use of lisp splice forms in shell expressions."
   (unless (equal 1 (fset:size args))
-    (return-from enable-lisp-syntax 1))
+    (return-from shcl-enable-lisp-syntax 1))
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
