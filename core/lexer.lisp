@@ -9,14 +9,14 @@
    #:token #:a-word #:eof #:simple-word #:compound-word
    #:assignment-word #:name #:io-number #:literal-token #:newline
    #:reserved-word #:single-quote #:double-quote #:command-word
-   #:variable-expansion-word
+   #:variable-expansion-word #:variable-expansion-length-word
 
    ;; Slot accessors
    #:token-value #:simple-word-text #:compound-word-parts
    #:assignment-word-name #:assignment-word-value-word #:io-number-fd
    #:literal-token-string #:single-quote-contents #:double-quote-parts
    #:command-word-tokens #:command-word-evaluate-fn
-   #:variable-expansion-word-variable
+   #:variable-expansion-word-variable #:variable-expansion-length-word-variable
 
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
@@ -626,7 +626,6 @@ EOF results in the `unexpected-eof' error being signaled."
       (with-default-handler x "$" 'handle-dollar)
       (with-dispatch-character x "${")
       (with-default-handler x "${" 'handle-dollar-curly)
-      (with-handler x "${#" 'handle-dollar-curly-hash)
       (with-dispatch-character x "$(")
       (with-default-handler x "$(" 'handle-dollar-paren)
       (with-handler x "$((" 'handle-dollar-paren-paren)
