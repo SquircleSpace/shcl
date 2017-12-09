@@ -20,7 +20,7 @@
            (exit-info-false-p thing))
       (or description "Expecting falsey status")))
 
-(define-builtin testing-assert-equal (args)
+(define-builtin -shcl-assert-equal (args)
   (let ((set (fset:convert 'fset:set (fset:less-first args))))
     (if (equal 1 (fset:size set))
         (progn
@@ -30,7 +30,7 @@
           (fail (format nil "Strings didn't match ~A" set))
           1))))
 
-(define-builtin testing-assert-unequal (args)
+(define-builtin -shcl-assert-unequal (args)
   (let ((set (fset:convert 'fset:set (fset:less-first args))))
     (if (equal (fset:size (fset:less-first args)) (fset:size set))
         (progn
@@ -98,25 +98,25 @@
         "Splicing a lexical seq works")))
 
 (deftest test-infrastructure
-  (run "testing-assert-equal 0 0"
+  (run "-shcl-assert-equal 0 0"
        "Equality comparison works")
-  (run "testing-assert-unequal 1 0"
+  (run "-shcl-assert-unequal 1 0"
        "Inequality comparison works"))
 
 (deftest variables
-  (run "FOO=123 ; testing-assert-equal \"$FOO\" 123"
+  (run "FOO=123 ; -shcl-assert-equal \"$FOO\" 123"
        "$variable expansion works")
-  (run "FOO=123 ; testing-assert-equal \"${FOO}\" 123"
+  (run "FOO=123 ; -shcl-assert-equal \"${FOO}\" 123"
        "${variable} expansion works")
-  (run "FOO=123 ; testing-assert-equal ${#FOO} 3"
+  (run "FOO=123 ; -shcl-assert-equal ${#FOO} 3"
        "${#variable} expansion works"))
 
 (deftest for-loops
-  (run "testing-assert-equal '' \"$(for VAR in ; do
+  (run "-shcl-assert-equal '' \"$(for VAR in ; do
 echo $VAR
 done)\""
        "For loops over empty lists work")
-  (run "testing-assert-equal '1
+  (run "-shcl-assert-equal '1
 2
 3
 ' \"$(for VAR in 1 2 3
@@ -124,7 +124,7 @@ do
 echo $VAR
 done)\""
        "For loops over non-empty lists work")
-  (run "testing-assert-unequal $(for VAR in 1 2 3
+  (run "-shcl-assert-unequal $(for VAR in 1 2 3
 do
 echo $VAR
 done)"
