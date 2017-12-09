@@ -27,6 +27,13 @@ This only changes how `shcl/shell/main:main' reads shell commands.
 Macros and functions which consume shell expressions are not impacted
 in any way by this variable.")
 
+(define-builtin -shcl-reset-readtable (args)
+  (unless (equal 1 (fset:size args))
+    (format *error-output* "Invalid number of arguments: ~A" (fset:size args))
+    (return-from -shcl-reset-readtable 1))
+  (setf *shell-readtable* +standard-shell-readtable+)
+  0)
+
 (defparameter *fresh-prompt* t
   "If non-nil, then the next time the user is prompted for input, the
 standard prompt should be displayed.
