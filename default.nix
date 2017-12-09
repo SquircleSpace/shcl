@@ -21,6 +21,8 @@ pkgs.stdenv.mkDerivation rec {
     pkgs.lispPackages.trivial-garbage
     pkgs.lispPackages.trivial-gray-streams
     pkgs.sbcl
+    # For test
+    pkgs.lispPackages.prove
   ];
   LD_LIBRARY_PATH = "${pkgs.stdenv.lib.makeLibraryPath buildInputs}";
   installPhase = ''
