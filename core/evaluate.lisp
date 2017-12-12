@@ -470,6 +470,10 @@ The methods on this function are tightly coupled to the shell grammar."))
         (exit-info-true-p (evaluate-synchronous-job compound-list))
       (evaluate-synchronous-job do-group))))
 
+(defmethod evaluate ((sy brace-group))
+  (with-slots (compound-list) sy
+    (return-from evaluate (evaluate-synchronous-job compound-list))))
+
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
     (return-from evaluate (evaluate-synchronous-job compound-list))))
