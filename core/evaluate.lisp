@@ -187,7 +187,7 @@ It is analogous to `eval' for Common Lisp.
 The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod evaluate (sy)
-  (error 'not-implemented :feature (format nil "Cannot eval ~A" (class-name (class-of sy)))))
+  (error 'not-implemented :feature (format nil "Eval of ~A" (class-name (class-of sy)))))
 
 (defmethod evaluate ((sy complete-command))
   (with-slots (newline-list complete-command command-list) sy
