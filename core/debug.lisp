@@ -4,7 +4,7 @@
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export
-   #:graph-class-hierarchy #:undocumented-symbols
+   #:graph-dependencies #:graph-class-hierarchy #:undocumented-symbols
    #:undocumented-symbols-in-package #:verbose-echo-stream))
 (in-package :shcl/core/debug)
 
@@ -33,6 +33,37 @@ and all of its subclasses"))
         (format stream "\"~A\" -> \"~A\"~%" (class-name the-class) (class-name superclass)))))
   (format stream "}~%"))
 
+(defun string-prefix-p (prefix word)
+  (when (>= (length word) (length prefix))
+    (string= word prefix :end1 (length prefix))))
+
+(defun shcl-package-name-p (package-name)
+  (string-prefix-p "SHCL/" package-name))
+
+(defun shcl-system-name-p (system-name)
+  (string-prefix-p "shcl/" system-name))
+
+(defun graph-dependencies (&key
+                             (stream *standard-output*)
+                             (seed-package-name "shcl/shell/main")
+                             (include-predicate (constantly t))
+                             (explore-predicate 'shcl-system-name-p))
+  (format stream "digraph G {~%")
+  (let ((visited (make-hash-table :test 'equal)))
+    (labels
+        ((visit (name)
+           (when (gethash name visited)
+             (return-from visit))
+           (setf (gethash name visited) t)
+           (let ((system (asdf:find-system name)))
+             (dolist (peer (asdf/system:system-depends-on system))
+               (when (funcall include-predicate peer)
+                 (format stream "\"~A\" -> \"~A\"~%" name peer))
+               (when (funcall explore-predicate peer)
+                 (visit peer))))))
+      (visit seed-package-name)))
+  (format stream "}~%"))
+
 (defparameter *intentionally-undocumented-packages*
   (fset:set
    (find-package :shcl/shell/prompt-types)
@@ -43,9 +74,7 @@ and all of its subclasses"))
 be documented."
   (when (fset:lookup *intentionally-undocumented-packages* package)
     (return-from documented-shcl-package-p nil))
-  (let ((shcl-prefix "SHCL/"))
-    (when (> (length (package-name package)) (length shcl-prefix))
-      (string= (package-name package) shcl-prefix :end1 (length shcl-prefix)))))
+  (shcl-package-name-p (symbol-name package)))
 
 (defun symbol-documentation-types ()
   "Return an array of types of documentation a symbol can have.
