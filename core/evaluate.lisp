@@ -558,51 +558,51 @@ and io redirects."
 
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
-    (multiple-value-bind (assignments arguments redirects) (simple-command-parts sy)
-      (debug-log status "EXEC: ~A ~A ~A" assignments arguments redirects)
-      (when (zerop (length arguments))
+    (multiple-value-bind (assignments raw-arguments redirects) (simple-command-parts sy)
+      (debug-log status "EXEC: ~A ~A ~A" assignments raw-arguments redirects)
+      (when (zerop (length raw-arguments))
         (return-from evaluate (evaluate-command-free assignments redirects)))
 
       (with-fd-scope ()
-        (dolist (r redirects)
-          (handle-redirect r))
-        (let* ((bindings (simplify-fd-bindings))
-               (new-environment (with-environment-scope ()
-                                  (dolist (assign assignments)
-                                    (evaluate-assignment-word assign))
-                                  *environment*))
-               pid
-               status)
-          (setf arguments (with-environment-scope (new-environment)
-                            (with-fd-streams ()
-                              (expansion-for-words arguments :expand-aliases t :expand-pathname t))))
+        (with-environment-scope ()
+          (let* ((arguments (with-fd-streams ()
+                              (expansion-for-words raw-arguments :expand-aliases t :expand-pathname t)))
+                 (bindings (progn
+                             (dolist (r redirects)
+                               (handle-redirect r))
+                             (simplify-fd-bindings)))
+                 pid
+                 status)
 
-          (when-let* ((command (fset:first arguments))
-                      (builtin (and
-                                (not (find #\/ command))
-                                (lookup-builtin command))))
-            (return-from evaluate
-              (funcall builtin arguments)))
+            (dolist (assign assignments)
+              (evaluate-assignment-word assign))
 
-          (with-living-fds (fds)
-            (setf pid (run arguments
-                           :fd-alist (fset:convert 'list bindings)
-                           :managed-fds fds
-                           :environment (linearized-exported-environment new-environment)
-                           :working-directory-fd (current-working-directory-fd)))
-            (debug-log status "PID ~A = ~A" pid arguments))
-          (setf status (nth-value 1 (waitpid pid wuntraced)))
-          (debug-log status "EXITED ~A" pid)
-          (when (wifstopped status)
-            (warn "Stopped jobs should get a job number, but they don't"))
+            (when-let* ((command (fset:first arguments))
+                        (builtin (and
+                                  (not (find #\/ command))
+                                  (lookup-builtin command))))
+              (return-from evaluate
+                (funcall builtin arguments)))
 
-          (make-exit-info :pid pid
-                          :exit-status (when (wifexited status)
-                                         (wexitstatus status))
-                          :exit-signal (when (wifsignaled status)
-                                         (wtermsig status))
-                          :stop-signal (when (wifstopped status)
-                                         (wstopsig status))))))))
+            (with-living-fds (fds)
+              (setf pid (run arguments
+                             :fd-alist (fset:convert 'list bindings)
+                             :managed-fds fds
+                             :environment (linearized-exported-environment *environment*)
+                             :working-directory-fd (current-working-directory-fd)))
+              (debug-log status "PID ~A = ~A" pid arguments))
+            (setf status (nth-value 1 (waitpid pid wuntraced)))
+            (debug-log status "EXITED ~A" pid)
+            (when (wifstopped status)
+              (warn "Stopped jobs should get a job number, but they don't"))
+
+            (make-exit-info :pid pid
+                            :exit-status (when (wifexited status)
+                                           (wexitstatus status))
+                            :exit-signal (when (wifsignaled status)
+                                           (wtermsig status))
+                            :stop-signal (when (wifstopped status)
+                                           (wstopsig status)))))))))
 
 (define-condition not-an-exit-info (warning)
   ((actual-type
