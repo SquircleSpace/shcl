@@ -59,20 +59,26 @@
 (deftest extensible-reading
   (let* ((readtable +standard-shell-readtable+)
          (stream (make-string-input-stream "[(+ 1 2 3)#,\"asdf\"#.stuff"))
+         hash-hit
          s-reader-ran)
     (labels
         (([-reader (s i c)
-           (declare (ignore i c))
-           (make-form (read s)))
+           (declare (ignore i))
+           (shell-lexer-context-add-part c (make-form (read s))))
          (comma-reader (s i c)
-           (declare (ignore i c))
-           (make-form (read s)))
+           (declare (ignore i))
+           (shell-lexer-context-add-part c (make-form (read s))))
          (default-s-reader (s i c)
-           (declare (ignore s i c))
+           (declare (ignore s i))
            (setf s-reader-ran t)
-           "s")
+           (shell-lexer-context-add-part c "s"))
+         (hash-reader (s i c)
+           (declare (ignore s i c))
+           (setf hash-hit t))
          (r ()
-           (lexer-context-shell-extensible-read-from-stream stream readtable)))
+           (let ((c (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
+             (lexer-context-shell-extensible-read c)
+             (shell-lexer-context-delimit c :if-empty nil))))
       ;; Simple reader
       (setf readtable (with-handler readtable "[" #'[-reader))
       (is
@@ -82,7 +88,7 @@
 
       ;; Dispatch reader
       (setf readtable (with-dispatch-character readtable "#"))
-      (setf readtable (with-default-handler readtable "#" (constantly t)))
+      (setf readtable (with-default-handler readtable "#" #'hash-reader))
       (setf readtable (with-handler readtable "#," #'comma-reader))
       ;; two-character sequence
       (is
@@ -91,9 +97,9 @@
        :test #'equal)
 
       ;; Dispatch char fallback (and commenting)
-      (is
-       t
-       (r))
+      (ok (not hash-hit))
+      (r)
+      (ok hash-hit)
 
       ;; Ultimate fallback (No matches at all)
       (is
