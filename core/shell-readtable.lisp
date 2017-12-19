@@ -383,11 +383,11 @@ The result of this macro is equivalent to
 
         result))))
 
-(defun shell-extensible-read (stream context readtable)
+(defun shell-extensible-read (stream context readtable &key no-match-value)
   (labels
       ((fallback (s initiation-sequence c)
          (declare (ignore s c))
          (assert (equal 0 (length initiation-sequence)) nil
                  "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
-         (return-from shell-extensible-read nil)))
+         (return-from shell-extensible-read no-match-value)))
     (%shell-extensible-read stream readtable (make-extensible-vector) #'fallback context)))

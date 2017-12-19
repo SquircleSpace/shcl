@@ -32,8 +32,9 @@
    #:next-token #:token-iterator-symbolic-readtable
 
    ;; Extensible reading
-   #:lexer-context-mark-end-of-token
-   #:lexer-context-shell-extensible-read-from-stream #:lexer-context-readtable
+   #:lexer-context-mark-end-of-token #:shell-lexer-context-add-part
+   #:shell-lexer-context-delimit #:shell-lexer-context
+   #:lexer-context-shell-extensible-read #:lexer-context-readtable
    #:lexer-context-stream #:+standard-shell-readtable+))
 (in-package :shcl/core/lexer)
 
@@ -785,6 +786,9 @@ EOF results in the `unexpected-eof' error being signaled."
       (setf pending-word nil))))
 
 (defun shell-lexer-context-add-part (context part)
+  (when (stringp part)
+    (return-from shell-lexer-context-add-part
+      (shell-lexer-context-add-chars context part)))
   (shell-lexer-context-word-boundary context)
   (with-slots (parts) context
     (vector-push-extend part parts)))
@@ -854,26 +858,12 @@ EOF results in the `unexpected-eof' error being signaled."
   (with-slots (stream (context-readtable readtable)) context
     (unless readtable
       (setf readtable context-readtable))
-    (let ((result (shell-extensible-read stream context readtable)))
-      (unless (or (eq result nil) (eq result t) (typep result '(or string token)))
-        (error "Lexer extensions must return a token, got ~A" result))
-      result)))
-
-(defun lexer-context-shell-extensible-read-from-stream (stream readtable)
-  (let ((c (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
-    (lexer-context-shell-extensible-read c)))
+    (let* ((no-match-value '#:no-match-value)
+           (result (shell-extensible-read stream context readtable :no-match-value no-match-value)))
+      (not (eq result no-match-value)))))
 
 (defun handle-extensible-syntax (context)
-  (let ((value (lexer-context-shell-extensible-read context)))
-    (unless value
-      (return-from handle-extensible-syntax nil))
-    (when (eq t value)
-      (return-from handle-extensible-syntax t))
-
-    (typecase value
-      (string (shell-lexer-context-add-chars context value))
-      (token (shell-lexer-context-add-part context value))))
-  t)
+  (lexer-context-shell-extensible-read context))
 
 (defun next-token (stream &key (readtable +standard-shell-readtable+))
   (let* ((context (make-instance 'shell-lexer-context :stream stream :readtable readtable)))

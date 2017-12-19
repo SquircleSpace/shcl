@@ -53,8 +53,8 @@ shcl> shcl-repl
 shcl (lisp)> (in-package :shcl/shell/main)
 #<PACKAGE "SHCL/SHELL/MAIN">
 shcl (lisp)> (defun bang (s ic c)
-> (declare (ignore s ic c))
-> "*BANG!*")
+> (declare (ignore s ic))
+> (shell-lexer-context-add-part c "*BANG!*"))
 BANG
 shcl (lisp)> (progn (setf *shell-readtable* (with-handler *shell-readtable* "!" 'bang)) nil)
 NIL

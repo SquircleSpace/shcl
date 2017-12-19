@@ -71,22 +71,23 @@ lisp form and turns each element into a separate word."))
 
 (defun read-lisp-form (stream initiation-sequence context)
   "Read a `lisp-form'."
-  (declare (ignore initiation-sequence context))
-  (let ((form (read-preserving-whitespace stream)))
-    (make-instance 'lisp-form :form form)))
+  (declare (ignore initiation-sequence))
+  (let* ((form (read-preserving-whitespace stream))
+         (token (make-instance 'lisp-form :form form)))
+    (shell-lexer-context-add-part context token)))
 
 (defun read-lisp-splice-form (stream initiation-sequence context)
   "Read a `lisp-splice-form'."
   (declare (ignore initiation-sequence context))
-  (let ((form (read-preserving-whitespace stream)))
-    (make-instance 'lisp-splice-form :form form)))
+  (let* ((form (read-preserving-whitespace stream))
+         (token (make-instance 'lisp-splice-form :form form)))
+    (shell-lexer-context-add-part context token)))
 
 (defun hash-default-handler (stream initiation-sequence context)
   "Read a comment"
   (unless (equal #\linefeed (aref initiation-sequence (- (length initiation-sequence) 1)))
     (read-line stream nil :eof))
-  (lexer-context-mark-end-of-token context)
-  t)
+  (lexer-context-mark-end-of-token context))
 
 (define-shell-readtable *splice-table-mixin*
   (with-dispatch-character ",")
@@ -119,8 +120,7 @@ ensure that use of the #$ reader macro is properly terminated.")
   "Mark the end of a #$ reader macro form."
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
-  (setf *proper-end-found* t)
-  t)
+  (setf *proper-end-found* t))
 
 (defun read-shell-command (stream subchar arg)
   "This function implements the #$ reader macro
