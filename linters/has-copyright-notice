@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-MATCHES="$(! find . -iname '*.lisp' -exec grep "::" {} +)" && {
+MATCHES="$(! find . -iname '*.lisp' -or -iname '*.h' -or -iname '*.c' \
+                  -or -iname 'Makefile' -or -iname '*.org' -or -path './linters/*' \
+                  -exec grep -L "Licensed under the Apache License, Version 2.0" {} +)" && {
     exit 0
 }
 
-echo "Private symbol access found"
+echo "Files without license found"
 echo "$MATCHES"
 exit 1
