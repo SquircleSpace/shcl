@@ -5,24 +5,22 @@ pkgs.stdenv.mkDerivation rec {
   env = pkgs.buildEnv { name = name; paths = buildInputs; };
   buildInputs = [
     pkgs.clang
-    pkgs.libedit
-    pkgs.lispPackages.alexandria
-    pkgs.lispPackages.bordeaux-threads
-    pkgs.lispPackages.cffi
-    pkgs.lispPackages.cffi-grovel
-    pkgs.lispPackages.cl-cli
-    pkgs.lispPackages.cl-fad
-    pkgs.lispPackages.closer-mop
-    pkgs.lispPackages.cl-ppcre
-    pkgs.lispPackages.fset
-    pkgs.lispPackages.lisp-namespace
-    pkgs.lispPackages.quicklisp
-    pkgs.lispPackages.swank
-    pkgs.lispPackages.trivial-garbage
-    pkgs.lispPackages.trivial-gray-streams
+    pkgs.libedit # BSD 3-clause
+    pkgs.lispPackages.alexandria # Public domain
+    pkgs.lispPackages.bordeaux-threads # MIT
+    pkgs.lispPackages.cffi # MIT
+    pkgs.lispPackages.cffi-grovel # MIT
+    pkgs.lispPackages.cl-cli # WTFPL
+    pkgs.lispPackages.cl-fad # BSD 2-clause
+    pkgs.lispPackages.closer-mop # MIT
+    pkgs.lispPackages.cl-ppcre # BSD 2-clause
+    pkgs.lispPackages.fset # Lisp LGPL
+    pkgs.lispPackages.swank # Public domain
+    pkgs.lispPackages.trivial-garbage # Public domain
+    pkgs.lispPackages.trivial-gray-streams # MIT
     pkgs.sbcl
     # For test
-    pkgs.lispPackages.prove
+    pkgs.lispPackages.prove # MIT
   ];
   LD_LIBRARY_PATH = "${pkgs.stdenv.lib.makeLibraryPath buildInputs}";
   installPhase = ''
