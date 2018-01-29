@@ -15,8 +15,7 @@
 #+TITLE: Hacking on SHCL
 #+AUTHOR: Brad Jensen
 
-So you want to contribute to SHCL?  First, let's get you familiar with
-the organization of the project.
+So you want to contribute to SHCL?  Here's everything you need to know!
 
 * File Organization
 The root folder of the SHCL source tree contains a few loose files and
@@ -63,7 +62,7 @@ The tests are run by the =test.lisp= script in the root directory.
 This directory contains scripts which detect stylistic issues with
 SHCL's source.
 
-* The pipeline
+* The Pipeline
 SHCL is, at its heart, a pipeline.  Generally, each stage is a
 transformation from one iterator to another.
 
@@ -103,3 +102,12 @@ evaluated.
 *** Expansion
 Just before the ~EVALUATE~ function runs a command or builtin, it
 expands each "word" being passed to the command/builtin.
+* Assorted Style Guidelines
+- Every exported symbol should have documentation.  Documenting
+  internal functions is also a Good Thing.  Document methods at your
+  discretion.
+- Only tests are allowed to access unexported symbols.
+- Treat all exported symbols as public API.  No packages are private.
+- Long lines should be avoided.
+- Prefer immutable data structures (e.g. fset or define-data).
+- Prefer a functional style
