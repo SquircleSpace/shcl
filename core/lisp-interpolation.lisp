@@ -302,8 +302,9 @@ call this function."
 
   (with-fd-scope ()
     (let ((fds (mapcar 'decode-stream-descriptor streams))
-          (result-place (make-place))
-          (semaphore (shcl/core/thread:make-semaphore)))
+          (string-result-place (make-place))
+          (semaphore (shcl/core/thread:make-semaphore))
+          exit-info)
       (multiple-value-bind (read-end write-end) (pipe-retained)
         (unwind-protect
              (progn
@@ -312,14 +313,16 @@ call this function."
                    (bind-fd fd write-end))
                  (fd-retain read-end)
                  (bordeaux-threads:make-thread
-                  (lambda () (consume read-end result-place semaphore encoding)))
+                  (lambda () (consume read-end string-result-place semaphore encoding)))
 
-                 (funcall shell-command-fn))
+                 ;; Maybe not actually an exit-info.  Still, its a
+                 ;; good name.
+                 (setf exit-info (multiple-value-list (funcall shell-command-fn))))
 
                (fd-release write-end)
                (setf write-end nil)
                (shcl/core/thread:semaphore-wait semaphore)
-               (place-value result-place))
+               (values-list (cons (place-value result-place) exit-info)))
           (when read-end
             (fd-release read-end))
           (when write-end
@@ -341,10 +344,12 @@ string.
              (parse-token-sequence ,(coerce (command-word-tokens command-word) 'list))))))
 
 (defmethod expand ((command-word command-word))
-  (let* ((fn (command-word-evaluate-fn command-word))
-         (s (if fn
-                (funcall fn)
-                (error "command-word is missing its fn ~A" command-word))))
-    (if *split-fields*
-        (split s)
-        (fset:seq (make-string-fragment s)))))
+  (let* ((fn (or (command-word-evaluate-fn command-word)
+                 (error "command-word is missing its fn ~A" command-word))))
+    (multiple-value-bind (expansion exit-info) (funcall fn)
+      (check-type exit-info (or null exit-info))
+      (values
+       (if *split-fields*
+           (split expansion)
+           (make-string-fragment expansion))
+       exit-info))))
