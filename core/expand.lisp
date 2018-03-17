@@ -694,9 +694,7 @@ value."))
       (when (zerop (length parts))
         (return-from expand (fset:empty-seq)))
 
-      (ingest (expand (aref parts 0)))
-
-      (loop :for index :from 1 :below (length parts) :do
+      (loop :for index :from 0 :below (length parts) :do
          (ingest (expand (aref parts index)))))
     result))
 
