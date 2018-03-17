@@ -687,28 +687,32 @@ value."))
 
 (defmethod expand ((thing compound-word))
   (let* ((parts (compound-word-parts thing))
-         (result (fset:empty-seq)))
+         (result (fset:empty-seq))
+         (exit-infos (fset:empty-seq)))
     (labels
         ((ingest (seq)
-           (fset:appendf result seq)))
-      (when (zerop (length parts))
-        (return-from expand (fset:empty-seq)))
-
+           (multiple-value-bind (fragments exit-infos) (expand seq)
+             (fset:appendf result seq)
+             (fset:appendf exit-infos (ensure-exit-info-seq exit-infos)))))
       (loop :for index :from 0 :below (length parts) :do
-         (ingest (expand (aref parts index)))))
-    result))
+         (ingest (aref parts index))))
+
+    (values result exit-infos)))
 
 ;; This is not meant to be used to expand the assignment statements at
 ;; the start of a command.  Those expand differently (in particular,
 ;; field splitting doesn't occur).
 (defmethod expand ((thing assignment-word))
   (with-accessors ((name assignment-word-name) (value assignment-word-value-word)) thing
-    (let ((value-expanded (expand value))
-          (name-expanded (expand name))
-          (result (fset:seq (make-string-fragment "="))))
-      (fset:prependf result name-expanded)
-      (fset:appendf result value-expanded)
-      result)))
+    (let ((result (fset:seq (make-string-fragment "=")))
+          (result-exit-infos (fset:empty-seq)))
+      (multiple-value-bind (fragments exit-info) (expand name)
+        (fset:prependf result fragments)
+        (fset:appendf result-exit-infos (ensure-exit-info-seq exit-info)))
+      (multiple-value-bind (fragments exit-info) (expand value)
+        (fset:appendf result fragments)
+        (fset:appendf result-exit-infos (ensure-exit-info-seq exit-info)))
+      (values result result-exit-infos))))
 
 (defmethod expand ((thing literal-token))
   (fset:seq (make-string-fragment (literal-token-string thing) :literal t)))
@@ -719,9 +723,11 @@ value."))
 (defmethod expand ((thing double-quote))
   (let ((*split-fields* nil))
     (let* ((parts (double-quote-parts thing))
-           (result (fset:seq)))
+           (result (fset:empty-seq))
+           (result-exit-infos (fset:empty-seq)))
       (loop :for part :across parts :do
-         (let ((expansion (expand part)))
+         (multiple-value-bind (expansion exit-info) (expand part)
+           (fset:appendf result-exit-infos (ensure-exit-info-seq exit-info))
            (fset:do-seq (sub-part expansion)
              (unless (word-boundary-p sub-part)
                ;; Mark the fragment as quoted
