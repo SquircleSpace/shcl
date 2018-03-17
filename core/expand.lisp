@@ -22,6 +22,7 @@
   (:import-from :shcl/core/posix #:syscall-error)
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
   (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:openat-retained #:fd-release)
+  (:import-from :shcl-core/exit-info #:exit-info)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
    #:word-boundary #:*split-fields* #:split))
@@ -193,12 +194,31 @@ environment.
                (setf less-first (expand-aliases less-first)))
              (setf remaining (fset:concat (alias-words alias) less-first))))))))
 
+(defun ensure-exit-info-seq (value)
+  (etypecase value
+    (null
+     (fset:empty-seq))
+    (exit-info
+     (fset:seq value))
+    (fset:seq
+     value)))
+
 (defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
   "Perform expansion on a sequence of tokens.
 
 This always performs the expansion done by the `expand' generic
 function.  Alias expansion and pathname (glob-style) expansion are
 optional and enabled by keyword arguments.
+
+The first return value is an `fset:seq' of strings representing the
+expanded content.  The second return value is an `fset:seq' of
+`exit-info' objects that were generated while expanding the tokens.
+The `exit-info' objects are in the order that they were encountered.
+
+For example, expanding \"$(true) stuff* goes{a,b} $(false) here\"
+could produce the following return values.
+    (fset:seq \"stuffAndThings\" \"goesa\" \"goesb\" \"here\")
+    (fset:seq (truthy-exit-info) (falsey-exit-info))
 
 The value of the `split-fields' keyword argument is bound to the
 `*split-fields*' special variable.  See that variable's documentation
@@ -212,9 +232,16 @@ to understand how it impacts expansion."
          (seqs (if expand-aliases
                    (expand-aliases things)
                    things))
+         (exit-infos (fset:empty-seq))
          next-word)
 
-    (setf seqs (fset:image #'expand seqs))
+    (let ((new-seqs (fset:empty-seq)))
+      (fset:do-seq (seq seqs)
+        (multiple-value-bind (value exit-info) (expand seq)
+          (setf new-seqs (fset:with-last new-seqs value))
+          (fset:appendf exit-infos (ensure-exit-info-seq exit-info))))
+      (setf seqs new-seqs))
+
     (labels
         ((observe (fragment)
            (unless next-word
@@ -237,12 +264,14 @@ to understand how it impacts expansion."
 
     (unless expand-pathname
       (return-from expansion-for-words
-        (fset:image #'concat-fragments result)))
+        (values (fset:image #'concat-fragments result)
+                exit-infos)))
 
     (let ((pathname-expansion-results (fset:empty-seq)))
       (fset:do-seq (fragments result)
         (fset:appendf pathname-expansion-results (expand-pathname fragments)))
-      pathname-expansion-results)))
+      (values pathname-expansion-results
+              exit-infos))))
 
 (defstruct wild-path
   "This struct represents a path which may have components which
@@ -644,7 +673,11 @@ end results.
     (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\" :literal t))
 
 Use word boundaries responsibly.  Check with `*split-fields*' before
-you insert them into your return value."))
+you insert them into your return value.
+
+If the expansion process involves running a command, you may return an
+`exit-info' or an `fset:seq' of `exit-info' as the second return
+value."))
 
 (defmethod expand ((thing string))
   (fset:seq (make-string-fragment thing :literal t)))
