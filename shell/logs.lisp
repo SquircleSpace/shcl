@@ -13,10 +13,12 @@
 ;; limitations under the License.
 
 (defpackage :shcl/shell/logs
-  (:use :common-lisp :shcl/core/utility :shcl/core/builtin))
+  (:use :common-lisp :shcl/core/utility :shcl/core/command))
 (in-package :shcl/shell/logs)
 
-(define-builtin -shcl-dump-logs (args)
-  (declare (ignore args))
+(define-builtin -shcl-dump-logs (argv0 &rest args)
+  (declare (ignore argv0))
+  (when args
+    (error 'command-error :message "No arguments expected"))
   (dump-logs)
   0)

@@ -13,7 +13,7 @@
 ;; limitations under the License.
 
 (defpackage :shcl/shell/lisp-repl
-  (:use :common-lisp :shcl/core/builtin :shcl/core/utility)
+  (:use :common-lisp :shcl/core/command :shcl/core/utility)
   (:import-from :shcl/shell/prompt
    #:with-history #:history-set-size #:history-enter #:make-editline-stream)
   (:import-from :shcl/shell/directory #:physical-pwd)
@@ -23,7 +23,9 @@
 (optimization-settings)
 
 (defpackage :shcl-user
-  (:use :common-lisp :shcl/shell/lisp-repl))
+  (:use :common-lisp :shcl/shell/lisp-repl)
+  (:import-from :shcl/core/environment #:env)
+  (:import-from :shcl/core/command #:define-builtin))
 
 (defun return-to-shell ()
   "Exit the lisp repl and return to the shell.
@@ -76,9 +78,12 @@ prompt."
     (setf *fresh-prompt* nil)
     result))
 
-(define-builtin shcl-repl (args)
+(define-builtin shcl-repl (argv0 &rest args)
   "Enter the lisp repl."
-  (declare (ignore args))
+  (declare (ignore argv0))
+  (when args
+    (error 'command-error :message "No arguments expected"))
+
   (with-history (h)
     (history-set-size h 800)
     (catch 'return-to-shell

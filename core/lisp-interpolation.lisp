@@ -15,7 +15,7 @@
 (defpackage :shcl/core/lisp-interpolation
   (:use
    :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/builtin
+   :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/command
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/shell-readtable)
   (:import-from :babel)
@@ -181,12 +181,12 @@ environment in which this function call appears.  They will be
 evauluated in the null lexical environment."
   (eval `(evaluate-constant-shell-string ,string ,@(when readtable `(:readtable ,readtable)))))
 
-(define-builtin (builtin-eval "eval") (args)
-  (setf args (fset:less-first args))
+(define-builtin (builtin-eval "eval") (argv0 &rest args)
+  (declare (ignore argv0))
   (let* (sep-needed
          (command
           (with-output-to-string (s)
-            (fset:do-seq (word args)
+            (dolist (word args)
               (unless (zerop (length word))
                 (when sep-needed
                   (write-char #\space s))

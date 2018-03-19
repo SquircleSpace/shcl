@@ -1,5 +1,5 @@
 (defpackage :shcl-test/lisp-interpolation
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lisp-interpolation :shcl/core/exit-info :shcl/core/builtin)
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lisp-interpolation :shcl/core/exit-info :shcl/core/command)
   (:shadow #:run))
 (in-package :shcl-test/lisp-interpolation)
 
@@ -20,8 +20,9 @@
            (exit-info-false-p thing))
       (or description "Expecting falsey status")))
 
-(define-builtin -shcl-assert-equal (args)
-  (let ((set (fset:convert 'fset:set (fset:less-first args))))
+(define-builtin -shcl-assert-equal (argv0 &rest args)
+  (declare (ignore argv0))
+  (let ((set (fset:convert 'fset:set args)))
     (if (equal 1 (fset:size set))
         (progn
           (pass "Strings matched")
@@ -30,9 +31,10 @@
           (fail (format nil "Strings didn't match ~A" set))
           1))))
 
-(define-builtin -shcl-assert-unequal (args)
-  (let ((set (fset:convert 'fset:set (fset:less-first args))))
-    (if (equal (fset:size (fset:less-first args)) (fset:size set))
+(define-builtin -shcl-assert-unequal (argv0 &rest args)
+  (declare (ignore argv0))
+  (let ((set (fset:convert 'fset:set args)))
+    (if (equal (length args) (fset:size set))
         (progn
           (pass "Strings didn't match")
           0)

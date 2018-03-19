@@ -99,6 +99,12 @@
                 (free-translated-object table type side-table)
                 (foreign-free table))))))))
 
+(defmethod translate-to-foreign ((sequence list) (type string-table-type))
+  (translate-to-foreign (fset:convert 'fset:seq sequence) type))
+
+(defmethod translate-to-foreign ((sequence vector) (type string-table-type))
+  (translate-to-foreign (fset:convert 'fset:seq sequence) type))
+
 (defmethod free-translated-object (translated (type string-table-type) param)
   (loop :for index :below (length param) :do
      (unless (null-pointer-p (mem-aref translated '(:pointer :char) index))
