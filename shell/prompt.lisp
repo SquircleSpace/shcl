@@ -16,7 +16,7 @@
   (:use
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
-  (:import-from :shcl/core/builtin #:define-builtin)
+  (:import-from :shcl/core/command #:define-builtin)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/posix #:file-ptr)
   (:import-from
@@ -517,11 +517,12 @@ This interacts with the user on symbolic fds 0, 1, and 2."
         (editline-set-history e history))
       (editline-gets e))))
 
-(define-builtin -shcl-eval-editline (args)
+(define-builtin -shcl-eval-editline (argv0 &rest args)
   "Pass the given arguments to el_parse."
+  (declare (ignore argv0))
   (with-editline (e "shcl" (get-fd 0) (get-fd 1) (get-fd 2))
     (with-slots (ptr) e
-      (el-parse ptr (fset:less-first args))))
+      (el-parse ptr args)))
   0)
 
 (defclass editline-stream (fundamental-character-input-stream)

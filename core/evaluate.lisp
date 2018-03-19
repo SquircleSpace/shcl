@@ -16,7 +16,7 @@
   (:use
    :common-lisp :alexandria :bordeaux-threads
    :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer :shcl/core/fork-exec
-   :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/builtin
+   :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/command
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
@@ -371,13 +371,12 @@ The methods on this function are tightly coupled to the shell grammar."))
 (define-condition loop-break (loop-jump)
   ())
 
-(define-builtin (builtin-break "break") (args)
+(define-builtin (builtin-break "break") (argv0 &optional (count "1") &rest args)
+  (declare (ignore argv0))
   (wrap-errors
-    (when (> (fset:size args) 2)
+    (when args
       (error "Invalid arguments"))
-    (let ((count (if (equal 1 (fset:size args))
-                     1
-                     (parse-integer (fset:lookup args 1) :junk-allowed nil))))
+    (let ((count (parse-integer count :junk-allowed nil)))
       (unless (plusp count)
         (error "Count must be positive"))
       (signal 'loop-break :count count))
@@ -386,13 +385,12 @@ The methods on this function are tightly coupled to the shell grammar."))
 (define-condition loop-continue (loop-jump)
   ())
 
-(define-builtin (builtin-continue "continue") (args)
+(define-builtin (builtin-continue "continue") (argv0 &optional (count "1") &rest args)
+  (declare (ignore argv0))
   (wrap-errors
-    (when (> (fset:size args) 2)
+    (when args
       (error "Invalid arguments"))
-    (let ((count (if (equal 1 (fset:size args))
-                     1
-                     (parse-integer (fset:lookup args 1) :junk-allowed nil))))
+    (let ((count (parse-integer count :junk-allowed nil)))
       (unless (plusp count)
         (error "Count must be positive"))
       (signal 'loop-continue :count count))
@@ -574,6 +572,18 @@ and io redirects."
       (handle-redirect redirect)))
   (truthy-exit-info))
 
+(defclass invocation ()
+  ((arguments
+    :initarg :arguments
+    :type fset:seq
+    :reader invocation-arguments)
+   (assignments
+    :initarg :assignments
+    :type list)
+   (redirects
+    :initarg :redirects
+    :type list)))
+
 (defmethod evaluate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments raw-arguments redirects) (simple-command-parts sy)
@@ -581,46 +591,16 @@ and io redirects."
       (when (zerop (length raw-arguments))
         (return-from evaluate (evaluate-command-free assignments redirects)))
 
-      (with-fd-scope ()
-        (with-environment-scope ()
-          (let* ((arguments (with-fd-streams ()
-                              (expansion-for-words raw-arguments :expand-aliases t :expand-pathname t)))
-                 (bindings (progn
-                             (dolist (r redirects)
-                               (handle-redirect r))
-                             (simplify-fd-bindings)))
-                 pid
-                 status)
-
-            (dolist (assign assignments)
-              (evaluate-assignment-word assign))
-
-            (when-let* ((command (fset:first arguments))
-                        (builtin (and
-                                  (not (find #\/ command))
-                                  (lookup-builtin command))))
-              (return-from evaluate
-                (funcall builtin arguments)))
-
-            (with-living-fds (fds)
-              (setf pid (run arguments
-                             :fd-alist (fset:convert 'list bindings)
-                             :managed-fds fds
-                             :environment (linearized-exported-environment *environment*)
-                             :working-directory-fd (current-working-directory-fd)))
-              (debug-log status "PID ~A = ~A" pid arguments))
-            (setf status (nth-value 1 (waitpid pid wuntraced)))
-            (debug-log status "EXITED ~A" pid)
-            (when (wifstopped status)
-              (warn "Stopped jobs should get a job number, but they don't"))
-
-            (make-exit-info :pid pid
-                            :exit-status (when (wifexited status)
-                                           (wexitstatus status))
-                            :exit-signal (when (wifsignaled status)
-                                           (wtermsig status))
-                            :stop-signal (when (wifstopped status)
-                                           (wstopsig status)))))))))
+      (labels
+          ((modify-environment ()
+             (dolist (r redirects)
+               (handle-redirect r))
+             (dolist (assign assignments)
+               (evaluate-assignment-word assign))))
+        (let* ((arguments (with-fd-streams ()
+                            (fset:convert 'list (expansion-for-words raw-arguments :expand-aliases t :expand-pathname t))))
+               (command (lookup-command (car arguments))))
+          (apply 'invoke-command command #'modify-environment arguments))))))
 
 (define-condition not-an-exit-info (warning)
   ((actual-type

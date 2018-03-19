@@ -147,7 +147,7 @@ done
 #+BEGIN_SRC shell-script
 # Control the shell environment from lisp (define functions, change variables)
 SHELL_COUNTER=0
-: ,(define-builtin example-condition (args)
+: ,(define-builtin example-condition (&rest args)
      (declare (ignore args))
      (if (equal "3" (env "SHELL_COUNTER"))
        1

@@ -16,7 +16,7 @@
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
    :shcl/core/utility :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
-   :shcl/core/lisp-interpolation :shcl/core/shell-readtable :shcl/core/builtin
+   :shcl/core/lisp-interpolation :shcl/core/shell-readtable :shcl/core/command
    :shcl/core/iterator)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/shell/directory)
@@ -41,10 +41,10 @@ This only changes how `shcl/shell/main:main' reads shell commands.
 Macros and functions which consume shell expressions are not impacted
 in any way by this variable.")
 
-(define-builtin -shcl-reset-readtable (args)
-  (unless (equal 1 (fset:size args))
-    (format *error-output* "Invalid number of arguments: ~A" (fset:size args))
-    (return-from -shcl-reset-readtable 1))
+(define-builtin -shcl-reset-readtable (argv0 &rest args)
+  (declare (ignore argv0))
+  (when args
+    (error 'command-error :message "No arguments expected"))
   (setf *shell-readtable* +standard-shell-readtable+)
   0)
 
@@ -166,25 +166,22 @@ See `cl-cli:parse-cli'."
             (stop))
         (die () (exit 1))))))
 
-(define-builtin shcl-enable-lisp-syntax (args)
+(define-builtin shcl-enable-lisp-syntax (argv0 &rest args)
   "Permit the use of lisp splice forms in shell expressions."
-  (unless (equal 1 (fset:size args))
-    (return-from shcl-enable-lisp-syntax 1))
+  (declare (ignore argv0))
+  (when args
+    (error 'command-error :message "No arguments expected"))
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
-(define-builtin -shcl-start-swank (args)
+(define-builtin -shcl-start-swank (argv0 &optional (port "4005") &rest args)
   "Start a swank server.
 
 Optional argument is the port to start the server on."
-  (let ((port 4005))
-    (case (fset:size args)
-      (1)
-      (2
-       (setf port (parse-integer (fset:lookup args 1) :junk-allowed nil)))
-      (otherwise
-       (format *error-output* "-shcl-start-swank: Invalid arguments~%")
-       (return-from -shcl-start-swank 2)))
+  (declare (ignore argv0))
+  (when args
+    (error 'command-error :message "Too many arguments"))
+  (let ((port (parse-integer port :junk-allowed nil)))
     (swank:create-server :port port)
     0))
 

@@ -14,7 +14,7 @@
 
 (defpackage :shcl/shell/directory
   (:use
-   :common-lisp :cffi :shcl/core/utility :shcl/core/iterator :shcl/core/builtin
+   :common-lisp :cffi :shcl/core/utility :shcl/core/iterator :shcl/core/command
    :shcl/core/environment :shcl/core/working-directory :shcl/core/fd-table
    :shcl/core/lisp-interpolation :shcl/core/posix :shcl/core/posix-types))
 (in-package :shcl/shell/directory)
@@ -200,32 +200,32 @@
       0)))
 
 (defun parse-cd-args (args)
-  (let ((command-name (fset:pop-first args))
+  (let ((command-name (pop args))
         physical-p
         directory)
 
     (cond
-      ((equal "-P" (fset:first args))
-       (fset:pop-first args)
+      ((equal "-P" (first args))
+       (pop args)
        (setf physical-p t))
-      ((equal "-L" (fset:first args))
-       (fset:pop-first args)
+      ((equal "-L" (first args))
+       (pop args)
        (setf physical-p nil)))
 
-    (unless (>= 1 (fset:size args))
-      (format *error-output* "~A: Too many arguments~%" command-name))
-    (setf directory (fset:pop-first args))
+    (when (cdr args)
+      (error 'command-error :message "Too many arguments"))
+    (setf directory (pop args))
 
     (values command-name physical-p directory)))
 
-(define-builtin (builtin-cd "cd") (args)
+(define-builtin (builtin-cd "cd") (argv0 &rest args)
   (let (print-pwd)
-    (when (and (equal 2 (fset:size args))
-             (equal "-" (fset:last args)))
-      (setf args (fset:with-last (fset:less-last args) $oldpwd))
+    (when (and (not (cdr args))
+               (equal "-" (car args)))
+      (setf args (list $oldpwd))
       (setf print-pwd t))
 
-    (multiple-value-bind (command-name physical-p directory) (parse-cd-args args)
+    (multiple-value-bind (command-name physical-p directory) (parse-cd-args (cons argv0 args))
       (unless directory
         (let ((home (env "HOME")))
           (when (zerop (length home))
@@ -238,18 +238,17 @@
           (evaluate-constant-shell-string "pwd"))
         result))))
 
-(define-builtin pushd (args)
+(define-builtin pushd (&rest args)
   (multiple-value-bind (command-name physical-p directory) (parse-cd-args args)
     (unless directory
       (setf directory "."))
 
     (switch-directory command-name directory physical-p 'push-working-directory)))
 
-(define-builtin popd (args)
-  (fset:pop-first args)
-  (unless (equal 0 (fset:size args))
-    (format *error-output* "popd takes no arguments~%")
-    (return-from popd 1))
+(define-builtin popd (argv0 &rest args)
+  (declare (ignore argv0))
+  (when args
+    (error 'command-error :message "No arguments expected"))
 
   (pop-working-directory)
   0)
