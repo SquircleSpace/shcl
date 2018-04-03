@@ -22,7 +22,7 @@
   (:import-from :shcl/core/posix #:syscall-error)
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
   (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:openat-retained #:fd-release)
-  (:import-from :shcl-core/exit-info #:exit-info)
+  (:import-from :shcl/core/exit-info #:exit-info)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
    #:word-boundary #:*split-fields* #:split))
