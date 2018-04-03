@@ -16,6 +16,7 @@ SHCL_DEBUG=
 
 SHCL_DEPENDS= core/*.lisp shell/*.lisp shcl.asd libshcl-support.so make.lisp
 SUPPORT_OBJS= core/support/macros.o core/support/spawn.o
+LISP=sbcl
 
 all: shcl
 
@@ -29,8 +30,8 @@ libshcl-support.so: ${SUPPORT_OBJS} Makefile
 	clang -shared -o $@ ${SUPPORT_OBJS}
 
 shcl: ${SHCL_DEPENDS} Makefile
-	SHCL_DEBUG="${SHCL_DEBUG}" sbcl --eval '(require :asdf)' --load make.lisp
+	SHCL_DEBUG="${SHCL_DEBUG}" ${LISP} --eval '(require :asdf)' --load make.lisp
 
 .PHONY: test
 test: test/*.lisp ${SHCL_DEPENDS} Makefile
-	sbcl --eval '(require :asdf)' --load test.lisp
+	${LISP} --eval '(require :asdf)' --load test.lisp
