@@ -170,7 +170,7 @@ This is a synonym for `evaluate'."
   "Evaluate the given syntax tree asynchronously.
 
 This function does not create an entry in the job table."
-  (let ((shell-environment (preserve-shell-environment)))
+  (let ((shell-environment (preserve-shell-environment :label 'evaluate-async-job)))
     (labels
         ((async-eval ()
            (unwind-protect
