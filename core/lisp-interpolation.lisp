@@ -322,7 +322,7 @@ call this function."
                (fd-release write-end)
                (setf write-end nil)
                (shcl/core/thread:semaphore-wait semaphore)
-               (values-list (cons (place-value result-place) exit-info)))
+               (values-list (cons (place-value string-result-place) exit-info)))
           (when read-end
             (fd-release read-end))
           (when write-end
