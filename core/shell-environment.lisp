@@ -19,7 +19,7 @@
   (:export
    #:extend-shell-environment #:preserve-shell-environment
    #:destroy-preserved-shell-environment #:with-restored-shell-environment
-   #:preserve-special-variable))
+   #:preserve-special-variable #:with-subshell))
 (in-package :shcl/core/shell-environment)
 
 (optimization-settings)
@@ -82,6 +82,15 @@
 
 (defmacro with-restored-shell-environment (shell-environment &body body)
   `(call-with-restored-shell-environment ,shell-environment (lambda () ,@body)))
+
+(defmacro with-subshell (&body body)
+  (let ((env (gensym "ENV")))
+    `(let ((,env (preserve-shell-environment)))
+       (unwind-protect
+            (with-restored-shell-environment ,env
+              (destroy-preserved-shell-environment ,env)
+              ,@body)
+         (destroy-preserved-shell-environment ,env)))))
 
 (defparameter *special-variables-to-preserve* (fset:empty-set))
 

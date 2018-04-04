@@ -327,7 +327,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod evaluate ((sy subshell))
   (with-slots (compound-list) sy
-    (with-restored-shell-environment (preserve-shell-environment)
+    (with-subshell
       (return-from evaluate (evaluate-synchronous-job compound-list)))))
 
 (defmethod evaluate ((sy compound-list))
