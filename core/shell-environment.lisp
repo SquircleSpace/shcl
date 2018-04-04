@@ -52,12 +52,35 @@
     (maphash #'handle shell-environment)
     (values)))
 
-(defun preserve-shell-environment ()
+(define-condition leaked-shell-environment (error)
+  ((label
+    :initarg :label
+    :reader leaked-shell-environment-label
+    :initform nil)
+   (backtrace
+    :initarg :backtrace
+    :reader leaked-shell-environment-backtrace
+    :initform nil))
+  (:report
+   (lambda (c s)
+     (with-accessors ((label leaked-shell-environment-label)
+                      (backtrace leaked-shell-environment-backtrace))
+         c
+       (format s "A shell environment was leaked.")
+       (when label
+         (format s "  Label: ~W." label))
+       (when backtrace
+         (format s "  Backtrace:~%~A" backtrace))))))
+
+(defun preserve-shell-environment (&key label backtrace-p)
   (let* ((table (make-hash-table))
+         (backtrace (when backtrace-p
+                      (with-output-to-string (s)
+                        (uiop:print-backtrace :stream s))))
          (result (make-preserved-environment :data table)))
     (labels
         ((panic ()
-           (assert nil nil "A preserved shell environment was leaked"))
+           (error 'leaked-shell-environment :label label :backtrace backtrace))
          (handle (key value)
            (setf (gethash key table) (funcall (entry-pickle value)))))
       (declare (dynamic-extent #'handle))
@@ -85,7 +108,7 @@
 
 (defmacro with-subshell (&body body)
   (let ((env (gensym "ENV")))
-    `(let ((,env (preserve-shell-environment)))
+    `(let ((,env (preserve-shell-environment :label 'with-subshell)))
        (unwind-protect
             (with-restored-shell-environment ,env
               (destroy-preserved-shell-environment ,env)
