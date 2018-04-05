@@ -351,5 +351,5 @@ string.
       (values
        (if *split-fields*
            (split expansion)
-           (make-string-fragment expansion))
+           (fset:seq (make-string-fragment expansion)))
        exit-info))))
