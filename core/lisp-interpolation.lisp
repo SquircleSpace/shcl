@@ -92,7 +92,7 @@ lisp form and turns each element into a separate word."))
 
 (defun read-lisp-splice-form (stream initiation-sequence context)
   "Read a `lisp-splice-form'."
-  (declare (ignore initiation-sequence context))
+  (declare (ignore initiation-sequence))
   (let* ((form (read-preserving-whitespace stream))
          (token (make-instance 'lisp-splice-form :form form)))
     (shell-lexer-context-add-part context token)))
