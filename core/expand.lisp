@@ -692,7 +692,7 @@ value."))
     (labels
         ((ingest (seq)
            (multiple-value-bind (fragments exit-infos) (expand seq)
-             (fset:appendf result seq)
+             (fset:appendf result fragments)
              (fset:appendf exit-infos (ensure-exit-info-seq exit-infos)))))
       (loop :for index :from 0 :below (length parts) :do
          (ingest (aref parts index))))
