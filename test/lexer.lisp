@@ -71,7 +71,7 @@
          (default-s-reader (s i c)
            (declare (ignore s i))
            (setf s-reader-ran t)
-           (shell-lexer-context-add-part c "s"))
+           (shell-lexer-context-add-part c 's))
          (hash-reader (s i c)
            (declare (ignore s i c))
            (setf hash-hit t))
@@ -113,7 +113,7 @@
       (setf readtable (with-dispatch-character readtable "s"))
       (setf readtable (with-default-handler readtable "s" #'default-s-reader))
       (is
-       "s"
+       's
        (r)
        :test #'equal)
       (ok s-reader-ran))))
