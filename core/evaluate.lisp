@@ -371,7 +371,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 (define-condition loop-break (loop-jump)
   ())
 
-(define-builtin (builtin-break "break") (argv0 &optional (count "1") &rest args)
+(define-special-builtin (builtin-break "break") (argv0 &optional (count "1") &rest args)
   (declare (ignore argv0))
   (wrap-errors
     (when args
@@ -385,7 +385,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 (define-condition loop-continue (loop-jump)
   ())
 
-(define-builtin (builtin-continue "continue") (argv0 &optional (count "1") &rest args)
+(define-special-builtin (builtin-continue "continue") (argv0 &optional (count "1") &rest args)
   (declare (ignore argv0))
   (wrap-errors
     (when args

@@ -283,6 +283,50 @@ then the builtin name is the downcased symbol name."
   `(%define-command special-builtin ,name ,shell-lambda-list
                     ,@body))
 
-(define-builtin (colon ":") (&rest args)
+(define-special-builtin (colon ":") (&rest args)
   (declare (ignore args))
   0)
+
+(define-special-builtin (dot ".") (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "Sourcing files"))
+
+(define-special-builtin exec (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "exec"))
+
+(define-special-builtin exit (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "exit"))
+
+(define-special-builtin (builtin-export "export") (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "export"))
+
+(define-special-builtin readonly (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "readonly"))
+
+(define-special-builtin (builtin-return "return") (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "return"))
+
+(define-special-builtin (builtin-set "set") (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "set"))
+
+(define-special-builtin shift (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "shift"))
+
+(define-special-builtin times (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "times"))
+
+(define-special-builtin trap (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "trap"))
+
+(define-special-builtin unset (&rest args)
+  (declare (ignore args))
+  (error 'not-implemented :feature "unset"))
