@@ -181,8 +181,7 @@ environment in which this function call appears.  They will be
 evauluated in the null lexical environment."
   (eval `(evaluate-constant-shell-string ,string ,@(when readtable `(:readtable ,readtable)))))
 
-(define-special-builtin (builtin-eval "eval") (argv0 &rest args)
-  (declare (ignore argv0))
+(define-special-builtin (builtin-eval "eval") (&rest args)
   (let* (sep-needed
          (command
           (with-output-to-string (s)

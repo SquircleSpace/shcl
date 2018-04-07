@@ -218,7 +218,7 @@
 
     (values command-name physical-p directory)))
 
-(define-builtin (builtin-cd "cd") (argv0 &rest args)
+(define-builtin (builtin-cd "cd") (&argv0 argv0 &rest args)
   (let (print-pwd)
     (when (and (not (cdr args))
                (equal "-" (car args)))
@@ -238,17 +238,13 @@
           (evaluate-constant-shell-string "pwd"))
         result))))
 
-(define-builtin pushd (&rest args)
-  (multiple-value-bind (command-name physical-p directory) (parse-cd-args args)
+(define-builtin pushd (&whole whole)
+  (multiple-value-bind (command-name physical-p directory) (parse-cd-args whole)
     (unless directory
       (setf directory "."))
 
     (switch-directory command-name directory physical-p 'push-working-directory)))
 
-(define-builtin popd (argv0 &rest args)
-  (declare (ignore argv0))
-  (when args
-    (error 'command-error :message "No arguments expected"))
-
+(define-builtin popd ()
   (pop-working-directory)
   0)

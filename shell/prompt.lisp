@@ -517,9 +517,8 @@ This interacts with the user on symbolic fds 0, 1, and 2."
         (editline-set-history e history))
       (editline-gets e))))
 
-(define-builtin -shcl-eval-editline (argv0 &rest args)
+(define-builtin -shcl-eval-editline (&rest args)
   "Pass the given arguments to el_parse."
-  (declare (ignore argv0))
   (with-editline (e "shcl" (get-fd 0) (get-fd 1) (get-fd 2))
     (with-slots (ptr) e
       (el-parse ptr args)))

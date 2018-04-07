@@ -371,11 +371,8 @@ The methods on this function are tightly coupled to the shell grammar."))
 (define-condition loop-break (loop-jump)
   ())
 
-(define-special-builtin (builtin-break "break") (argv0 &optional (count "1") &rest args)
-  (declare (ignore argv0))
+(define-special-builtin (builtin-break "break") (&optional (count "1"))
   (wrap-errors
-    (when args
-      (error "Invalid arguments"))
     (let ((count (parse-integer count :junk-allowed nil)))
       (unless (plusp count)
         (error "Count must be positive"))
@@ -385,11 +382,8 @@ The methods on this function are tightly coupled to the shell grammar."))
 (define-condition loop-continue (loop-jump)
   ())
 
-(define-special-builtin (builtin-continue "continue") (argv0 &optional (count "1") &rest args)
-  (declare (ignore argv0))
+(define-special-builtin (builtin-continue "continue") (&optional (count "1"))
   (wrap-errors
-    (when args
-      (error "Invalid arguments"))
     (let ((count (parse-integer count :junk-allowed nil)))
       (unless (plusp count)
         (error "Count must be positive"))

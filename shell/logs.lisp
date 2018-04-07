@@ -16,9 +16,6 @@
   (:use :common-lisp :shcl/core/utility :shcl/core/command))
 (in-package :shcl/shell/logs)
 
-(define-builtin -shcl-dump-logs (argv0 &rest args)
-  (declare (ignore argv0))
-  (when args
-    (error 'command-error :message "No arguments expected"))
+(define-builtin -shcl-dump-logs ()
   (dump-logs)
   0)

@@ -41,10 +41,7 @@ This only changes how `shcl/shell/main:main' reads shell commands.
 Macros and functions which consume shell expressions are not impacted
 in any way by this variable.")
 
-(define-builtin -shcl-reset-readtable (argv0 &rest args)
-  (declare (ignore argv0))
-  (when args
-    (error 'command-error :message "No arguments expected"))
+(define-builtin -shcl-reset-readtable ()
   (setf *shell-readtable* +standard-shell-readtable+)
   0)
 
@@ -166,21 +163,15 @@ See `cl-cli:parse-cli'."
             (stop))
         (die () (exit 1))))))
 
-(define-builtin shcl-enable-lisp-syntax (argv0 &rest args)
+(define-builtin shcl-enable-lisp-syntax ()
   "Permit the use of lisp splice forms in shell expressions."
-  (declare (ignore argv0))
-  (when args
-    (error 'command-error :message "No arguments expected"))
   (setf *shell-readtable* (use-table *shell-readtable* *splice-table*))
   0)
 
-(define-builtin -shcl-start-swank (argv0 &optional (port "4005") &rest args)
+(define-builtin -shcl-start-swank (&optional (port "4005"))
   "Start a swank server.
 
 Optional argument is the port to start the server on."
-  (declare (ignore argv0))
-  (when args
-    (error 'command-error :message "Too many arguments"))
   (let ((port (parse-integer port :junk-allowed nil)))
     (swank:create-server :port port)
     0))

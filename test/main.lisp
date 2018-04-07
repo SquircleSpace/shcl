@@ -11,11 +11,6 @@
         (prove:*test-result-output* output-stream))
     (prove:run-test-all)))
 
-(shcl/core/command:define-builtin -shcl-run-tests (argv0 &rest args)
-  (declare (ignore argv0))
-  (when args
-    (format *error-output* "Invalid number of arguments: ~A~%" (1- (length args)))
-    (return-from -shcl-run-tests 2))
-
+(shcl/core/command:define-builtin -shcl-run-tests ()
   (run-tests)
   0)
