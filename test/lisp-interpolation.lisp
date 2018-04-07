@@ -20,8 +20,7 @@
            (exit-info-false-p thing))
       (or description "Expecting falsey status")))
 
-(define-builtin -shcl-assert-equal (argv0 &rest args)
-  (declare (ignore argv0))
+(define-builtin -shcl-assert-equal (&rest args)
   (let ((set (fset:convert 'fset:set args)))
     (if (equal 1 (fset:size set))
         (progn
@@ -31,8 +30,7 @@
           (fail (format nil "Strings didn't match ~A" set))
           1))))
 
-(define-builtin -shcl-assert-unequal (argv0 &rest args)
-  (declare (ignore argv0))
+(define-builtin -shcl-assert-unequal (&rest args)
   (let ((set (fset:convert 'fset:set args)))
     (if (equal (length args) (fset:size set))
         (progn

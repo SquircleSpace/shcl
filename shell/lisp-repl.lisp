@@ -78,12 +78,8 @@ prompt."
     (setf *fresh-prompt* nil)
     result))
 
-(define-builtin shcl-repl (argv0 &rest args)
+(define-builtin shcl-repl ()
   "Enter the lisp repl."
-  (declare (ignore argv0))
-  (when args
-    (error 'command-error :message "No arguments expected"))
-
   (with-history (h)
     (history-set-size h 800)
     (catch 'return-to-shell
