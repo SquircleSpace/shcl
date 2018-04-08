@@ -32,7 +32,8 @@
   (:import-from :shcl/core/fork-exec #:run)
   (:export
    #:define-builtin #:define-special-builtin #:lookup-command
-   #:command-error #:wrap-errors #:invoke-command #:shell-lambda)
+   #:command-error #:wrap-errors #:invoke-command #:shell-lambda
+   #:with-parsed-arguments)
   (:documentation
    "This package contains functionality related to defining and
 running shell commands."))
@@ -333,7 +334,8 @@ one and resignal."
                   (not (zerop (length (symbol-name arg))))
                   (equal #\& (aref (symbol-name arg) 0))))
            (valid-flag-sigil-p (arg assume-dash-prefix)
-             (and (find-if (lambda (c) (not (equal #\- c))) arg)
+             (and (stringp arg)
+                  (find-if (lambda (c) (not (equal #\- c))) arg)
                   (or assume-dash-prefix
                       (equal #\- (aref arg 0)))))
            (ensure-unique-variable (variable)
@@ -375,15 +377,16 @@ one and resignal."
                          (ensure-unique-flag (concatenate 'string "--" (string-downcase (symbol-name arg)))))
                  flag))
                ((consp arg)
-                (destructuring-bind (variable flag-string) arg
+                (destructuring-bind (variable &rest flag-strings) arg
                   (check-type variable symbol)
-                  (check-type flag-string string)
-                  (unless (valid-flag-sigil-p flag-string nil)
-                    (error "Flag argument sigils must contain a character other than -"))
-                  (vector-push-extend
-                   (vector (ensure-unique-variable variable)
-                           (ensure-unique-flag flag-string))
-                   flag)))
+                  (ensure-unique-variable variable)
+                  (unless flag-strings
+                    (error "At least one flag string must be provided"))
+                  (dolist (flag-string flag-strings)
+                    (unless (valid-flag-sigil-p flag-string nil)
+                      (error "Flag argument sigils must be a string, start with -, and contain a character other than -"))
+                    (ensure-unique-flag flag-string))
+                  (vector-push-extend (coerce arg 'vector) flag)))
                (t
                 (error "Malformed flag argument, got: ~A" arg))))
            (&option (arg)
@@ -395,21 +398,22 @@ one and resignal."
                          (ensure-unique-flag (concatenate 'string "--" (string-downcase (symbol-name arg)))))
                  option))
                ((consp arg)
-                (destructuring-bind (variable option-string) arg
+                (destructuring-bind (variable &rest option-strings) arg
                   (check-type variable symbol)
-                  (check-type option-string string)
-                  (unless (valid-flag-sigil-p option-string nil)
-                    (error "Option argument sigils must contain a character other than -"))
-                  (vector-push-extend
-                   (vector (ensure-unique-variable variable)
-                           (ensure-unique-flag option-string))
-                   option)))
+                  (ensure-unique-variable variable)
+                  (unless option-strings
+                    (error "At least one option string must be provided"))
+                  (dolist (option-string option-strings)
+                    (unless (valid-flag-sigil-p option-string nil)
+                      (error "Option argument sigils must be a string, start with -, and contain a character other than -"))
+                    (ensure-unique-flag option-string))
+                  (vector-push-extend (coerce arg 'vector) option)))
                (t
                 (error "Malformed option argument, got: ~A" arg))))
            (&required (arg)
              (cond
                ((symbolp arg)
-                (vector-push-extend (ensure-unique-variable arg) required)
+                (vector-push-extend (ensure-unique-variable arg) required))
                (t
                 (error "Malformed required argument, got: ~A" arg))))
            (&optional (arg)
@@ -487,6 +491,33 @@ one and resignal."
   (print-unreadable-object (sll stream :type t)
     (format stream "~S" (unparse-shell-lambda-list sll))))
 
+(defun parse-flags-and-options (flag-table option-table args)
+  (loop :while args :do
+     (let* ((next-arg (car args))
+            (valid-option (and (not (zerop (length next-arg)))
+                               (equal #\- (aref next-arg 0))))
+            setter)
+       (cond
+         ((equal "--" next-arg)
+          (pop args)
+          (return))
+
+         ((and valid-option
+               (setf setter (gethash next-arg flag-table)))
+          (pop args)
+          (funcall setter next-arg))
+
+         ((and valid-option
+               (setf setter (gethash next-arg option-table)))
+          (pop args)
+          (let ((option-arg (pop args)))
+            (unless option-arg
+              (error 'command-error :message (format nil "Option ~A requires an argument" next-arg)))
+            (funcall setter option-arg)))
+         (t
+          (return)))))
+  args)
+
 (defmacro shell-lambda (shell-lambda-list &body body)
   "`lambda' with shell argument processing.
 
@@ -507,23 +538,62 @@ lambda list.
 
 &whole [var]
 Binds var to the full list of arguments received.  Note that the first
-element of the list is the command name.
+element of the list is the command name.  You must not mutate the list.
 
 &argv0 [var]
 Binds var to the first argument received (i.e. the command name).
 
-&flag {(var flag-str) | var}*
-This type is currently unsupported.
+&flag {(var sigil-str*) | var}*
+&option {(var sigil-str*) | var}*
+Flags and options model the common shell convetion of --arguments.
+The difference between a flag and an option is how many parameters
+they consume.  A flag consumes no command arguments.  An option
+consumes one command argument.  Although you must place flags before
+options in your shell lambda list, flags and options can be intermixed
+when the lambda is invoked.
 
-&option {(var option-str) | var}*
-This type is currently unsupported.
+If you do not provide a sigil-str, it will default to the lower-case
+name of the variable symbol.  If you provide multiple sigil-str
+values, all of them will be associated with the flag/option.  This
+allows you to achieve the common pattern of having long
+names (e.g. --long-name) and short names (e.g. -L) for a single flag.
+You could also use this to model flags that are mutually
+exclusive (e.g. --foobar vs --no-foobar).
+
+With &flag, var will be bound to an array containing the sigils that
+were found.  So, if a single flag is provided more than once, the
+array will have multiple elements.  With &option, var will be bound to
+an array containing the values provided for that option.
 
 &required {var}*
+Vars listed in the required section correspond to positional arguments
+that must be provided by the caller.  After proccessing argv0, flags,
+and options, the required section works just like required arguments
+in a normal lambda list.
+
 &optional {(var default-form) | var}*
-&rest [var]"
+The optional section behaves just like the optional section of a
+normal lambda list.
+
+&rest [var]
+The rest section behaves just like the rest section of a normal lambda
+list."
+  ;; I went back and forth on whether &flag arguments should be
+  ;; array-valued or list-valued.  I ultimately decided that it was
+  ;; better to default to the option with better performance.  Unlike
+  ;; &whole and &rest, &flag and &option don't have analogs in normal
+  ;; lambda lists and so there's no convention to follow.
+
+  ;; The end result is that we use lists for some arguments and arrays
+  ;; for others.  I bet this is going to cause some people a great
+  ;; deal of annoyance...
   (let* ((sll (parse-shell-lambda-list shell-lambda-list))
          (args (gensym "ARGS"))
          (arg (gensym "ARG"))
+         (option-table (gensym "OPTION-TABLE"))
+         (flag-table (gensym "FLAG-TABLE"))
+         (option-setter (gensym "OPTION-SETTER"))
+         (flag-setter (gensym "FLAG-SETTER"))
          (variables (shell-lambda-list-variables sll)))
     (with-slots (whole argv0 flags options required-args optional-args rest)
         sll
@@ -536,10 +606,29 @@ This type is currently unsupported.
                (error 'command-error :message "All shell commands must receive the command name as an argument"))
              ,@(when argv0
                  `((setf ,argv0 ,arg))))
-           ,@(unless (zerop (length flags))
-               (error 'not-implemented :feature "shell-lambda-list &flag"))
-           ,@(unless (zerop (length options))
-               (error 'not-implemented :feature "shell-lambda-list &option"))
+           ,@(unless (and (zerop (length flags))
+                          (zerop (length options)))
+               `((let ((,option-table (make-hash-table :test 'equal))
+                       (,flag-table (make-hash-table :test 'equal)))
+                   ,@(loop :for spec :across options
+                        :for var = (aref spec 0)
+                        :for sigils = (subseq spec 1) :collect
+                        `(labels
+                             ((,option-setter (,arg)
+                                (vector-push-extend ,arg ,var)))
+                           (setf ,var (make-extensible-vector))
+                           (loop :for ,arg :across ,sigils :do
+                              (setf (gethash ,arg ,option-table) #',option-setter))))
+                   ,@(loop :for spec :across flags
+                        :for var = (aref spec 0)
+                        :for sigils = (subseq spec 1) :collect
+                        `(labels
+                             ((,flag-setter (,arg)
+                                (vector-push-extend ,arg ,var)))
+                           (setf ,var (make-extensible-vector))
+                           (loop :for ,arg :across ,sigils :do
+                              (setf (gethash ,arg ,flag-table) #',flag-setter))))
+                   (setf ,args (parse-flags-and-options ,flag-table ,option-table ,args)))))
            ,@(loop :for var :across required-args :collect
                 `(let ((,arg (pop ,args)))
                    (unless ,arg
@@ -554,6 +643,18 @@ This type is currently unsupported.
                    (error 'command-error :message "Too many arguments provided")))
            (let ,(mapcar (lambda (var) (list var var)) variables)
              ,@body))))))
+
+(defmacro with-parsed-arguments (shell-lambda-list args &body body)
+  "Parse the given arguments according to the given shell lambda list.
+
+See `shell-lambda' for documentation on what a shell lambda list
+consists of.
+
+This macro is equivalent to creating a shell lambda and then invoking
+it with the given args."
+  `(apply (shell-lambda ,shell-lambda-list
+            ,@body)
+          ,args))
 
 (defmacro %define-command (&whole whole class name shell-lambda-list &body body)
   (multiple-value-bind (function-sym string-form) (parse-name name)
