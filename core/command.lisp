@@ -33,7 +33,7 @@
   (:export
    #:define-builtin #:define-special-builtin #:lookup-command
    #:command-error #:wrap-errors #:invoke-command #:shell-lambda
-   #:with-parsed-arguments)
+   #:with-parsed-arguments #:handle-command-errors)
   (:documentation
    "This package contains functionality related to defining and
 running shell commands."))

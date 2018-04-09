@@ -24,7 +24,6 @@ pkgs.stdenv.mkDerivation rec {
     pkgs.lispPackages.bordeaux-threads # MIT
     pkgs.lispPackages.cffi # MIT
     pkgs.lispPackages.cffi-grovel # MIT
-    pkgs.lispPackages.cl-cli # WTFPL
     pkgs.lispPackages.cl-fad # BSD 2-clause
     pkgs.lispPackages.closer-mop # MIT
     pkgs.lispPackages.cl-ppcre # BSD 2-clause
