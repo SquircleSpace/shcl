@@ -25,7 +25,6 @@
   (:import-from :shcl/core/parser #:abort-parse)
   (:import-from :shcl/shell/prompt
    #:with-history #:history-enter #:history-set-size #:make-editline-stream)
-  (:import-from :cl-cli)
   (:import-from :uiop)
   (:import-from :swank)
   (:import-from :fset)
@@ -108,11 +107,6 @@ in `form-queue'.  See `shcl/core/baking:bake-tokens'."
                  (reset-token-iterator)
                  (go start)))))))))
 
-(defparameter *enable-lisp-splice* nil
-  "SHCL should permit splicing in lisp forms.
-
-Do not set this variable directly.  `main' will set this based on the
-arguments it receives.")
 (defparameter *debug* nil)
 (defparameter *help* nil
   "SHCL should display some basic help information and then exit.
@@ -120,25 +114,22 @@ arguments it receives.")
 Do not set this variable directly.  `main' will set this based on the
 arguments it receives.")
 
-(defparameter *options*
-  '((*enable-lisp-splice* nil "Extend shell language to support splicing lisp expressions")
-    (*debug* nil "Run a SWANK server")
-    (*help* nil "Show list of options"))
-  "The set of options recognized by `main'.  See `cl-cli:parse-cli'.")
+(defmacro with-options (argv &body body)
+  "Parse options and establish dynamic bindings for them."
+  `(with-parsed-arguments
+       (&flag (*debug* "--debug")
+              (*help* "--help"))
+       ,argv
+     ,@body))
 
-(defmacro with-options ((argv &key (options '*options*)) &body body)
-  "Parse options and establish dynamic bindings for them.
+(defun help ()
+  (format t "shcl [options]
+An unholy union of Common Lisp and POSIX shell.
 
-See `cl-cli:parse-cli'."
-  (let ((vars (gensym "VARS"))
-        (values (gensym "VALUES"))
-        (command (gensym "COMMAND"))
-        (kwargs (gensym "KWARGS"))
-        (rest (gensym "REST")))
-    `(multiple-value-bind (,vars ,values ,command ,kwargs ,rest) (cl-cli:parse-cli ,argv ,options)
-       (declare (ignore ,command ,kwargs ,rest))
-       (progv ,vars ,values
-         ,@body))))
+Supported options:
+--debug Start a swank server for debugging
+--help Print this message
+"))
 
 (defun exit-info-iterator (stream &key history)
   (let* ((form-queue (make-queue))
@@ -186,26 +177,24 @@ example, that...
 * SHCL is soley responsible for all file descriptor manipulations
 * SHCL may install or remove any signal handlers it wishes"
   ;; We assume that shcl/core/utility:observe-revival has already run
-  (with-options ((uiop:raw-command-line-arguments))
-    (when *help*
-      (cl-cli:help *options* nil :prog-name "shcl")
-      (return-from main))
+  (handle-command-errors "shcl"
+    (with-options (uiop:raw-command-line-arguments)
+      (unless (zerop (length *help*))
+        (help)
+        (return-from main))
 
-    (when *debug*
-      (-shcl-start-swank (fset:seq "-shcl-start-swank")))
+      (unless (zerop (length *debug*))
+        (-shcl-start-swank (fset:seq "-shcl-start-swank")))
 
-    (when *enable-lisp-splice*
-      (setf *shell-readtable* *splice-table*))
-
-    (with-history (h)
-      (history-set-size h 800)
-      (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
-            (*package* (find-package :shcl-user)))
-        (handler-bind
-            ((abort-parse
-              (lambda (e)
-                (when-let ((restart (find-restart 'ignore)))
-                  (format *error-output* "Parse error: ~A~%" e)
-                  (invoke-restart restart)))))
-          (do-iterator (exit-info (exit-info-iterator stream :history h))
-            (declare (ignore exit-info))))))))
+      (with-history (h)
+        (history-set-size h 800)
+        (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
+              (*package* (find-package :shcl-user)))
+          (handler-bind
+              ((abort-parse
+                (lambda (e)
+                  (when-let ((restart (find-restart 'ignore)))
+                    (format *error-output* "Parse error: ~A~%" e)
+                    (invoke-restart restart)))))
+            (do-iterator (exit-info (exit-info-iterator stream :history h))
+              (declare (ignore exit-info)))))))))
