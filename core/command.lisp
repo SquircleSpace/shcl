@@ -33,7 +33,11 @@
   (:export
    #:define-builtin #:define-special-builtin #:lookup-command
    #:command-error #:wrap-errors #:invoke-command #:shell-lambda
-   #:with-parsed-arguments #:handle-command-errors)
+   #:with-parsed-arguments #:handle-command-errors
+   #:*command-namespace* #:make-command-namespace #:command-namespace-table
+   #:command-namespace-fallback #:special-builtin #:builtin #:binary
+   #:invoke-command #:install-command #:command-priority
+   #:redefining-command #:confusing-command-name)
   (:documentation
    "This package contains functionality related to defining and
 running shell commands."))
@@ -135,27 +139,63 @@ will then evaluate to the return code of the error.  See
   (:documentation
    "An object representing a shell command backed by a file on disk."))
 
-(defvar *namespace* (make-instance 'command-namespace :fallback (make-instance 'binary))
+(defvar *command-namespace* (make-instance 'command-namespace :fallback (make-instance 'binary))
   "The namespace containing all known commands.")
 
-(preserve-special-variable '*namespace*)
+(preserve-special-variable '*command-namespace*)
+
+(define-condition confusing-command-name (warning)
+  ((name
+    :initarg :name
+    :reader confusing-command-name-name
+    :initform (required)))
+  (:report
+   (lambda (c s)
+     (format s "The given command name (~S) will produce confusing
+results.  Users normally expect that commands containing a slash will
+invoke a binary instead of a builtin."
+             (confusing-command-name-name c)))))
+
+(define-condition redefining-command (warning)
+  ((old-command
+    :initarg :old-command
+    :reader redefining-command-old-command
+    :initform (required))
+   (new-command
+    :initarg :new-command
+    :reader redefining-command-new-command
+    :initform (required))
+   (name
+    :initarg :name
+    :reader redefining-command-name
+    :initform (required))
+   (priority
+    :initarg :priority
+    :reader redefining-command-priority
+    :initform (required)))
+  (:report
+   (lambda (c s)
+     (format s "Replacing existing command with name ~S"
+             (redefining-command-name c)))))
 
 (defun install-command (name command &optional (priority (command-priority command)))
-  (let* ((table (command-namespace-table *namespace*))
+  (when (find #\/ name)
+    (warn 'confusing-command-name :name name))
+  (let* ((table (command-namespace-table *command-namespace*))
          (priority-table (or (fset:lookup table name) (fset:empty-map))))
     (multiple-value-bind (existing-command found) (fset:lookup priority-table priority)
-      (declare (ignore existing-command))
       (when found
-        (warn "Redefining command: ~A" name))
+        (warn 'redefining-command :name name :priority priority
+              :old-command existing-command :new-command command))
       (setf (fset:lookup priority-table priority) command)
-      (setf (fset:lookup (command-namespace-table *namespace*) name) priority-table)
+      (setf (fset:lookup (command-namespace-table *command-namespace*) name) priority-table)
       (values))))
 
 (defun lookup-command (name)
-  (multiple-value-bind (value found) (fset:lookup (command-namespace-table *namespace*) name)
+  (multiple-value-bind (value found) (fset:lookup (command-namespace-table *command-namespace*) name)
     (if (and found (not (fset:empty? value)))
         (nth-value 1 (fset:at-rank value 0))
-        (command-namespace-fallback *namespace*))))
+        (command-namespace-fallback *command-namespace*))))
 
 (defun run-binary (args)
   (let ((bindings (fset:convert 'list (simplify-fd-bindings))))
@@ -659,7 +699,7 @@ it with the given args."
 (defmacro %define-command (&whole whole class name shell-lambda-list &body body)
   (multiple-value-bind (function-sym string-form) (parse-name name)
     (when (find #\/ string-form)
-      (warn "Command name ~W contains a #\/ character and will produce confusing results in shell commands" string-form))
+      (warn 'confusing-command-name :name string-form))
     (let* ((args (gensym "ARGS")))
       (multiple-value-bind (real-body declarations documentation)
           (alexandria:parse-body body :documentation t :whole whole)

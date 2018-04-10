@@ -13,4 +13,5 @@
                "shcl-test/lisp-interpolation"
                "shcl-test/data"
                "shcl-test/iterator"
+               "shcl-test/command"
                "shcl-test/main"))
