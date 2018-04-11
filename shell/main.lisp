@@ -20,7 +20,7 @@
    :shcl/core/iterator)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/shell/directory)
-  (:import-from :shcl/shell/logs)
+  (:import-from :shcl/shell/builtins)
   (:import-from :shcl/shell/lisp-repl)
   (:import-from :shcl/core/parser #:abort-parse)
   (:import-from :shcl/shell/prompt
