@@ -111,6 +111,24 @@
   (is '("test") (funcall (shell-lambda (&rest rest) rest) "argv0" "test")
       "rest works")
 
+  (is '("-A" "-A" "-B")
+      (funcall (shell-lambda (&flag (a "-A") (b "-B"))
+                 (concatenate 'list a b))
+               "argv0" "-ABA")
+      "Flag packs work")
+
+  (is '("-A" "-B" "val")
+      (funcall (shell-lambda (&flag (a "-A") (b "-B") &option (c "-C"))
+                 (concatenate 'list a b c))
+               "argv0" "-ABC" "val")
+      "Flag packs with trailing option work")
+
+  (is '("val" "val2")
+      (funcall (shell-lambda (&option (opt "-O"))
+                 (coerce opt 'list))
+               "argv0" "-Oval" "-Oval2")
+      "Compressed options work")
+
   (let (optional1-tripped
         %whole %argv0 %flag1 %flag2 %opt1 %opt2 %required1 %required2 %optional1
         %optional2
@@ -221,6 +239,27 @@
   (is-error
    (funcall (shell-lambda (&option opt) opt) "argv0" "--opt") 'error
    "Not providing a value for an option is an error")
+
+  (is-error
+   (funcall (shell-lambda (&flag (a "-A") &optional arg)
+              (list a arg))
+            "argv0" "-AB")
+   'error
+   "Unrecognized flags in a flag pack is an error")
+
+  (is-error
+   (funcall (shell-lambda (&flag (a "-A") &option (b "-B"))
+              (list a b))
+            "argv0" "-AB")
+   'error
+   "Flag pack with trailing option without a value is an error")
+
+  (is-error
+   (funcall (shell-lambda (&option (b "-B"))
+              b)
+            "argv0" "-B")
+   'error
+   "Single-letter options still require arguments")
 
   (is-error
    (eval '(shell-lambda (arg))) 'error
