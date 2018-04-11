@@ -12,9 +12,9 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl/shell/logs
+(defpackage :shcl/shell/builtins
   (:use :common-lisp :shcl/core/utility :shcl/core/command))
-(in-package :shcl/shell/logs)
+(in-package :shcl/shell/builtins)
 
 (define-builtin -shcl-dump-logs ()
   (dump-logs)
