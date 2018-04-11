@@ -536,17 +536,20 @@ one and resignal."
      (let* ((next-arg (car args))
             (valid-option (and (not (zerop (length next-arg)))
                                (equal #\- (aref next-arg 0))))
+            mini-arg
             setter)
        (cond
          ((equal "--" next-arg)
           (pop args)
           (return))
 
+         ;; --flag
          ((and valid-option
                (setf setter (gethash next-arg flag-table)))
           (pop args)
           (funcall setter next-arg))
 
+         ;; --option val
          ((and valid-option
                (setf setter (gethash next-arg option-table)))
           (pop args)
@@ -554,6 +557,36 @@ one and resignal."
             (unless option-arg
               (error 'command-error :message (format nil "Option ~A requires an argument" next-arg)))
             (funcall setter option-arg)))
+
+         ;; -PACK [maybe-opt-val]
+         ((and (< 2 (length next-arg))
+               (setf setter (gethash (setf mini-arg (subseq next-arg 0 2))
+                                     flag-table)))
+          (pop args)
+          (funcall setter mini-arg)
+          (loop :for index :from 2 :below (length next-arg) :do
+             (let* ((mini-arg (format nil "-~C" (aref next-arg index)))
+                    (flag-setter (gethash mini-arg flag-table))
+                    (option-setter (when (equal index (1- (length next-arg)))
+                                     (gethash mini-arg option-table))))
+               (cond
+                 (flag-setter
+                  (funcall flag-setter mini-arg))
+                 (option-setter
+                  (let ((arg (pop args)))
+                    (unless arg
+                      (error 'command-error :message (format nil "Option ~A requires an argument" mini-arg)))
+                    (funcall option-setter arg)))
+                 (t
+                  (error 'command-error "Unrecognized flag ~A in option pack ~A" mini-arg next-arg))))))
+
+         ;; -Oval
+         ((and (< 2 (length next-arg))
+               (setf setter (gethash (setf mini-arg (subseq next-arg 0 2))
+                                     option-table)))
+          (pop args)
+          (funcall setter (subseq next-arg 2)))
+
          (t
           (return)))))
   args)
