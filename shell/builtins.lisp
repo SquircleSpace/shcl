@@ -13,9 +13,18 @@
 ;; limitations under the License.
 
 (defpackage :shcl/shell/builtins
-  (:use :common-lisp :shcl/core/utility :shcl/core/command))
+  (:use :common-lisp :shcl/core/utility :shcl/core/command)
+  (:import-from :fset))
 (in-package :shcl/shell/builtins)
 
 (define-builtin -shcl-dump-logs ()
   (dump-logs)
+  0)
+
+(define-builtin -shcl-list-commands ()
+  "List all the commands known in the current command namespace."
+  (fset:do-map (name map (command-namespace-table *command-namespace*))
+    (when (and (not (fset:empty? map))
+               (stringp name))
+      (format t "~A~%" name)))
   0)
