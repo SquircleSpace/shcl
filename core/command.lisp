@@ -486,7 +486,6 @@ one and resignal."
            (let* ((arg (pop shell-lambda-list)))
              (cond
                ((&-p arg)
-                ;; &argv0 is an implementation detail.  You aren't allowed to use it
                 (unless (jump arg)
                   (error "Unsupported & argument: ~A" arg)))
 
