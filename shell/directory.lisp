@@ -218,14 +218,14 @@
 
     (values command-name physical-p directory)))
 
-(define-builtin (builtin-cd "cd") (&argv0 argv0 &rest args)
+(define-builtin (builtin-cd "cd") (&whole whole &rest args)
   (let (print-pwd)
     (when (and (not (cdr args))
                (equal "-" (car args)))
-      (setf args (list $oldpwd))
+      (setf whole (list (car whole) $oldpwd))
       (setf print-pwd t))
 
-    (multiple-value-bind (command-name physical-p directory) (parse-cd-args (cons argv0 args))
+    (multiple-value-bind (command-name physical-p directory) (parse-cd-args whole)
       (unless directory
         (let ((home (env "HOME")))
           (when (zerop (length home))
