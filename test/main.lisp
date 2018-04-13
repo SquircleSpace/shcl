@@ -12,5 +12,6 @@
     (prove:run-test-all)))
 
 (shcl/core/command:define-builtin -shcl-run-tests ()
+  "Run all unit tests."
   (run-tests)
   0)

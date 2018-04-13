@@ -41,6 +41,7 @@ Macros and functions which consume shell expressions are not impacted
 in any way by this variable.")
 
 (define-builtin -shcl-reset-readtable ()
+  "Restore the standard shell readtable."
   (setf *shell-readtable* +standard-shell-readtable+)
   0)
 
