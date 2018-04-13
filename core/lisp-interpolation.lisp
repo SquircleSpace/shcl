@@ -182,6 +182,7 @@ evauluated in the null lexical environment."
   (eval `(evaluate-constant-shell-string ,string ,@(when readtable `(:readtable ,readtable)))))
 
 (define-special-builtin (builtin-eval "eval") (&rest args)
+  "Evaluate the given arguments as a shell command."
   (let* (sep-needed
          (command
           (with-output-to-string (s)

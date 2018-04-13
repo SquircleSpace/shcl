@@ -219,6 +219,7 @@
     (values command-name physical-p directory)))
 
 (define-builtin (builtin-cd "cd") (&whole whole &rest args)
+  "Change the current directory."
   (let (print-pwd)
     (when (and (not (cdr args))
                (equal "-" (car args)))
@@ -239,6 +240,7 @@
         result))))
 
 (define-builtin pushd (&whole whole &rest rest)
+  "Push the given directory onto the directory stack."
   (declare (ignore rest))
   (multiple-value-bind (command-name physical-p directory) (parse-cd-args whole)
     (unless directory
@@ -247,5 +249,6 @@
     (switch-directory command-name directory physical-p 'push-working-directory)))
 
 (define-builtin popd ()
+  "Pop a directory off the directory stack."
   (pop-working-directory)
   0)

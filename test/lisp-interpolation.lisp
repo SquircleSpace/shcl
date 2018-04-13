@@ -21,6 +21,7 @@
       (or description "Expecting falsey status")))
 
 (define-builtin -shcl-assert-equal (&rest args)
+  "Exit 0 iff all arguments are the same."
   (let ((set (fset:convert 'fset:set args)))
     (if (equal 1 (fset:size set))
         (progn
@@ -31,6 +32,7 @@
           1))))
 
 (define-builtin -shcl-assert-unequal (&rest args)
+  "Exit 0 iff all arguments are different."
   (let ((set (fset:convert 'fset:set args)))
     (if (equal (length args) (fset:size set))
         (progn

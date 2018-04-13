@@ -232,6 +232,9 @@ invoke a binary instead of a builtin."
     :initform (required)
     :updater special-builtin-handler)))
 
+(defmethod documentation ((command special-builtin) (doc-type (eql t)))
+  (documentation (special-builtin-handler command) doc-type))
+
 (defun ensure-exit-info (exit-value)
   (etypecase exit-value
     ((integer 0 255)
@@ -256,6 +259,9 @@ invoke a binary instead of a builtin."
     :initarg :handler
     :initform (required)
     :updater builtin-handler)))
+
+(defmethod documentation ((command builtin) (doc-type (eql t)))
+  (documentation (builtin-handler command) doc-type))
 
 (defmethod invoke-command ((command builtin) environment-modifier &rest args)
   (with-slots (handler) command
@@ -763,6 +769,7 @@ then the builtin name is the downcased symbol name."
                     ,@body))
 
 (define-special-builtin (colon ":") (&rest args)
+  "Ignores its arguments and exits successfully."
   (declare (ignore args))
   0)
 

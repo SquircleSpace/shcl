@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import ../nixpkgs {} }:
 pkgs.stdenv.mkDerivation rec {
   name = "shcl";
   src = ./.;

@@ -18,6 +18,7 @@
 (in-package :shcl/shell/builtins)
 
 (define-builtin -shcl-dump-logs ()
+  "Dump available logs to stdout."
   (dump-logs)
   0)
 
