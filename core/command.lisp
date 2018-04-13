@@ -35,7 +35,7 @@
    #:command-error #:wrap-errors #:invoke-command #:shell-lambda
    #:with-parsed-arguments #:handle-command-errors
    #:*command-namespace* #:make-command-namespace #:command-namespace-table
-   #:command-namespace-fallback #:special-builtin #:builtin #:binary
+   #:command-namespace-fallback #:command #:special-builtin #:builtin #:binary
    #:invoke-command #:install-command #:command-priority
    #:redefining-command #:confusing-command-name)
   (:documentation
@@ -143,6 +143,9 @@ will then evaluate to the return code of the error.  See
   "The namespace containing all known commands.")
 
 (preserve-special-variable '*command-namespace*)
+
+(defmethod documentation ((command-name string) (doc-type (eql 'command)))
+  (documentation (lookup-command command-name) t))
 
 (define-condition confusing-command-name (warning)
   ((name
