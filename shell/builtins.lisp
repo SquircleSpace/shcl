@@ -29,3 +29,13 @@
                (stringp name))
       (format t "~A~%" name)))
   0)
+
+(define-builtin -shcl-man (&required command)
+  "Print the documentation for the given command."
+  (let ((doc (documentation command 'command)))
+    (unless doc
+      (error 'command-error :message (format nil "No documentation found for ~A~%" command)))
+    (write-string doc)
+    (unless (equal #\newline (aref doc (1- (length doc))))
+      (terpri)))
+  0)
