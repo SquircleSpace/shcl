@@ -238,7 +238,8 @@
           (evaluate-constant-shell-string "pwd"))
         result))))
 
-(define-builtin pushd (&whole whole)
+(define-builtin pushd (&whole whole &rest rest)
+  (declare (ignore rest))
   (multiple-value-bind (command-name physical-p directory) (parse-cd-args whole)
     (unless directory
       (setf directory "."))
