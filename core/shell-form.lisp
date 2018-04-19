@@ -21,7 +21,8 @@
    #:exit-info-true-p #:exit-info-false-p)
   (:import-from :shcl/core/fd-table
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
-  (:import-from :bordeaux-threads))
+  (:import-from :bordeaux-threads)
+  (:export #:pipeline #:pipeline-fn))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
