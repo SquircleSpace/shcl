@@ -18,7 +18,7 @@
    #:destroy-preserved-shell-environment #:preserve-shell-environment
    #:with-restored-shell-environment)
   (:import-from :shcl/core/exit-info
-   #:exit-info-true-p #:exit-info-false-p)
+   #:exit-info-true-p #:exit-info-false-p #:invert-exit-info)
   (:import-from :shcl/core/fd-table
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
@@ -135,3 +135,10 @@
 (defmacro pipeline (&body body)
   `(pipeline-fn
     (list ,@(mapcar 'lambdaify body))))
+
+(defun !-fn (fn)
+  (let ((result (funcall fn)))
+    (invert-exit-info result)))
+
+(defmacro ! (&body body)
+  `(!-fn (lambda () ,@body)))
