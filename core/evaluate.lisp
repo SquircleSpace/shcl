@@ -19,6 +19,7 @@
    :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/command
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
+  (:import-from :shcl/core/shell-form #:pipeline-fn)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluate))
@@ -259,58 +260,17 @@ The methods on this function are tightly coupled to the shell grammar."))
     (let ((result (evaluate-synchronous-job pipe-sequence)))
       (return-from evaluate (invert-exit-info result)))))
 
-(defconstant +pipe-read-fd+ 0)
-(defconstant +pipe-write-fd+ 1)
-
 (defun evaluate-pipe-sequence (sy)
-  (let ((vector (make-extensible-vector))
-        (results (make-extensible-vector))
-        (semaphore (make-semaphore))
-        write-fd)
-    (labels
-        ((visit (thing)
-           (with-slots (command pipe-sequence-tail) thing
-             (vector-push-extend command vector)
-             (vector-push-extend nil results)
-             (when pipe-sequence-tail
-               (visit pipe-sequence-tail))))
-         (store (index thing)
-           (setf (aref results index) thing)
-           (semaphore-signal semaphore))
-         (run-command (index read-end write-end)
-           (with-fd-scope ()
-             (when read-end
-               (bind-fd-description +pipe-read-fd+ read-end))
-             (when write-end
-               (bind-fd-description +pipe-write-fd+ write-end))
-             (evaluate-async-job (aref vector index)
-                                 (lambda (result error)
-                                   (when error
-                                     (debug-log error "Error in pipeline ~A" error))
-                                   (store index (or result (internal-error-exit-info))))))))
-      ;; Produce a vector containing all the elements of the pipeline
-      (visit sy)
-      (assert (< 1 (length vector)))
-
-      ;; Run each command in the pipeline
-      (loop :for index :from (- (length vector) 1) :downto 1 :do
-         (multiple-value-bind (read-end write-end) (pipe-retained)
-           (run-command index read-end write-fd)
-           (when write-fd
-             (fd-release write-fd))
-           (setf write-fd write-end)
-           (fd-release read-end)))
-
-      ;; Run the very first command
-      (assert write-fd)
-      (run-command 0 nil write-fd)
-      (fd-release write-fd)
-
-      ;; And wait
-      (loop :for n :below (length vector) :do
-         (semaphore-wait semaphore))
-
-      (return-from evaluate-pipe-sequence (aref results (- (length results) 1))))))
+  (let ((jobs (loop :for node = sy
+                 :then (when node (slot-value node 'pipe-sequence-tail))
+                 :while node :collect
+                 ;; loop might (and does on SBCL) setf the node
+                 ;; variable during iteration.  We want to capture its
+                 ;; current value.
+                 (let ((captured-node node))
+                   (lambda ()
+                     (evaluate-synchronous-job (slot-value captured-node 'command)))))))
+    (return-from evaluate-pipe-sequence (pipeline-fn jobs))))
 
 (defmethod evaluate ((sy pipe-sequence))
   (with-slots (command pipe-sequence-tail) sy
