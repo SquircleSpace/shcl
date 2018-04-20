@@ -18,7 +18,8 @@
    #:destroy-preserved-shell-environment #:preserve-shell-environment
    #:with-restored-shell-environment)
   (:import-from :shcl/core/exit-info
-   #:exit-info-true-p #:exit-info-false-p #:invert-exit-info)
+   #:exit-info-true-p #:exit-info-false-p #:invert-exit-info #:truthy-exit-info
+   #:falsey-exit-info)
   (:import-from :shcl/core/fd-table
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
@@ -142,3 +143,21 @@
 
 (defmacro ! (&body body)
   `(!-fn (lambda () ,@body)))
+
+(defun shell-and-fn (fns)
+  (dolist (fn fns)
+    (let ((result (funcall fn)))
+      (unless (exit-info-true-p result)
+        (return-from shell-and-fn result))))
+  (truthy-exit-info))
+
+(defun shell-or-fn (fns)
+  (dolist (fn fns)
+    (let ((result (funcall fn)))
+      (when (exit-info-true-p result)
+        (return-from shell-or-fn result))))
+  (falsey-exit-info))
+
+(defmacro shell-or (&body body)
+  `(shell-or-fn
+    (list ,@(mapcar 'lambdaify body))))
