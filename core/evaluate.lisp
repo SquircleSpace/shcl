@@ -19,7 +19,7 @@
    :shcl/core/thread :shcl/core/expand :shcl/core/environment :shcl/core/command
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
-  (:import-from :shcl/core/shell-form #:pipeline-fn #:!)
+  (:import-from :shcl/core/shell-form #:pipeline-fn)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluate))
@@ -258,7 +258,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 (defmethod evaluate ((sy pipeline))
   (with-slots (bang pipe-sequence) sy
     (if (slot-boundp sy 'bang)
-        (return-from evaluate (! (evaluate-synchronous-job pipe-sequence)))
+        (return-from evaluate (invert-exit-info (evaluate-synchronous-job pipe-sequence)))
         (return-from evaluate (evaluate-synchronous-job pipe-sequence)))))
 
 (defun evaluate-pipe-sequence (sy)
@@ -271,7 +271,7 @@ The methods on this function are tightly coupled to the shell grammar."))
                  (let ((captured-node node))
                    (lambda ()
                      (evaluate-synchronous-job (slot-value captured-node 'command)))))))
-    (return-from evaluate-pipe-sequence (pipeline-fn jobs))))
+    (return-from evaluate-pipe-sequence (apply 'pipeline-fn jobs))))
 
 (defmethod evaluate ((sy pipe-sequence))
   (with-slots (command pipe-sequence-tail) sy

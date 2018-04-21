@@ -23,15 +23,56 @@
   (:import-from :shcl/core/fd-table
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
-  (:export #:pipeline #:pipeline-fn))
+  (:export #:pipeline #:pipeline-fn #:shell #:! #:or #:and))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun lambdaify (form)
-    `(lambda ()
-       ,form)))
+  (defun lambda-over-shell (form)
+    `(lambda () (shell ,form)))
+  (defgeneric shell-macro-function (symbol))
+  (defgeneric translate-shell-form (form environment)))
+
+(defmethod translate-shell-form ((form cons) environment)
+  (funcall (shell-macro-function (car form)) form environment))
+
+(defmethod documentation ((thing symbol) (doc-type (eql 'shell)))
+  (documentation (shell-macro-function thing) 'function))
+
+(defmethod (setf documentation) (docstring thing (doc-type (eql 'shell)))
+  (setf (documentation (shell-macro-function thing) 'function) docstring))
+
+(defmacro define-shell-macro (name lambda-list &body body)
+  (let ((head (gensym "HEAD"))
+        (macro-name (gensym (symbol-name name))))
+    `(progn
+       ;; Leverage defmacro to get macro lambda-list support
+       (defmacro ,macro-name ,lambda-list
+         ,@body)
+       (defmethod shell-macro-function ((,head (eql ',name)))
+         (macro-function ',macro-name))
+       ',name)))
+
+(defmacro shell (&body body &environment env)
+  (cond
+    ((null body)
+     `(falsey-exit-info))
+
+    ((null (cdr body))
+     (translate-shell-form (car body) env))
+
+    (t
+     `(progn
+        ,@(loop :for form :in body :collect
+             (translate-shell-form form env))))))
+
+(define-shell-macro shell (&whole whole &body body &environment env)
+  "Evaluate each form in `body' as a shell form.
+
+This is the shell form equivalent of `progn'."
+  (declare (ignore body))
+  (macroexpand-1 whole env))
 
 (defstruct async-result
   values
@@ -92,7 +133,7 @@
 (defconstant +pipe-read-fd+ 0)
 (defconstant +pipe-write-fd+ 1)
 
-(defun pipeline-fn (pipeline-fns)
+(defun pipeline-fn (&rest pipeline-fns)
   (let ((pipeline-fns (coerce pipeline-fns 'vector))
         (results (make-array (length pipeline-fns)))
         write-fd)
@@ -133,31 +174,31 @@
 
     (async-result-get (aref results (1- (length pipeline-fns))))))
 
-(defmacro pipeline (&body body)
+(define-shell-macro pipeline (&body body)
   `(pipeline-fn
-    (list ,@(mapcar 'lambdaify body))))
+    ,@(mapcar 'lambda-over-shell body)))
 
-(defun !-fn (fn)
-  (let ((result (funcall fn)))
-    (invert-exit-info result)))
+(define-shell-macro ! (&body body)
+  `(invert-exit-info (shell ,@body)))
 
-(defmacro ! (&body body)
-  `(!-fn (lambda () ,@body)))
-
-(defun shell-and-fn (fns)
+(defun and-fn (&rest fns)
   (dolist (fn fns)
     (let ((result (funcall fn)))
       (unless (exit-info-true-p result)
-        (return-from shell-and-fn result))))
+        (return-from and-fn result))))
   (truthy-exit-info))
 
-(defun shell-or-fn (fns)
+(define-shell-macro and (&body body)
+  `(and-fn
+    ,@(mapcar 'lambda-over-shell body)))
+
+(defun or-fn (&rest fns)
   (dolist (fn fns)
     (let ((result (funcall fn)))
       (when (exit-info-true-p result)
-        (return-from shell-or-fn result))))
+        (return-from or-fn result))))
   (falsey-exit-info))
 
-(defmacro shell-or (&body body)
+(define-shell-macro or (&body body)
   `(shell-or-fn
-    (list ,@(mapcar 'lambdaify body))))
+    ,@(mapcar 'lambda-over-shell body)))
