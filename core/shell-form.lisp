@@ -23,7 +23,7 @@
   (:import-from :shcl/core/fd-table
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
-  (:export #:pipeline #:pipeline-fn #:shell #:! #:or #:and))
+  (:export #:pipeline #:pipeline-fn #:shell #:! #:or #:and #:&))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -202,3 +202,7 @@ This is the shell form equivalent of `progn'."
 (define-shell-macro or (&body body)
   `(shell-or-fn
     ,@(mapcar 'lambda-over-shell body)))
+
+(define-shell-macro & (&body body)
+  (declare (ignore body))
+  (error 'not-implemented :feature "Background jobs"))
