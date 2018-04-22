@@ -23,6 +23,7 @@
   (:import-from :shcl/core/fd-table
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
+  (:import-from :lisp-namespace #:define-namespace)
   (:export #:pipeline #:pipeline-fn #:shell #:! #:or #:and #:&))
 (in-package :shcl/core/shell-form)
 
@@ -30,28 +31,27 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun lambda-over-shell (form)
-    `(lambda () (shell ,form)))
-  (defgeneric shell-form-translation-macro (symbol))
-  (defgeneric translate-shell-form (form environment)))
+    `(lambda () (shell ,form))))
+
+(deftype macro-type ()
+  '(function (cons t) (values t &optional)))
+
+(define-namespace shell-form-translator
+    macro-type nil)
 
 (defmethod translate-shell-form ((form cons) environment)
-  (funcall (shell-form-translation-macro (car form)) form environment))
+  (funcall (symbol-shell-form-translator (car form)) form environment))
 
-(defmethod documentation ((thing symbol) (doc-type (eql 'shell)))
-  (documentation (shell-form-translation-macro thing) 'function))
-
-(defmethod (setf documentation) (docstring thing (doc-type (eql 'shell)))
-  (setf (documentation (shell-form-translation-macro thing) 'function) docstring))
-
-(defmacro define-shell-macro (name lambda-list &body body)
-  (let ((head (gensym "HEAD"))
-        (macro-name (gensym (symbol-name name))))
+(defmacro define-shell-form-translator (name lambda-list &body body)
+  (let ((macro-name (gensym (symbol-name name)))
+        (fn (gensym "FN")))
     `(progn
        ;; Leverage defmacro to get macro lambda-list support
        (defmacro ,macro-name ,lambda-list
          ,@body)
-       (defmethod shell-form-translation-macro ((,head (eql ',name)))
-         (macro-function ',macro-name))
+       (let ((,fn (macro-function ',macro-name)))
+         (setf (symbol-shell-form-translator ',name) ,fn)
+         (setf (documentation ',name 'shell-form-translator) (documentation ,fn 'function)))
        ',name)))
 
 (defmacro shell (&body body &environment env)
@@ -67,7 +67,7 @@
         ,@(loop :for form :in body :collect
              (translate-shell-form form env))))))
 
-(define-shell-macro shell (&whole whole &body body &environment env)
+(define-shell-form-translator shell (&whole whole &body body &environment env)
   "Evaluate each form in `body' as a shell form.
 
 This is the shell form equivalent of `progn'."
@@ -174,11 +174,11 @@ This is the shell form equivalent of `progn'."
 
     (async-result-get (aref results (1- (length pipeline-fns))))))
 
-(define-shell-macro pipeline (&body body)
+(define-shell-form-translator pipeline (&body body)
   `(pipeline-fn
     ,@(mapcar 'lambda-over-shell body)))
 
-(define-shell-macro ! (&body body)
+(define-shell-form-translator ! (&body body)
   `(invert-exit-info (shell ,@body)))
 
 (defun and-fn (&rest fns)
@@ -188,7 +188,7 @@ This is the shell form equivalent of `progn'."
         (return-from and-fn result))))
   (truthy-exit-info))
 
-(define-shell-macro and (&body body)
+(define-shell-form-translator and (&body body)
   `(and-fn
     ,@(mapcar 'lambda-over-shell body)))
 
@@ -199,10 +199,10 @@ This is the shell form equivalent of `progn'."
         (return-from or-fn result))))
   (falsey-exit-info))
 
-(define-shell-macro or (&body body)
+(define-shell-form-translator or (&body body)
   `(shell-or-fn
     ,@(mapcar 'lambda-over-shell body)))
 
-(define-shell-macro & (&body body)
+(define-shell-form-translator & (&body body)
   (declare (ignore body))
   (error 'not-implemented :feature "Background jobs"))

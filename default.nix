@@ -31,6 +31,7 @@ pkgs.stdenv.mkDerivation rec {
     pkgs.lispPackages.swank # Public domain
     pkgs.lispPackages.trivial-garbage # Public domain
     pkgs.lispPackages.trivial-gray-streams # MIT
+    pkgs.lispPackages.lisp-namespace # Lisp LGPL
     pkgs.lispPackages.clwrapper
     pkgs.sbcl
     # For test
