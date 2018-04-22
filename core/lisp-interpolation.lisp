@@ -15,9 +15,10 @@
 (defpackage :shcl/core/lisp-interpolation
   (:use
    :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/evaluate :shcl/core/expand :shcl/core/baking :shcl/core/command
+   :shcl/core/evaluate :shcl/core/expand :shcl/core/baking
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/shell-readtable)
+  (:import-from :shcl/core/command #:define-special-builtin)
   (:import-from :babel)
   (:import-from :cffi)
   (:import-from :fset)

@@ -16,8 +16,10 @@
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
    :shcl/core/utility :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
-   :shcl/core/lisp-interpolation :shcl/core/shell-readtable :shcl/core/command
+   :shcl/core/lisp-interpolation :shcl/core/shell-readtable
    :shcl/core/iterator)
+  (:import-from :shcl/core/command
+   #:define-builtin #:handle-command-errors #:with-parsed-arguments)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
