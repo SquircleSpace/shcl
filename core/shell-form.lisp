@@ -31,17 +31,17 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun lambda-over-shell (form)
     `(lambda () (shell ,form)))
-  (defgeneric shell-macro-function (symbol))
+  (defgeneric shell-form-translation-macro (symbol))
   (defgeneric translate-shell-form (form environment)))
 
 (defmethod translate-shell-form ((form cons) environment)
-  (funcall (shell-macro-function (car form)) form environment))
+  (funcall (shell-form-translation-macro (car form)) form environment))
 
 (defmethod documentation ((thing symbol) (doc-type (eql 'shell)))
-  (documentation (shell-macro-function thing) 'function))
+  (documentation (shell-form-translation-macro thing) 'function))
 
 (defmethod (setf documentation) (docstring thing (doc-type (eql 'shell)))
-  (setf (documentation (shell-macro-function thing) 'function) docstring))
+  (setf (documentation (shell-form-translation-macro thing) 'function) docstring))
 
 (defmacro define-shell-macro (name lambda-list &body body)
   (let ((head (gensym "HEAD"))
@@ -50,7 +50,7 @@
        ;; Leverage defmacro to get macro lambda-list support
        (defmacro ,macro-name ,lambda-list
          ,@body)
-       (defmethod shell-macro-function ((,head (eql ',name)))
+       (defmethod shell-form-translation-macro ((,head (eql ',name)))
          (macro-function ',macro-name))
        ',name)))
 
