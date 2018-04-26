@@ -21,7 +21,7 @@
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
   (:import-from :shcl/core/shell-form #:pipeline-fn)
   (:import-from :shcl/core/command
-   #:lookup-command #:invoke-command #:define-special-builtin)
+   #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluate))
