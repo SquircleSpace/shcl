@@ -21,6 +21,8 @@
   (:import-from :shcl/core/command
    #:define-builtin #:handle-command-errors #:with-parsed-arguments)
   (:import-from :shcl/core/posix #:exit)
+  (:import-from :shcl/core/command #:exit-condition #:exit-condition-exit-info)
+  (:import-from :shcl/core/exit-info #:truthy-exit-info #:exit-info-code)
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
   (:import-from :shcl/shell/lisp-repl)
@@ -199,5 +201,10 @@ example, that...
                   (when-let ((restart (find-restart 'ignore)))
                     (format *error-output* "Parse error: ~A~%" e)
                     (invoke-restart restart)))))
-            (do-iterator (exit-info (exit-info-iterator stream :history h))
-              (declare (ignore exit-info)))))))))
+            (let ((result (truthy-exit-info)))
+              (handler-case
+                  (do-iterator (exit-info (exit-info-iterator stream :history h))
+                    (setf result exit-info))
+                (exit-condition (e)
+                  (setf result (exit-condition-exit-info e))))
+              (exit (exit-info-code result)))))))))
