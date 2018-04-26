@@ -34,7 +34,7 @@ access the lexical environment.
 
 Now lay your eyes on a lisp function participating in a pipeline!
 #+BEGIN_EXAMPLE
-shcl> { : ,(shcl/core/debug:graph-dependencies); } | dot -Tpng > graph.png
+shcl> : ,(shcl/core/debug:graph-dependencies) | dot -Tpng > graph.png
 #+END_EXAMPLE
 
 * Building SHCL
@@ -166,7 +166,7 @@ done
 
 #+BEGIN_SRC shell-script
 # Pipe lisp *standard-output* into wc
-{ : ,(format t "hello world~%"); } | wc -c
+: ,(format t "hello world~%") | wc -c
 
 # Output:
 # 12
