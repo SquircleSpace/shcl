@@ -30,6 +30,8 @@
   (:import-from :shcl/core/environment #:*environment* #:linearized-exported-environment)
   (:import-from :shcl/core/working-directory #:current-working-directory-fd)
   (:import-from :shcl/core/fork-exec #:run)
+  (:import-from :shcl/core/shell-environment #:with-subshell
+                #:extend-shell-environment)
   (:export
    #:define-builtin #:define-special-builtin #:lookup-command
    #:command-error #:wrap-errors #:invoke-command #:shell-lambda
@@ -37,7 +39,8 @@
    #:*command-namespace* #:make-command-namespace #:command-namespace-table
    #:command-namespace-fallback #:command #:special-builtin #:builtin #:binary
    #:invoke-command #:install-command #:command-priority
-   #:redefining-command #:confusing-command-name)
+   #:redefining-command #:confusing-command-name #:exit-condition
+   #:exit-condition-exit-info)
   (:documentation
    "This package contains functionality related to defining and
 running shell commands."))
@@ -248,8 +251,9 @@ invoke a binary instead of a builtin."
 (defmethod invoke-command ((command special-builtin) environment-modifier &rest args)
   (with-slots (handler) command
     (funcall environment-modifier)
-    (handle-command-errors (first args)
-      (ensure-exit-info (apply handler args)))))
+    (with-fd-streams ()
+      (handle-command-errors (first args)
+        (ensure-exit-info (apply handler args))))))
 
 (defmethod command-priority ((command special-builtin))
   0)
@@ -784,9 +788,45 @@ then the builtin name is the downcased symbol name."
   (declare (ignore args))
   (error 'not-implemented :feature "exec"))
 
-(define-special-builtin exit (&rest args)
-  (declare (ignore args))
-  (error 'not-implemented :feature "exit"))
+(define-condition exit-condition (serious-condition)
+  ((exit-info
+    :initarg :exit-info
+    :reader exit-condition-exit-info
+    :documentation
+    "The desired exit status"))
+  (:documentation
+   "A signal representing that the shell would like to exit.
+
+Subshells (e.g. `with-subshell') handle this condition
+automatically.")
+  (:report
+   (lambda (c s)
+     (format s "exit ~A" (exit-condition-exit-info c)))))
+
+(defun establish-exit-condition-handler (data continuation)
+  (declare (ignore data))
+  (handler-case
+      (funcall continuation)
+    (exit-condition (e)
+      (return-from establish-exit-condition-handler
+        (exit-condition-exit-info e)))))
+
+(let ((the-void (constantly nil)))
+  (extend-shell-environment
+   'exit-condition-handler
+   the-void
+   'establish-exit-condition-handler
+   the-void))
+
+(define-special-builtin exit (&optional exit-status)
+  (handler-case
+      (setf exit-status (parse-integer exit-status :junk-allowed nil))
+    (parse-error (e)
+      (declare (ignore e))
+      (format *error-output* "exit: ~A: numeric argument required~%" exit-status)
+      (setf exit-status 2)))
+  (let ((exit-info (ensure-exit-info exit-status)))
+    (error 'exit-condition :exit-info exit-info)))
 
 (define-special-builtin (builtin-export "export") (&rest args)
   (declare (ignore args))
