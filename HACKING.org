@@ -49,11 +49,6 @@ never notice that we forked.  That's the theory, at least.
 This directory contains things that are only relevant to SHCL when it
 is used as a shell.  For example, shell builtins.
 
-** =/library/=
-This directory doesn't yet exist, but it will contain high-level
-abstractions which allow Common Lisp programs to easily run shell
-commands.
-
 ** =/test/=
 This directory contains tests that ensure SHCL is working correctly.
 The tests are run by the =test.lisp= script in the root directory.
@@ -99,9 +94,15 @@ is pulled from the input iterator.  Before calling ~EVALUATE~ on the
 syntax tree, all of the bake forms in the bakery queue should be
 evaluated.
 
+Note that this phase is undergoing a transformation and a new phase is
+being inserted.  Before evaluation, the shell AST will be translated
+into a DSL for expressing shell commands.  That DSL will then be
+translated into Common Lisp and evaluated like any other lisp form.
+
 *** Expansion
 Just before the ~EVALUATE~ function runs a command or builtin, it
 expands each "word" being passed to the command/builtin.
+
 * Assorted Style Guidelines
 - Every exported symbol should have documentation.  Documenting
   internal functions is also a Good Thing.  Document methods at your
