@@ -112,3 +112,14 @@ expands each "word" being passed to the command/builtin.
 - Long lines should be avoided.
 - Prefer immutable data structures (e.g. fset or define-data).
 - Prefer a functional style
+
+* Highly Desired Contributions
+Not sure where to begin?  How about you take on one of these open
+problems!
+- Tab complete
+- Signal handling (this is especially thorny given the way subshells
+  work!)
+- Job control
+- Prompt customization
+- More unit tests
+- Some sort of CI
