@@ -15,7 +15,7 @@
 (defpackage :shcl/shell/main
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/utility :shcl/core/evaluate :shcl/core/baking :shcl/core/thread
+   :shcl/core/utility :shcl/core/evaluate :shcl/core/baking
    :shcl/core/lisp-interpolation :shcl/core/shell-readtable
    :shcl/core/iterator)
   (:import-from :shcl/core/command
@@ -145,7 +145,7 @@ Supported options:
             (do-iterator (tree commands)
               (loop
                  (let* ((stop '#:stop)
-                        (form (dequeue-no-block form-queue stop)))
+                        (form (dequeue form-queue stop)))
                    (when (eq stop form)
                      (return))
                    (debug-log status "EVAL ~A" form)

@@ -26,7 +26,9 @@
    #:not-implemented
    ;; Hooks
    #:define-hook #:add-hook #:remove-hook #:run-hook #:on-revival
-   #:observe-revival #:on-dump #:observe-dump))
+   #:observe-revival #:on-dump #:observe-dump
+   ;; Queues
+   #:make-queue #:queue #:queue-p #:copy-queue #:enqueue #:dequeue))
 (in-package :shcl/core/utility)
 
 (defmacro optimization-settings ()
@@ -394,3 +396,42 @@ adjustable array with a fill pointer."
   (if package
       (intern (apply '%symbol-nconc first-bit other-bits) package)
       (intern (apply '%symbol-nconc first-bit other-bits))))
+
+(defstruct (queue
+             (:constructor %make-queue))
+  "This struct is a standard queue data structure."
+  front
+  back)
+
+(defun make-queue ()
+  "Create a new queue."
+  (%make-queue))
+
+(defun enqueue (item queue)
+  "Add an item to the given queue."
+  (with-accessors
+        ((front queue-front) (back queue-back))
+      queue
+    (cond
+      ((null front)
+       (setf front (cons item nil)
+             back front))
+
+      (t
+       (setf (cdr back) (cons item nil)
+             back (cdr back))))
+    (values)))
+
+(defun dequeue (queue &optional default-value)
+  "Return and remove the item at the front of the queue."
+  (with-accessors
+        ((front queue-front) (back queue-back))
+      queue
+    (when (null front)
+      (return-from dequeue (values default-value nil)))
+    (let ((item (car front)))
+      (if (eq front back)
+          (setf front nil
+                back nil)
+          (setf front (cdr front)))
+      (values item t))))
