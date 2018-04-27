@@ -24,7 +24,6 @@
   (:import-from :fset)
   (:import-from :shcl/core/evaluate)
   (:import-from :shcl/core/posix)
-  (:import-from :shcl/core/thread)
   (:import-from :bordeaux-threads)
   (:export
    #:enable-reader-syntax #:evaluate-shell-string
@@ -265,12 +264,12 @@ once.")
 (defstruct place
   value)
 
-(defun consume (retained-fd output-place semaphore encoding)
+(defun consume (retained-fd output-place encoding)
   "Read from `retained-fd' and store the resulting string in `output-place'.
 
-When EOF is hit, the given semaphore will be signaled.  This function
-will release `retained-fd' when it finishes.  `output-place' should be
-an instance of the `place' struct.
+When EOF is hit, this function will return.  This function will
+release `retained-fd' when it finishes.  `output-place' should be an
+instance of the `place' struct.
 
 This function is not meant to be used directly.  Only `capture' should
 call this function."
@@ -292,8 +291,7 @@ call this function."
             :while (not (zerop (length part))))
          (setf (place-value output-place) (babel:octets-to-string content :encoding encoding))
          (values))
-    (fd-release retained-fd)
-    (shcl/core/thread:semaphore-signal semaphore)))
+    (fd-release retained-fd)))
 
 (defun %capture (streams encoding shell-command-fn)
   "This function implements the `capture' macro."
@@ -304,7 +302,7 @@ call this function."
   (with-fd-scope ()
     (let ((fds (mapcar 'decode-stream-descriptor streams))
           (string-result-place (make-place))
-          (semaphore (shcl/core/thread:make-semaphore))
+          thread
           exit-info)
       (multiple-value-bind (read-end write-end) (pipe-retained)
         (unwind-protect
@@ -313,8 +311,9 @@ call this function."
                  (dolist (fd fds)
                    (bind-fd fd write-end))
                  (fd-retain read-end)
-                 (bordeaux-threads:make-thread
-                  (lambda () (consume read-end string-result-place semaphore encoding)))
+                 (setf thread
+                       (bordeaux-threads:make-thread
+                        (lambda () (consume read-end string-result-place encoding))))
 
                  ;; Maybe not actually an exit-info.  Still, its a
                  ;; good name.
@@ -322,7 +321,8 @@ call this function."
 
                (fd-release write-end)
                (setf write-end nil)
-               (shcl/core/thread:semaphore-wait semaphore)
+               (when thread
+                 (bordeaux-threads:join-thread thread))
                (values-list (cons (place-value string-result-place) exit-info)))
           (when read-end
             (fd-release read-end))

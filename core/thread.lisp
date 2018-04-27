@@ -15,49 +15,11 @@
 (defpackage :shcl/core/thread
   (:use :common-lisp :shcl/core/utility :bordeaux-threads)
   (:export
-   ;; Semaphores
-   #:semaphore #:make-semaphore #:semaphore-signal #:semaphore-wait
-   #:semaphore-p
    ;; Queues
    #:queue #:make-queue #:enqueue #:dequeue #:dequeue-no-block #:queue-p))
 (in-package :shcl/core/thread)
 
 (optimization-settings)
-
-(defstruct (semaphore
-             (:constructor %make-semaphore))
-  "This struct represents the standard semaphore synchronization
-primitive."
-  (count 0)
-  (lock (make-lock))
-  (cv (make-condition-variable)))
-
-(defun make-semaphore ()
-  "Create a new semaphore."
-  (%make-semaphore))
-
-(defun semaphore-signal (semaphore)
-  "Increment the given semaphore and allow a thread blocked in
-`semaphore-wait' to continue."
-  (with-accessors ((count semaphore-count)
-                   (lock semaphore-lock) (cv semaphore-cv))
-      semaphore
-    (with-lock-held (lock)
-      (incf count)
-      (condition-notify cv)
-      nil)))
-
-(defun semaphore-wait (semaphore)
-  "Either decrement the given semaphore immediately or wait until the
-semaphore is incremented by `semaphore-signal'."
-  (with-accessors ((count semaphore-count)
-                   (lock semaphore-lock) (cv semaphore-cv))
-      semaphore
-    (with-lock-held (lock)
-      (loop :while (equal 0 count) :do (condition-wait cv lock))
-      (decf count)
-      (condition-notify cv)
-      nil)))
 
 (defstruct (queue
              (:constructor %make-queue))
