@@ -63,9 +63,9 @@
      (translate-shell-form (car body) env))
 
     (t
-     `(progn
-        ,@(loop :for form :in body :collect
-             (translate-shell-form form env))))))
+     (apply 'progn-concatenate
+            (loop :for form :in body :collect
+               (translate-shell-form form env))))))
 
 (define-shell-form-translator shell (&whole whole &body body &environment env)
   "Evaluate each form in `body' as a shell form.
