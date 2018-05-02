@@ -15,16 +15,17 @@
 (defpackage :shcl/core/lisp-interpolation
   (:use
    :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/evaluate :shcl/core/expand :shcl/core/baking
+   :shcl/core/expand
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/shell-readtable)
   (:import-from :shcl/core/command #:define-special-builtin)
+  (:import-from :shcl/core/evaluate #:evaluation-form-iterator)
+  (:import-from :shcl/core/baking #:bake-form)
+  (:import-from :shcl/core/posix)
+  (:import-from :bordeaux-threads)
   (:import-from :babel)
   (:import-from :cffi)
   (:import-from :fset)
-  (:import-from :shcl/core/evaluate)
-  (:import-from :shcl/core/posix)
-  (:import-from :bordeaux-threads)
   (:export
    #:enable-reader-syntax #:evaluate-shell-string
    #:evaluate-constant-shell-string #:exit-failure #:check-result #:capture
@@ -50,7 +51,7 @@ This token always expands to one word."))
 (defmethod print-object ((token lisp-form) stream)
   (format stream "#<~A ~A>" (class-name (class-of token)) (slot-value token 'form)))
 
-(defmethod bake-form-for-token ((lisp-form lisp-form))
+(defmethod bake-form ((lisp-form lisp-form))
   `(setf (slot-value ,lisp-form 'function)
          (lambda ()
            (fset:seq
@@ -66,7 +67,7 @@ This token always expands to one word."))
 During expansion, this token traverses the sequence returned by the
 lisp form and turns each element into a separate word."))
 
-(defmethod bake-form-for-token ((lisp-form lisp-splice-form))
+(defmethod bake-form ((lisp-form lisp-splice-form))
   (let ((seq (gensym "SEQ"))
         (result (gensym "RESULT"))
         (thing (gensym "THING")))
@@ -200,30 +201,12 @@ evauluated in the null lexical environment."
   "This macro is responsible for parsing (at macro expansion time) a
 sequence of tokens and producing code which evaulates the shell
 command they describe."
-  (let ((oven (make-extensible-vector)))
-    (dolist (token tokens)
-      (let ((form (bake-form-for-token token)))
-        (when form
-          (vector-push-extend form oven))))
-    (let* ((token-iter (lookahead-iterator-wrapper (list-iterator tokens)))
-           (commands (command-iterator token-iter))
-           (evaluates (make-extensible-vector)))
-      (do-iterator (command commands)
-        (vector-push-extend `(evaluate ,command) evaluates))
-      (do-iterator (value token-iter)
-        (assert nil nil "Unconsumed token ~A found" value))
-      (assert (not (and (not (zerop (length oven)))
-                        (zerop (length evaluates))))
-              nil "There can't be stuff in the oven but nothing to evaluate")
-      (cond
-        ((zerop (length evaluates))
-         nil)
-        ((zerop (length oven))
-         `(progn ,@(coerce evaluates 'list)))
-        (t
-         `(progn
-            ,@(coerce oven 'list)
-            ,@(coerce evaluates 'list)))))))
+  (let* ((token-iter (lookahead-iterator-wrapper (list-iterator tokens)))
+         (commands (command-iterator token-iter))
+         (evaluates (iterator-values (evaluation-form-iterator commands))))
+    (do-iterator (value token-iter)
+      (assert nil nil "Unconsumed token ~A found" value))
+    (apply 'progn-concatenate (coerce evaluates 'list))))
 
 (define-condition exit-failure (error)
   ((info
@@ -338,7 +321,7 @@ string.
 "
   `(%capture ,streams ,encoding (lambda () ,@shell-command)))
 
-(defmethod bake-form-for-token ((command-word command-word))
+(defmethod bake-form ((command-word command-word))
   `(setf (command-word-evaluate-fn ,command-word)
          (lambda ()
            (capture (:streams '(:stdout))

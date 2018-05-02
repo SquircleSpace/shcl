@@ -20,14 +20,43 @@
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
   (:import-from :shcl/core/shell-form #:pipeline-fn)
+  (:import-from :shcl/core/baking #:bake-form)
   (:import-from :shcl/core/command
    #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
-  (:export #:evaluate))
+  (:export #:evaluation-form #:evaluation-form-iterator #:translate #:evaluate))
 (in-package :shcl/core/evaluate)
 
 (optimization-settings)
+
+(defgeneric translate (thing))
+
+(defgeneric evaluate (syntax-tree)
+  (:documentation
+   "This is the main driver for evaluating shell expressions.
+
+It is analogous to `eval' for Common Lisp.
+
+The methods on this function are tightly coupled to the shell grammar."))
+
+(defmethod translate (sy)
+  `(evaluate ,sy))
+
+(defmethod evaluate (sy)
+  (error 'not-implemented :feature (format nil "Eval of ~A" (class-name (class-of sy)))))
+
+(defun evaluation-form (thing)
+  (let ((bake-form (bake-form thing))
+        (translation (translate thing)))
+    (cond
+      ((and bake-form translation)
+       (progn-concatenate bake-form translation))
+      (t
+       (or translation bake-form)))))
+
+(defun evaluation-form-iterator (command-iterator)
+  (map-iterator command-iterator 'evaluation-form))
 
 (defparameter *umask*
   (logior s-irusr s-iwusr s-irgrp s-iroth)
@@ -194,17 +223,6 @@ This function does not create an entry in the job table."
              (debug-log status "Worker thread exit ~A" sy))))
       ;; TODO: What if thread creation errors out?
       (make-thread #'async-eval))))
-
-(defgeneric evaluate (syntax-tree)
-  (:documentation
-   "This is the main driver for evaluating shell expressions.
-
-It is analogous to `eval' for Common Lisp.
-
-The methods on this function are tightly coupled to the shell grammar."))
-
-(defmethod evaluate (sy)
-  (error 'not-implemented :feature (format nil "Eval of ~A" (class-name (class-of sy)))))
 
 (defmethod evaluate ((sy complete-command))
   (with-slots (newline-list complete-command command-list) sy
