@@ -41,7 +41,7 @@ shcl> : ,(shcl/core/debug:graph-dependencies) | dot -Tpng > graph.png
 
 1. Install the Nix package manager
 2. =nix-shell=
-3. =make=
+3. =make LISP='cl-wrapper.sh sbcl'=
 
 * Why Would You Make This?!
 
