@@ -49,11 +49,7 @@ The methods on this function are tightly coupled to the shell grammar."))
 (defun evaluation-form (thing)
   (let ((bake-form (bake-form thing))
         (translation (translate thing)))
-    (cond
-      ((and bake-form translation)
-       (progn-concatenate bake-form translation))
-      (t
-       (or translation bake-form)))))
+    (progn-concatenate bake-form translation)))
 
 (defun evaluation-form-iterator (command-iterator)
   (map-iterator command-iterator 'evaluation-form))
