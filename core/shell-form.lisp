@@ -24,7 +24,7 @@
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
-  (:export #:pipeline #:pipeline-fn #:shell #:! #:or #:and #:&))
+  (:export #:pipeline #:pipeline-fn #:shell #:progn #:! #:or #:and #:& #:lisp))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -73,6 +73,12 @@
 This is the shell form equivalent of `progn'."
   (declare (ignore body))
   (macroexpand-1 whole env))
+
+(define-shell-form-translator progn (&body body &environment env)
+  (macroexpand-1 `(shell ,@body) env))
+
+(define-shell-form-translator lisp (&body body)
+  (apply 'progn-concatenate body))
 
 (defstruct async-result
   values
