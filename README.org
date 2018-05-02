@@ -39,9 +39,43 @@ shcl> : ,(shcl/core/debug:graph-dependencies) | dot -Tpng > graph.png
 
 * Building SHCL
 
-1. Install the Nix package manager
-2. =nix-shell=
-3. =make LISP='cl-wrapper.sh sbcl'=
+SHCL is only really tested against SBCL, but it should be portable to
+other lisp compilers.  Be aware that ECL is known to be problematic
+because it tries to reap child processes automatically.  In addition
+to several lisp libraries, SHCL depends on clang and libedit.
+
+Building with Nix:
+
+#+BEGIN_EXAMPLE
+nix-shell
+make LISP='cl-wrapper.sh sbcl'
+#+END_EXAMPLE
+
+Building without nix:
+
+#+BEGIN_EXAMPLE
+# Acquire dependencies (don't forget the lisp dependencies!)
+make
+#+END_EXAMPLE
+
+* Example Usage
+
+I don't know what you're expecting to see here.  Its a POSIX-like shell.
+
+#+BEGIN_EXAMPLE
+shcl> echo foobar
+foobar
+shcl> { echo foobar ; echo baz ; echo blip ; } | tail -n 1
+blip
+shcl> shcl-enable-lisp-syntax
+shcl> if [ ,(+ 1 2 3) = ,(* 2 3) ]; then
+> echo woah
+> fi
+woah
+shcl> ^D
+#+END_EXAMPLE
+
+Okay, actually, that last part was a bit crazy.
 
 * Why Would You Make This?!
 
