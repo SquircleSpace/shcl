@@ -19,7 +19,7 @@
    :shcl/core/expand :shcl/core/environment
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
-  (:import-from :shcl/core/shell-form #:pipeline-fn)
+  (:import-from :shcl/core/shell-form #:pipeline-fn #:shell #:& #:lisp)
   (:import-from :shcl/core/baking #:bake-form)
   (:import-from :shcl/core/command
    #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
@@ -41,14 +41,14 @@ It is analogous to `eval' for Common Lisp.
 The methods on this function are tightly coupled to the shell grammar."))
 
 (defmethod translate (sy)
-  `(evaluate ,sy))
+  `(lisp (evaluate ,sy)))
 
 (defmethod evaluate (sy)
   (error 'not-implemented :feature (format nil "Eval of ~A" (class-name (class-of sy)))))
 
 (defun evaluation-form (thing)
   (let ((bake-form (bake-form thing))
-        (translation (translate thing)))
+        (translation `(shell ,(translate thing))))
     (progn-concatenate bake-form translation)))
 
 (defun evaluation-form-iterator (command-iterator)
@@ -185,8 +185,10 @@ directly."))
 
 (defun evaluate-background-job (sy)
   (declare (ignore sy))
-  (error 'not-implemented :feature "Background jobs")
-  (truthy-exit-info))
+  (error 'not-implemented :feature "Background jobs"))
+
+(defun translate-background-job (sy)
+  `(& ,(translate sy)))
 
 (defun evaluate-synchronous-job (sy)
   "Evaluate the given syntax tree synchronously.
@@ -220,35 +222,36 @@ This function does not create an entry in the job table."
       ;; TODO: What if thread creation errors out?
       (make-thread #'async-eval))))
 
-(defmethod evaluate ((sy complete-command))
+(defmethod translate ((sy complete-command))
   (with-slots (newline-list complete-command command-list) sy
     (cond
       ((slot-boundp sy 'complete-command)
-       (return-from evaluate (evaluate-synchronous-job complete-command)))
+       (return-from translate (translate complete-command)))
       ((slot-boundp sy 'command-list)
-       (return-from evaluate (evaluate-synchronous-job command-list)))
+       (return-from translate (translate command-list)))
       (t
-       (return-from evaluate (truthy-exit-info))))))
+       (return-from translate '(truthy-exit-info))))))
 
-(defun evaluate-command-list (sy)
+(defun translate-command-list (sy)
   (with-slots (and-or separator-op command-list-tail) sy
     (let ((no-wait (typep separator-op 'par)))
 
       (unless command-list-tail
         (if no-wait
-            (return-from evaluate-command-list (evaluate-background-job and-or))
-            (return-from evaluate-command-list (evaluate-synchronous-job and-or))))
+            (return-from translate-command-list (translate-background-job and-or))
+            (return-from translate-command-list (translate and-or))))
 
-      (if no-wait
-          (evaluate-background-job sy)
-          (evaluate-synchronous-job and-or))
+      (return-from translate-command-list
+        (progn-concatenate
+         (if no-wait
+             (translate-background-job and-or)
+             (translate and-or))
+         (translate command-list-tail))))))
 
-      (return-from evaluate-command-list (evaluate-synchronous-job command-list-tail)))))
-
-(defmethod evaluate ((sy command-list))
-  (evaluate-command-list sy))
-(defmethod evaluate ((sy command-list-tail))
-  (evaluate-command-list sy))
+(defmethod translate ((sy command-list))
+  (translate-command-list sy))
+(defmethod translate ((sy command-list-tail))
+  (translate-command-list sy))
 
 (defun evaluate-and-or (previous-result sy)
   (unless sy
