@@ -19,7 +19,8 @@
   (:import-from :shcl/core/advice #:define-advisable)
   (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
-  (:export #:define-parser #:syntax-iterator #:make-internal-parse-error #:abort-parse))
+  (:export #:define-parser #:syntax-iterator #:make-internal-parse-error #:abort-parse
+           #:syntax-tree-parts #:syntax-tree))
 (in-package :shcl/core/parser)
 
 (optimization-settings)
@@ -62,8 +63,8 @@
 
 (defclass syntax-tree ()
   ((raw-matches
-    :initform nil
-    :accessor raw-matches)))
+    :initform #()
+    :reader syntax-tree-parts)))
 
 (defmethod make-load-form ((sy syntax-tree) &optional environment)
   (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of sy)))))

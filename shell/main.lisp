@@ -15,14 +15,15 @@
 (defpackage :shcl/shell/main
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/utility :shcl/core/evaluate :shcl/core/baking
+   :shcl/core/utility :shcl/core/evaluate
    :shcl/core/lisp-interpolation :shcl/core/shell-readtable
    :shcl/core/iterator)
   (:import-from :shcl/core/command
    #:define-builtin #:handle-command-errors #:with-parsed-arguments)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/core/command #:exit-condition #:exit-condition-exit-info)
-  (:import-from :shcl/core/exit-info #:truthy-exit-info #:exit-info-code)
+  (:import-from :shcl/core/exit-info
+   #:truthy-exit-info #:exit-info-code #:exit-info-p)
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
   (:import-from :shcl/shell/lisp-repl)
@@ -65,29 +66,38 @@ See `*fresh-prompt*'."
     (setf *fresh-prompt* nil)
     result))
 
-(defun main-token-iterator (stream form-queue)
+(defun logging-token-iterator (stream)
   "Return an iterator that produces the tokens found in `stream'.
 
-Tokens are read using `*shell-readtable*', and their bake forms (see
-`shcl/core/baking:bake-tokens') are added to form-queue."
-  (lookahead-iterator-wrapper
-   (bake-tokens
-    (map-iterator (token-iterator-symbolic-readtable stream '*shell-readtable*)
-                  (lambda (token)
-                    (debug-log status "TOKEN: ~A" token)
-                    token))
-    form-queue)))
+Tokens are read using `*shell-readtable*'."
+  (map-iterator (token-iterator-symbolic-readtable stream '*shell-readtable*)
+                (lambda (token)
+                  (debug-log status "TOKEN: ~A" token)
+                  token)))
 
-(defun restartable-command-iterator (stream form-queue &key history)
-  "Return an iterator that emits the fully parsed commands that
-`stream' contains.
+(defun logging-command-iterator (token-iterator)
+  (map-iterator (command-iterator (lookahead-iterator-wrapper token-iterator))
+                (lambda (command)
+                  (debug-log status "COMMAND: ~A" command)
+                  command)))
 
-Tokens are read using `main-token-iterator', and bake forms are placed
-in `form-queue'.  See `shcl/core/baking:bake-tokens'."
+(defun logging-evaluation-form-iterator (command-iterator)
+  (map-iterator (evaluation-form-iterator command-iterator)
+                (lambda (form)
+                  (debug-log status "EVAL: ~A" form)
+                  form)))
+
+(defun logging-result-iterator (form-iterator)
+  (map-iterator form-iterator
+                (lambda (form)
+                  (let ((values (multiple-value-list (eval form))))
+                    (debug-log status "RESULT: ~A" values)
+                    values))))
+
+(defun main-iterator (stream &key history)
   (let* ((captured-input (when history (make-string-output-stream)))
          (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
-         (tokens (main-token-iterator wrapped-stream form-queue))
-         (commands (command-iterator tokens)))
+         results)
     (make-iterator ()
       (let ((*fresh-prompt* t))
         (labels
@@ -95,22 +105,31 @@ in `form-queue'.  See `shcl/core/baking:bake-tokens'."
                (when history
                  (history-enter history (get-output-stream-string captured-input)))
                (setf *fresh-prompt* t))
+             (initialize-iterator ()
+               (setf results (as-> wrapped-stream x
+                               (logging-token-iterator x)
+                               (logging-command-iterator x)
+                               (logging-evaluation-form-iterator x)
+                               (logging-result-iterator x))))
              (reset-token-iterator ()
                (loop :while (read-char-no-hang wrapped-stream nil nil))
-               (setf tokens (main-token-iterator wrapped-stream form-queue)
-                     commands (command-iterator tokens))
+               (initialize-iterator)
                (record-history)))
+          (unless results
+            (initialize-iterator))
           (tagbody
            start
              (restart-case
                  (progn
-                   (do-iterator (value commands)
+                   (do-iterator (value results)
                      (record-history)
                      (emit value))
                    (stop))
                (ignore ()
                  (reset-token-iterator)
-                 (go start)))))))))
+                 (go start))
+               (die ()
+                 (exit 1)))))))))
 
 (defparameter *debug* nil)
 (defparameter *help* nil
@@ -135,29 +154,6 @@ Supported options:
 --debug Start a swank server for debugging
 --help Print this message
 "))
-
-(defun exit-info-iterator (stream &key history)
-  (let* ((form-queue (make-queue))
-         (commands (restartable-command-iterator stream form-queue :history history)))
-    (make-iterator ()
-      (restart-case
-          (progn
-            (do-iterator (tree commands)
-              (loop
-                 (let* ((stop '#:stop)
-                        (form (dequeue form-queue stop)))
-                   (when (eq stop form)
-                     (return))
-                   (debug-log status "EVAL ~A" form)
-                   (eval form)))
-              (debug-log status "TREE: ~A" tree)
-              (restart-case
-                  (let ((result (evaluate tree)))
-                    (debug-log status "RESULT ~A" result)
-                    (emit result))
-                (skip ())))
-            (stop))
-        (die () (exit 1))))))
 
 (define-builtin shcl-enable-lisp-syntax ()
   "Permit the use of lisp splice forms in shell expressions."
@@ -203,8 +199,10 @@ example, that...
                     (invoke-restart restart)))))
             (let ((result (truthy-exit-info)))
               (handler-case
-                  (do-iterator (exit-info (exit-info-iterator stream :history h))
-                    (setf result exit-info))
+                  (do-iterator (values (main-iterator stream :history h))
+                    (if (exit-info-p (car values))
+                        (setf result (car values))
+                        (warn "Got non-exit-info result: ~A" values)))
                 (exit-condition (e)
                   (setf result (exit-condition-exit-info e))))
               (exit (exit-info-code result)))))))))

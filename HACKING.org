@@ -49,6 +49,8 @@ never notice that we forked.  That's the theory, at least.
 This directory contains things that are only relevant to SHCL when it
 is used as a shell.  For example, shell builtins.
 
+Note: some builtins are defined in =/core/=.
+
 ** =/test/=
 This directory contains tests that ensure SHCL is working correctly.
 The tests are run by the =test.lisp= script in the root directory.
@@ -68,40 +70,50 @@ tokens found in the stream.
 The lexer can be extended using lexer readtables (much like Common
 Lisp supports adding reader macros).
 
-** Baking
-Some tokens can't be complete until "run time".  For example, consider
-a token that expands to the value of a lisp variable.  Lexing might
-occur at compile time, but the user would probably rather get the
-value of the variable at run time.  The baking phase allows each token
-to provide a lisp form that needs to be evaluated before the shell
-command is run.  If possible, these forms should be compiled at
-compile time and then run at run time.  If the baking phase runs at
-run time, these forms will be passed to ~EVAL~.
-
-Very little actually happens during the baking phase.  The bake forms
-are collected into a queue that is expected to be drained later.  The
-tokens that enter the bake phase are returned unmodified.  The bake
-forms typically modify the tokens when they are evaluated.
-
 ** Parsing
 The parsing phase consumes a token iterator and produces a syntax tree
 iterator.  That is, the values of the resulting iterator are syntax
 trees.
 
-** Evaluating
-This is the final phase of the pipeline.  In this phase, a syntax tree
-is pulled from the input iterator.  Before calling ~EVALUATE~ on the
-syntax tree, all of the bake forms in the bakery queue should be
-evaluated.
+** Translation
+During the translation phase, a shell syntax tree is translated into
+lisp forms.  Although it doesn't happen today, the goal is to
+translate the AST into the Shell Forms DSL.  This DSL effectively
+serves as an intermediate representation for the shell language as it
+is translated to run-of-the-mill Common Lisp.  The shell form language
+is can be translated into Common Lisp with the help of some lisp
+macros.
 
-Note that this phase is undergoing a transformation and a new phase is
-being inserted.  Before evaluation, the shell AST will be translated
-into a DSL for expressing shell commands.  That DSL will then be
-translated into Common Lisp and evaluated like any other lisp form.
+Details for the old, deprecated translation phase are below.  Until
+all the old translation logic is converted into new-style logic, the
+old and the new will coexist.  The new-style translation logic will
+translate as much as it can and then the old style logic will take
+over.
+
+*** Old-Style Translation
+The most important part of old-style translation is the ~EVALUATE~
+generic function.  This function is responsible for, well, evaluating
+a shell syntax tree recursively.  It is responsible for honoring all
+the semantics of the shell language.
+
+During expansion (see below), some tokens need to access the lexical
+environment in which they appeared.  To accomodate that, a special
+facility called "baking" is provided.  Before a syntax tree will be
+evaluated, each token involved in the parse will get baked.  That is,
+~BAKE-FORM~ will be called on the token and the returned lisp form
+will get evaluated.  If possible, the form will be evaluated in the
+lexical environment where the token was originally lexed.
+
+** Evaluation
+Evaluation is the simplest phase of the pipeline.  At the end of the
+translation phase, a lisp form is produced.  This lisp form just needs
+to be evaluated!
 
 *** Expansion
-Just before the ~EVALUATE~ function runs a command or builtin, it
-expands each "word" being passed to the command/builtin.
+Its worth noting that before any shell builtin, binary, or
+user-defined shell function is run, the arguments of the command are
+"expanded".  Expansion isn't conceptually part of the pipeline, but it
+is complex enough to be worth mentioning.
 
 * Assorted Style Guidelines
 - Every exported symbol should have documentation.  Documenting
