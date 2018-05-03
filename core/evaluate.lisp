@@ -253,26 +253,41 @@ This function does not create an entry in the job table."
 (defmethod translate ((sy command-list-tail))
   (translate-command-list sy))
 
-(defun evaluate-and-or (previous-result sy)
-  (unless sy
-    (return-from evaluate-and-or previous-result))
+(defun translate-and-or (sy)
+  (labels
+      ((operation (and-or-tail)
+         (cond
+           ((slot-boundp and-or-tail 'and-if)
+            'and)
+           ((slot-boundp and-or-tail 'or-if)
+            'or)
+           (t
+            (error "Invalid and-or-tail: ~A" and-or-tail))))
+       (pipeline (and-or)
+         (with-slots (pipeline) and-or
+           pipeline))
+       (next (and-or)
+         (with-slots (and-or-tail) and-or
+           and-or-tail)))
+    (declare (dynamic-extent #'operation #'pipeline #'next))
+    (let ((form (translate (pipeline sy)))
+          last-operation)
 
+      (loop :for node = (next sy) :then (next node) :while node :do
+         (let ((operation (operation node))
+               (pipeline-form (translate (pipeline node))))
+           (if (eq operation last-operation)
+               (setf form (nconc form (list pipeline-form)))
+               (setf form `(,operation ,form ,pipeline-form)))
+           (setf last-operation operation)))
+
+      form)))
+
+(defmethod translate ((sy and-or))
   (with-slots (pipeline and-or-tail) sy
-    (let ((result
-           (cond
-             ((and (slot-boundp sy 'and-if) (exit-info-false-p previous-result))
-              (falsey-exit-info))
-             ((and (slot-boundp sy 'or-if) (exit-info-true-p previous-result))
-              previous-result)
-             (t
-              (evaluate-synchronous-job pipeline)))))
-
-      (evaluate-and-or result and-or-tail))))
-
-(defmethod evaluate ((sy and-or))
-  (with-slots (pipeline and-or-tail) sy
-    (let ((result (evaluate-synchronous-job pipeline)))
-      (evaluate-and-or result and-or-tail))))
+    (if and-or-tail
+        (return-from translate (translate-and-or sy))
+        (return-from translate (translate pipeline)))))
 
 (defmethod evaluate ((sy pipeline))
   (with-slots (bang pipe-sequence) sy
