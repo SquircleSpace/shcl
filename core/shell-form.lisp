@@ -24,6 +24,7 @@
    #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
+  (:import-from :alexandria #:parse-body)
   (:export #:pipeline #:pipeline-fn #:shell #:progn #:! #:or #:and #:& #:lisp))
 (in-package :shcl/core/shell-form)
 
@@ -42,17 +43,19 @@
 (defmethod translate-shell-form ((form cons) environment)
   (funcall (symbol-shell-form-translator (car form)) form environment))
 
-(defmacro define-shell-form-translator (name lambda-list &body body)
-  (let ((macro-name (gensym (symbol-name name)))
-        (fn (gensym "FN")))
-    `(progn
-       ;; Leverage defmacro to get macro lambda-list support
-       (defmacro ,macro-name ,lambda-list
-         ,@body)
-       (let ((,fn (macro-function ',macro-name)))
-         (setf (symbol-shell-form-translator ',name) ,fn)
-         (setf (documentation ',name 'shell-form-translator) (documentation ,fn 'function)))
-       ',name)))
+(defmacro define-shell-form-translator (&whole whole name lambda-list &body body)
+  (let ((macro-name (gensym (symbol-name name))))
+    (multiple-value-bind (real-body declarations documentation)
+        (parse-body body :documentation t :whole whole)
+      `(progn
+         ;; Leverage defmacro to get macro lambda-list support
+         (defmacro ,macro-name ,lambda-list
+           ,@declarations
+           (block ,name
+             ,@real-body))
+         (setf (symbol-shell-form-translator ',name) (macro-function ',macro-name))
+         (setf (documentation ',name 'shell-form-translator) ,documentation)
+         ',name))))
 
 (defmacro shell (&body body &environment env)
   (cond
@@ -187,27 +190,43 @@ This is the shell form equivalent of `progn'."
 (define-shell-form-translator ! (&body body)
   `(invert-exit-info (shell ,@body)))
 
-(defun and-fn (&rest fns)
-  (dolist (fn fns)
-    (let ((result (funcall fn)))
-      (unless (exit-info-true-p result)
-        (return-from and-fn result))))
-  (truthy-exit-info))
-
 (define-shell-form-translator and (&body body)
-  `(and-fn
-    ,@(mapcar 'lambda-over-shell body)))
+  (unless body
+    (return-from and
+      '(truthy-exit-info)))
 
-(defun or-fn (&rest fns)
-  (dolist (fn fns)
-    (let ((result (funcall fn)))
-      (when (exit-info-true-p result)
-        (return-from or-fn result))))
-  (falsey-exit-info))
+  (unless (cdr body)
+    (return-from and
+      `(shell ,(car body))))
+
+  (let ((and (gensym "AND"))
+        (result (gensym "RESULT")))
+    `(block ,and
+       ,@(loop :for tail :on body :collect
+            (if (cdr tail)
+                `(let ((,result (shell ,(car tail))))
+                   (unless (truthy-exit-info ,result)
+                     (return-from ,and ,result)))
+                `(shell ,(car tail)))))))
 
 (define-shell-form-translator or (&body body)
-  `(shell-or-fn
-    ,@(mapcar 'lambda-over-shell body)))
+  (unless body
+    (return-from or
+      '(falsey-exit-info)))
+
+  (unless (cdr body)
+    (return-from or
+      `(shell ,(car body))))
+
+  (let ((or (gensym "OR"))
+        (result (gensym "RESULT")))
+    `(block ,or
+       ,@(loop :for tail :on body :collect
+            (if (cdr tail)
+                `(let ((,result (shell ,(car tail))))
+                   (when (truthy-exit-info ,result)
+                     (return-from ,or ,result)))
+                `(shell ,(car tail)))))))
 
 (define-shell-form-translator & (&body body)
   (declare (ignore body))
