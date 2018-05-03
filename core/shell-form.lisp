@@ -25,7 +25,8 @@
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
-  (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell))
+  (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell
+           #:when #:unless #:if))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -235,3 +236,22 @@ This is the shell form equivalent of `progn'."
 (define-shell-form-translator subshell (&body body)
   `(with-subshell
      (shell ,@body)))
+
+(define-shell-form-translator if (condition then &optional (else nil else-p))
+  (let ((value (gensym "VALUE")))
+    `(let ((,value (shell ,condition)))
+       (if (exit-info-true-p ,value)
+           (shell ,then)
+           ,(if else-p
+                `(shell ,else)
+                value)))))
+
+(define-shell-form-translator when (condition &body body)
+  `(shell
+     (if ,condition
+         (shell ,@body))))
+
+(define-shell-form-translator unless (condition &body body)
+  `(shell
+     (if (! ,condition)
+         (shell ,@body))))
