@@ -318,10 +318,11 @@ This function does not create an entry in the job table."
       (handle-redirect redirect-list)
       (return-from evaluate (evaluate-synchronous-job compound-command)))))
 
-(defmethod evaluate ((sy subshell))
+(defmethod translate ((sy subshell))
   (with-slots (compound-list) sy
-    (with-subshell
-      (return-from evaluate (evaluate-synchronous-job compound-list)))))
+    (return-from translate
+      `(subshell
+        ,(translate compound-list)))))
 
 (defmethod evaluate ((sy compound-list))
   (with-slots (newline-list term) sy
