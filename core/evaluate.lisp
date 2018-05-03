@@ -324,9 +324,9 @@ This function does not create an entry in the job table."
       `(subshell
         ,(translate compound-list)))))
 
-(defmethod evaluate ((sy compound-list))
-  (with-slots (newline-list term) sy
-    (return-from evaluate (evaluate-synchronous-job term))))
+(defmethod translate ((sy compound-list))
+  (with-slots (term) sy
+    (return-from translate (translate term))))
 
 (defun evaluate-term (sy)
   (with-slots (and-or separator term-tail) sy
