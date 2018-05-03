@@ -25,7 +25,7 @@
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
-  (:export #:pipeline #:pipeline-fn #:shell #:progn #:! #:or #:and #:& #:lisp))
+  (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)

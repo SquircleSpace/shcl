@@ -19,7 +19,7 @@
    :shcl/core/expand :shcl/core/environment
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
-  (:import-from :shcl/core/shell-form #:pipeline-fn #:shell #:& #:lisp)
+  (:import-from :shcl/core/shell-form #:shell #:& #:lisp)
   (:import-from :shcl/core/baking #:bake-form)
   (:import-from :shcl/core/command
    #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
@@ -289,30 +289,26 @@ This function does not create an entry in the job table."
         (return-from translate (translate-and-or sy))
         (return-from translate (translate pipeline)))))
 
-(defmethod evaluate ((sy pipeline))
-  (with-slots (bang pipe-sequence) sy
+(defmethod translate ((sy pipeline))
+  (with-slots (pipe-sequence) sy
     (if (slot-boundp sy 'bang)
-        (return-from evaluate (invert-exit-info (evaluate-synchronous-job pipe-sequence)))
-        (return-from evaluate (evaluate-synchronous-job pipe-sequence)))))
+        (return-from translate `(! ,(translate pipe-sequence)))
+        (return-from translate (translate pipe-sequence)))))
 
-(defun evaluate-pipe-sequence (sy)
-  (let ((jobs (loop :for node = sy
-                 :then (when node (slot-value node 'pipe-sequence-tail))
-                 :while node :collect
-                 ;; loop might (and does on SBCL) setf the node
-                 ;; variable during iteration.  We want to capture its
-                 ;; current value.
-                 (let ((captured-node node))
-                   (lambda ()
-                     (evaluate-synchronous-job (slot-value captured-node 'command)))))))
-    (return-from evaluate-pipe-sequence (apply 'pipeline-fn jobs))))
-
-(defmethod evaluate ((sy pipe-sequence))
-  (with-slots (command pipe-sequence-tail) sy
+(defun translate-pipe-sequence (sy)
+  (with-slots (pipe-sequence-tail command) sy
     (unless pipe-sequence-tail
-      (return-from evaluate (evaluate-synchronous-job command)))
+      (return-from translate-pipe-sequence (translate command))))
 
-    (return-from evaluate (evaluate-pipe-sequence sy))))
+  (let ((commands
+         (loop :for node = sy :then (slot-value node 'pipe-sequence-tail)
+            :while node
+            :collect (translate (slot-value node 'command)))))
+    `(shcl/core/shell-form:pipeline
+      ,@commands)))
+
+(defmethod translate ((sy pipe-sequence))
+  (return-from translate (translate-pipe-sequence sy)))
 
 (defmethod evaluate ((sy command))
   (with-slots (compound-command redirect-list) sy
