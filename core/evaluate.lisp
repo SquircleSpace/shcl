@@ -328,21 +328,26 @@ This function does not create an entry in the job table."
   (with-slots (term) sy
     (return-from translate (translate term))))
 
-(defun evaluate-term (sy)
+(defun translate-term (sy)
   (with-slots (and-or separator term-tail) sy
-    (let ((result
-           (if (separator-par-p separator)
-               (evaluate-background-job and-or)
-               (evaluate-synchronous-job and-or))))
+    (unless (slot-boundp sy 'separator)
+      (return-from translate-term (translate and-or)))
 
-      (if term-tail
-        (return-from evaluate-term (evaluate-synchronous-job term-tail))
-        (return-from evaluate-term result)))))
+    `(shell
+       ,@(loop :for node = sy :then (when (typep node '(or term term-tail))
+                                      (slot-value node 'term-tail))
+            :while node :collect
+            (typecase node
+              ((or term term-tail)
+               (let ((translation (translate (slot-value node 'and-or))))
+                 (if (separator-par-p (slot-value node 'separator))
+                     `(& ,translation)
+                     translation)))
+              (t
+               (translate node)))))))
 
-(defmethod evaluate ((sy term))
-  (evaluate-term sy))
-(defmethod evaluate ((sy term-tail))
-  (evaluate-term sy))
+(defmethod translate ((sy term))
+  (return-from translate (translate-term sy)))
 
 (define-condition loop-jump ()
   ((count
