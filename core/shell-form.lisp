@@ -16,7 +16,7 @@
   (:use :common-lisp :shcl/core/utility)
   (:import-from :shcl/core/shell-environment
    #:destroy-preserved-shell-environment #:preserve-shell-environment
-   #:with-restored-shell-environment)
+   #:with-restored-shell-environment #:with-subshell)
   (:import-from :shcl/core/exit-info
    #:exit-info-true-p #:exit-info-false-p #:invert-exit-info #:truthy-exit-info
    #:falsey-exit-info)
@@ -25,7 +25,7 @@
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
-  (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp))
+  (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -231,3 +231,7 @@ This is the shell form equivalent of `progn'."
 (define-shell-form-translator & (&body body)
   (declare (ignore body))
   (error 'not-implemented :feature "Background jobs"))
+
+(define-shell-form-translator subshell (&body body)
+  `(with-subshell
+     (shell ,@body)))
