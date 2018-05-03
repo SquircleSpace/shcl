@@ -313,6 +313,8 @@ This function does not create an entry in the job table."
 (defmethod evaluate ((sy command))
   (with-slots (compound-command redirect-list) sy
     (with-fd-scope ()
+      ;; TODO: fd-scope is too much.  We only want to scope the file
+      ;; descriptors named in the redirect list.
       (handle-redirect redirect-list)
       (return-from evaluate (evaluate-synchronous-job compound-command)))))
 
