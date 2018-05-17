@@ -38,8 +38,7 @@
   (ok (lexes-to-token-types "${FOO}" 'variable-expansion-word))
   (ok (lexes-to-token-types "${#FOO}" 'variable-expansion-length-word))
   (ok (lexes-to-token-types "$1" 'variable-expansion-word))
-  (ok (lexes-to-token-types "some words # and the rest" 'simple-word 'simple-word))
-  (ok (lexes-to-token-types "`sub command`" 'command-word)))
+  (ok (lexes-to-token-types "some words # and the rest" 'simple-word 'simple-word)))
 
 (deftest word-boundaries
   (ok (lexes-to-token-types (format nil "spaces    seperate  ~C   words  " #\tab) 'simple-word 'simple-word 'simple-word))
