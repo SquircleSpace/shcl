@@ -267,14 +267,14 @@ call this function."
              (part #()))
          (loop :do
             (progn
-              (setf part (shcl/core/posix:posix-read retained-fd +read-rate+ :binary t))
+              (setf part (shcl/core/posix:posix-read (fd-wrapper-value retained-fd) +read-rate+ :binary t))
               (debug-log status "READ ~A BYTES" (length part))
               (loop :for byte :across part :do
                  (vector-push-extend byte content)))
             :while (not (zerop (length part))))
          (setf (place-value output-place) (babel:octets-to-string content :encoding encoding))
          (values))
-    (fd-release retained-fd)))
+    (fd-wrapper-release retained-fd)))
 
 (defun %capture (streams encoding shell-command-fn)
   "This function implements the `capture' macro."
@@ -287,13 +287,13 @@ call this function."
           (string-result-place (make-place))
           thread
           exit-info)
-      (multiple-value-bind (read-end write-end) (pipe-retained)
+      (destructuring-bind (read-end write-end) (retained-fds-pipe)
         (unwind-protect
              (progn
                (with-fd-scope ()
                  (dolist (fd fds)
-                   (bind-fd fd write-end))
-                 (fd-retain read-end)
+                   (set-fd-binding fd write-end))
+                 (fd-wrapper-retain read-end)
                  (setf thread
                        (bordeaux-threads:make-thread
                         (lambda () (consume read-end string-result-place encoding))))
@@ -302,15 +302,15 @@ call this function."
                  ;; good name.
                  (setf exit-info (multiple-value-list (funcall shell-command-fn))))
 
-               (fd-release write-end)
+               (fd-wrapper-release write-end)
                (setf write-end nil)
                (when thread
                  (bordeaux-threads:join-thread thread))
                (values-list (cons (place-value string-result-place) exit-info)))
           (when read-end
-            (fd-release read-end))
+            (fd-wrapper-release read-end))
           (when write-end
-            (fd-release write-end)))))))
+            (fd-wrapper-release write-end)))))))
 
 (defmacro capture ((&key (streams ''(:stdout))
                          (encoding 'cffi:*default-foreign-encoding*))

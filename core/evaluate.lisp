@@ -19,7 +19,7 @@
    :shcl/core/expand :shcl/core/environment
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
-  (:import-from :shcl/core/shell-form #:shell #:& #:lisp)
+  (:import-from :shcl/core/shell-form #:shell #:& #:lisp #:!)
   (:import-from :shcl/core/baking #:bake-form)
   (:import-from :shcl/core/command
    #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
@@ -75,30 +75,31 @@ for the given redirect."))
   (declare (ignore r))
   (logior o-rdwr o-creat))
 
-(defgeneric fd-from-description (description)
+(defgeneric retained-fd-from-description (description)
   (:documentation
    "Given a description of a place, produce a file descriptor for that place.
 
 This function implements part of `bind-fd-description' and should not be called
 directly."))
-(defmethod fd-from-description ((fd integer))
-  fd)
-(defmethod fd-from-description ((io-file io-file))
+(defmethod retained-fd-from-description ((fd integer))
+  (make-instance 'unmanaged-fd :value fd :ensure-opened t))
+(defmethod retained-fd-from-description ((io-file io-file))
   (with-slots (redirect filename) io-file
     (let ((expansion (expansion-for-words (fset:seq filename) :split-fields nil :expand-pathname t)))
       (unless (equal 1 (fset:size expansion))
         (error 'not-implemented :feature "file name expanded to multiple words"))
       (setf expansion (fset:first expansion))
-      (fd-autorelease
-       (openat-retained (current-working-directory-fd)
-                        (coerce expansion 'simple-string)
-                        (open-args-for-redirect redirect)
-                        *umask*)))))
+      (retained-fd-openat (get-fd-current-working-directory)
+                          (coerce expansion 'simple-string)
+                          (open-args-for-redirect redirect)
+                          *umask*))))
+(defmethod retained-fd-from-description ((fd fd-wrapper))
+  (fd-wrapper-retain fd))
 
 (defun bind-fd-description (fd description)
   "Bind `fd' to the fd implied by `description'."
-  (let ((from-fd (fd-from-description description)))
-    (bind-fd fd from-fd)))
+  (receive-ref-counted-fd (from-fd (retained-fd-from-description description))
+    (set-fd-binding fd from-fd)))
 
 (defun separator-par-p (separator)
   "Return non-nil iff the given separator non-terminal describes a
@@ -137,20 +138,22 @@ directly."))
       ((to-int (filename)
          (let* ((fd-string (simple-word-text filename)))
            (parse-integer fd-string)))
-       (fd (default) (or fd-override default)))
+       (fd (default) (or fd-override default))
+       (lookup-fd (fd)
+         (get-fd-binding fd :if-unbound :unmanaged)))
     (with-slots (redirect filename fd-description) r
       (etypecase redirect
         (less
          (bind-fd-description (fd 0) r))
 
         (lessand
-         (bind-fd-description (fd 0) (get-fd (to-int fd-description))))
+         (bind-fd-description (fd 0) (lookup-fd (to-int fd-description))))
 
         (great
          (bind-fd-description (fd 1) r))
 
         (greatand
-         (bind-fd-description (fd 1) (get-fd (to-int fd-description))))
+         (bind-fd-description (fd 1) (lookup-fd (to-int fd-description))))
 
         (dgreat
          (bind-fd-description (fd 1) r))

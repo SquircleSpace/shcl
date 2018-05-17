@@ -21,8 +21,8 @@
   (:import-from :shcl/core/posix #:file-ptr)
   (:import-from
    :shcl/core/fd-table
-   #:make-fd-stream #:fd-stream #:get-fd #:dup-fd-into-file-ptr
-   #:close-file-ptr)
+   #:make-fd-stream #:fd-stream #:get-fd-binding #:dup-fd-into-file-ptr
+   #:close-file-ptr #:fd-wrapper-value)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
   (:export
@@ -508,9 +508,9 @@ Returns a `lineinfo' instance."
 input from the user.
 
 This interacts with the user on symbolic fds 0, 1, and 2."
-  (let ((stdin-fd (get-fd 0))
-        (stdout-fd (get-fd 1))
-        (stderr-fd (get-fd 2)))
+  (let ((stdin-fd (fd-wrapper-value (get-fd-binding 0 :if-unbound :unmanaged)))
+        (stdout-fd (fd-wrapper-value (get-fd-binding 1 :if-unbound :unmanaged)))
+        (stderr-fd (fd-wrapper-value (get-fd-binding 2 :if-unbound :unmanaged))))
     (with-editline (e "shcl" stdin-fd stdout-fd stderr-fd)
       (setf (editline-prompt e) prompt)
       (when history
@@ -519,9 +519,12 @@ This interacts with the user on symbolic fds 0, 1, and 2."
 
 (define-builtin -shcl-eval-editline (&rest args)
   "Pass the given arguments to el_parse."
-  (with-editline (e "shcl" (get-fd 0) (get-fd 1) (get-fd 2))
-    (with-slots (ptr) e
-      (el-parse ptr args)))
+  (let ((stdin-fd (fd-wrapper-value (get-fd-binding 0 :if-unbound :unmanaged)))
+        (stdout-fd (fd-wrapper-value (get-fd-binding 1 :if-unbound :unmanaged)))
+        (stderr-fd (fd-wrapper-value (get-fd-binding 2 :if-unbound :unmanaged))))
+    (with-editline (e "shcl" stdin-fd stdout-fd stderr-fd)
+      (with-slots (ptr) e
+        (el-parse ptr args))))
   0)
 
 (defclass editline-stream (fundamental-character-input-stream)

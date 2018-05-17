@@ -18,7 +18,8 @@
   (:import-from :alexandria)
   (:import-from :closer-mop)
   (:import-from :shcl/core/fd-table
-                #:with-fd-streams #:with-living-fds #:simplify-fd-bindings)
+                #:with-fd-streams #:with-private-fds #:linearize-fd-bindings
+                #:fd-wrapper-value)
   (:import-from :shcl/core/exit-info #:exit-info #:make-exit-info)
   (:import-from :shcl/core/data #:define-data)
   (:import-from :shcl/core/shell-environment #:preserve-special-variable #:with-subshell)
@@ -28,7 +29,7 @@
   (:import-from :shcl/core/posix-types #:wuntraced)
   (:import-from :shcl/core/posix #:waitpid)
   (:import-from :shcl/core/environment #:*environment* #:linearized-exported-environment)
-  (:import-from :shcl/core/working-directory #:current-working-directory-fd)
+  (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/core/fork-exec #:run)
   (:import-from :shcl/core/shell-environment #:with-subshell
                 #:extend-shell-environment)
@@ -204,13 +205,13 @@ invoke a binary instead of a builtin."
         (command-namespace-fallback *command-namespace*))))
 
 (defun run-binary (args)
-  (let ((bindings (fset:convert 'list (simplify-fd-bindings))))
-    (with-living-fds (fds)
+  (let ((bindings (linearize-fd-bindings)))
+    (with-private-fds (fds)
       (run args
            :fd-alist bindings
            :managed-fds fds
            :environment (linearized-exported-environment *environment*)
-           :working-directory-fd (current-working-directory-fd)))))
+           :working-directory-fd (fd-wrapper-value (get-fd-current-working-directory))))))
 
 (defmethod invoke-command ((command binary) environment-modifier &rest args)
   (let ((pid (with-subshell

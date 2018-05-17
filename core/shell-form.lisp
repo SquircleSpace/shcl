@@ -21,12 +21,12 @@
    #:exit-info-true-p #:exit-info-false-p #:invert-exit-info #:truthy-exit-info
    #:falsey-exit-info)
   (:import-from :shcl/core/fd-table
-   #:pipe-retained #:fd-release #:with-fd-scope #:bind-fd)
+   #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding)
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
   (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell
-           #:when #:unless #:if))
+           #:when #:unless #:if #:!))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -158,24 +158,24 @@ This is the shell form equivalent of `progn'."
              ((run (read-end write-end index)
                 (with-fd-scope ()
                   (when read-end
-                    (bind-fd +pipe-read-fd+ read-end))
+                    (set-fd-binding +pipe-read-fd+ read-end))
                   (when write-end
-                    (bind-fd +pipe-write-fd+ write-end))
+                    (set-fd-binding +pipe-write-fd+ write-end))
                   (setf (aref results index) (call-with-parallel-shell (aref pipeline-fns index)))
                   (check-type (aref results index) async-result))))
            (loop :for index :from (1- (length pipeline-fns)) :downto 1 :do
-              (multiple-value-bind (read-end write-end) (pipe-retained)
+              (destructuring-bind (read-end write-end) (retained-fds-pipe)
                 (unwind-protect
                      (run read-end write-fd index)
                   (when write-fd
-                    (fd-release write-fd))
+                    (fd-wrapper-release write-fd))
                   (setf write-fd write-end)
-                  (fd-release read-end))))
+                  (fd-wrapper-release read-end))))
 
            (assert write-fd)
            (run nil write-fd 0))
       (when write-fd
-        (fd-release write-fd)
+        (fd-wrapper-release write-fd)
         (setf write-fd nil)))
 
     ;; Wait for each job in the pipeline except the last one
@@ -206,7 +206,7 @@ This is the shell form equivalent of `progn'."
        ,@(loop :for tail :on body :collect
             (if (cdr tail)
                 `(let ((,result (shell ,(car tail))))
-                   (unless (truthy-exit-info ,result)
+                   (unless (exit-info-true-p ,result)
                      (return-from ,and ,result)))
                 `(shell ,(car tail)))))))
 
@@ -225,7 +225,7 @@ This is the shell form equivalent of `progn'."
        ,@(loop :for tail :on body :collect
             (if (cdr tail)
                 `(let ((,result (shell ,(car tail))))
-                   (when (truthy-exit-info ,result)
+                   (when (exit-info-true-p ,result)
                      (return-from ,or ,result)))
                 `(shell ,(car tail)))))))
 
