@@ -25,7 +25,7 @@
    #:fd-status #:fd-wrapper-retain #:fd-wrapper-release #:fd-wrapper-value
    #:with-fd-scope #:with-private-fds #:retained-fd-dup #:retained-fd-open
    #:retained-fd-openat #:retained-fds-pipe #:with-pipe #:set-fd-binding
-   #:unset-fd-binding #:get-fd-binding #:receive-ref-counted-fd
+   #:unset-fd-binding #:get-fd-binding #:fd-bind* #:receive-ref-counted-fd
    #:linearize-fd-bindings #:with-fd-streams #:fd-stream
    #:make-fd-stream #:dup-fd-into-file-ptr #:close-file-ptr
    #:dup-fd-into-dir-ptr #:close-dir-ptr #:with-dir-ptr-for-fd))
@@ -263,6 +263,8 @@ bindings with `set-fd-binding', remove bindings with
     (values)))
 
 (defun set-fd-binding (virtual-fd physical-fd-wrapper)
+  (unless physical-fd-wrapper
+    (return-from set-fd-binding (unset-fd-binding virtual-fd)))
   (with-ref-counted-fd-retained physical-fd-wrapper
     (unset-fd-binding virtual-fd)
     (setf (fset:lookup *fd-bindings* virtual-fd)
@@ -280,6 +282,23 @@ bindings with `set-fd-binding', remove bindings with
         (:unmanaged
          (setf result (make-instance 'unmanaged-fd :value virtual-fd)))))
     result))
+
+(defmacro fd-bind* (bindings &body body)
+  (unless bindings
+    (return-from fd-bind* `(progn ,@body)))
+  (let ((old-fd (gensym "OLD-FD"))
+        (new-fd (gensym "NEW-FD"))
+        (virtual-fd (gensym "VIRTUAL-FD")))
+    (destructuring-bind (virtual-fd-form physical-producer) (car bindings)
+      `(let ((,virtual-fd ,virtual-fd-form))
+         (receive-ref-counted-fd (,new-fd ,physical-producer)
+           (receive-ref-counted-fd (,old-fd (get-fd-binding ,virtual-fd :if-unbound nil))
+             (unwind-protect
+                  (progn
+                    (set-fd-binding ,virtual-fd ,new-fd)
+                    (fd-bind* ,(cdr bindings)
+                      ,@body))
+               (set-fd-binding ,virtual-fd ,old-fd))))))))
 
 (defun retain-fd-bindings (fd-bindings)
   "Retain all the file descriptors involved in the given set of

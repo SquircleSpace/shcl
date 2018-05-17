@@ -21,7 +21,8 @@
    #:exit-info-true-p #:exit-info-false-p #:invert-exit-info #:truthy-exit-info
    #:falsey-exit-info)
   (:import-from :shcl/core/fd-table
-   #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding)
+   #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding
+   #:fd-bind*)
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
@@ -255,3 +256,8 @@ This is the shell form equivalent of `progn'."
   `(shell
      (if (! ,condition)
          (shell ,@body))))
+
+(define-shell-form-translator fd-bind* (bindings &body body)
+  `(fd-bind*
+       ,bindings
+     (shell ,@body)))
