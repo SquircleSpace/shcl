@@ -83,9 +83,13 @@
   (block fds
     (cl-fad:with-open-temporary-file (s)
       (let ((path (pathname s)))
-        (let* ((pid (forked
-                      (setf uiop:*image-entry-point* #'verify-fds)
-                      (uiop:dump-image path :executable t)))
+        (let* ((pid (handler-case
+                        (forked
+                          (setf uiop:*image-entry-point* #'verify-fds)
+                          (uiop:dump-image path :executable t))
+                      (error (e)
+                        (skip 1 "~A" e)
+                        (return-from fds))))
                (exit-status (nth-value 1 (waitpid pid 0))))
           (if (zerop exit-status)
               (pass "Was able to create test executable")
