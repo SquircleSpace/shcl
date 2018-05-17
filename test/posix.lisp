@@ -1,7 +1,7 @@
 (defpackage :shcl-test/posix
   (:use :common-lisp :prove :cffi :shcl/core/utility :shcl/core/posix)
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
-  (:import-from :shcl/core/fd-table #:with-living-fds))
+  (:import-from :shcl/core/fd-table #:with-private-fds))
 (in-package :shcl-test/posix)
 
 (optimization-settings)
@@ -63,7 +63,7 @@
     (remove dir-fd result)))
 
 (defun verify-fds ()
-  (with-living-fds (shcl-exceptions)
+  (with-private-fds (shcl-exceptions)
     (let* ((compiler-exceptions (shcl/core/fd-table::compiler-owned-fds))
            (exceptions (fset:convert 'fset:set (nconc (list 0 1 2) compiler-exceptions shcl-exceptions)))
            (open-fds (fset:convert 'fset:set (open-fds)))

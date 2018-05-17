@@ -21,7 +21,7 @@
   (:import-from :cffi #:foreign-string-to-lisp #:foreign-slot-pointer #:null-pointer-p)
   (:import-from :shcl/core/posix #:syscall-error)
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
-  (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:openat-retained #:fd-release)
+  (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:retained-fd-openat #:fd-wrapper-release)
   (:import-from :shcl/core/exit-info #:exit-info)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
@@ -573,17 +573,17 @@ directory."
            (unwind-protect
                 (handler-case
                     (progn
-                      (setf fd (openat-retained (current-working-directory-fd) next 0))
+                      (setf fd (retained-fd-openat (get-fd-current-working-directory) next 0))
                       (fset:seq (fset:convert 'fset:seq next)))
                   (syscall-error (e)
                     (declare (ignore e))
                     nil))
              (when fd
-               (fd-release fd)))))
+               (fd-wrapper-release fd)))))
 
         ((not (stringp next))
          (let ((matches (fset:empty-seq)))
-           (with-dir-ptr-for-fd (dir-ptr (current-working-directory-fd))
+           (with-dir-ptr-for-fd (dir-ptr (get-fd-current-working-directory))
              (do-iterator (file (directory-contents-iterator dir-ptr))
                (when (scan next file)
                  (if as-directory-p
