@@ -68,6 +68,9 @@ for the given redirect."))
 (defmethod open-args-for-redirect ((r great))
   (declare (ignore r))
   (logior o-wronly o-creat o-trunc))
+(defmethod open-args-for-redirect ((r clobber))
+  (declare (ignore r))
+  (logior o-wronly o-creat o-trunc))
 (defmethod open-args-for-redirect ((r dgreat))
   (declare (ignore r))
   (logior o-wronly o-creat o-append))
@@ -313,13 +316,63 @@ This function does not create an entry in the job table."
 (defmethod translate ((sy pipe-sequence))
   (return-from translate (translate-pipe-sequence sy)))
 
-(defmethod evaluate ((sy command))
+(defgeneric translate-io-source-to-fd-binding (redirect))
+
+(defmethod translate-io-source-to-fd-binding ((io-file io-file))
+  (with-slots (redirect filename fd-description) io-file
+    (labels
+        ((filename-expansion-form ()
+           (let ((expansion (gensym "EXPANSION")))
+             `(let ((,expansion (expansion-for-words (fset:seq ,filename) :split-fields nil :expand-pathname t)))
+                (unless (equal 1 (fset:size ,expansion))
+                  (error 'not-implemented :feature "file name expanding to multiple words"))
+                (fset:first ,expansion))))
+         (file-source-form ()
+           `(retained-fd-openat (get-fd-current-working-directory)
+                                ,(filename-expansion-form)
+                                ,(open-args-for-redirect redirect)
+                                *umask*))
+         (fd-source-form ()
+           `(get-fd-binding ,(parse-integer (simple-word-text fd-description)
+                                            :junk-allowed nil)
+                            :if-unbound :unmanaged)))
+      (etypecase redirect
+        (less
+         `(0 ,(file-source-form)))
+        (lessand
+         `(0 ,(fd-source-form)))
+        (great
+         `(1 ,(file-source-form)))
+        (greatand
+         `(1 ,(fd-source-form)))
+        (dgreat
+         `(1 ,(file-source-form)))
+        (lessgreat
+         `(0 ,(file-source-form)))
+        (clobber
+         `(1 ,(file-source-form)))))))
+
+(defmethod translate-io-source-to-fd-binding ((io-here io-here))
+  (error 'not-implemented :feature "Here documents"))
+
+(defmethod translate-io-source-to-fd-binding ((io-redirect io-redirect))
+  (with-slots (io-number io-source) io-redirect
+    (let ((binding (translate-io-source-to-fd-binding io-source)))
+      (when (slot-boundp io-redirect 'io-number)
+        (setf binding (cons (io-number-fd io-number) (cdr binding))))
+      binding)))
+
+(defun translate-redirect-list-to-fd-bindings (sy)
+  (loop :for redirect-list = sy
+     :then (slot-value redirect-list 'redirect-list-tail)
+     :while redirect-list :collect
+     (translate-io-source-to-fd-binding (slot-value redirect-list 'io-redirect))))
+
+(defmethod translate ((sy command))
   (with-slots (compound-command redirect-list) sy
-    (with-fd-scope ()
-      ;; TODO: fd-scope is too much.  We only want to scope the file
-      ;; descriptors named in the redirect list.
-      (handle-redirect redirect-list)
-      (return-from evaluate (evaluate-synchronous-job compound-command)))))
+    `(fd-bind*
+         ,(translate-redirect-list-to-fd-bindings redirect-list)
+       ,(translate compound-command))))
 
 (defmethod translate ((sy subshell))
   (with-slots (compound-list) sy
