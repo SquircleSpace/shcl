@@ -118,9 +118,9 @@
    ())
 
   (for-clause
-   (for name-nt linebreak do-group)
-   (for name-nt linebreak in-nt sequential-sep do-group)
-   (for name-nt linebreak in-nt wordlist sequential-sep do-group))
+   (for name-nt linebreak (body do-group))
+   (for name-nt linebreak in-nt sequential-sep (body do-group))
+   (for name-nt linebreak in-nt wordlist sequential-sep (body do-group)))
 
   (name-nt
    (name)) ;; Apply rule 5 (need not be reflected in the grammar)
@@ -180,10 +180,10 @@
    (else (body compound-list)))
 
   (while-clause
-   (while compound-list do-group))
+   (while (condition compound-list) (body do-group)))
 
   (until-clause
-   (until compound-list do-group))
+   (until (condition compound-list) (body do-group)))
 
   (function-definition
    (fname lparen rparen linebreak function-body))
