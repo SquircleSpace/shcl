@@ -508,22 +508,29 @@ This function does not create an entry in the job table."
         (setf (env name) current-word)
         (evaluate-synchronous-job do-group)))))
 
-(defun evaluate-if-clause (sy)
-  (check-type sy (or if-clause else-part))
+(defmethod translate ((sy else-part))
   (with-slots (condition body else-part) sy
-    (unless (slot-boundp sy 'condition)
-      (return-from evaluate-if-clause (evaluate body)))
+    (cond
+      ((slot-boundp sy 'else-part)
+       `(if ,(translate condition)
+            ,(translate body)
+            ,(translate else-part)))
+      ((slot-boundp sy 'condition)
+       `(if ,(translate condition)
+            ,(translate body)))
+      (t
+       (translate body)))))
 
-    (let ((condition-result (evaluate-synchronous-job condition)))
-      (when (exit-info-true-p condition-result)
-        (return-from evaluate-if-clause (evaluate-synchronous-job body)))
-
-      (if (slot-boundp sy 'else-part)
-          (return-from evaluate-if-clause (evaluate-if-clause else-part))
-          (return-from evaluate-if-clause (truthy-exit-info))))))
-
-(defmethod evaluate ((sy if-clause))
-  (evaluate-if-clause sy))
+(defmethod translate ((sy if-clause))
+  (with-slots (condition body else-part) sy
+    (cond
+      ((slot-boundp sy 'else-part)
+       `(if ,(translate condition)
+            ,(translate body)
+            ,(translate else-part)))
+      (t
+       `(if ,(translate condition)
+            ,(translate body))))))
 
 (defmethod evaluate ((sy while-clause))
   (with-slots (compound-list do-group) sy
