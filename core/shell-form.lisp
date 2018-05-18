@@ -14,6 +14,7 @@
 
 (defpackage :shcl/core/shell-form
   (:use :common-lisp :shcl/core/utility)
+  (:import-from :shcl/core/iterator #:do-iterator #:iterator)
   (:import-from :shcl/core/shell-environment
    #:destroy-preserved-shell-environment #:preserve-shell-environment
    #:with-restored-shell-environment #:with-subshell)
@@ -27,7 +28,7 @@
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
   (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell
-           #:when #:unless #:if #:!))
+           #:when #:unless #:if #:while #:for #:loop-break #:loop-continue))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -261,3 +262,60 @@ This is the shell form equivalent of `progn'."
   `(fd-bind*
        ,bindings
      (shell ,@body)))
+
+(define-condition loop-jump ()
+  ((count
+    :initarg :count
+    :initform 1
+    :accessor loop-jump-count)
+   (exit-info
+    :initarg :exit-info
+    :initform (truthy-exit-info)
+    :reader loop-jump-exit-info)))
+
+(define-condition loop-break (loop-jump)
+  ())
+
+(define-condition loop-continue (loop-jump)
+  ())
+
+(defmacro jump-level (name &body body)
+  (let ((block-label (gensym (symbol-name name)))
+        (err (gensym "ERR")))
+    `(block ,block-label
+       (handler-bind
+           ((,name
+             (lambda (,err)
+               (when (plusp (loop-jump-count ,err))
+                 (decf (loop-jump-count ,err))
+                 (when (plusp (loop-jump-count ,err))
+                   (signal ,err))
+                 (return-from ,block-label
+                   (loop-jump-exit-info ,err))))))
+         ,@body))))
+
+(defmacro break-level (&body body)
+  `(jump-level loop-break
+     ,@body))
+
+(defmacro continue-level (&body body)
+  `(jump-level loop-continue
+     ,@body))
+
+(define-shell-form-translator while (condition &body body)
+  (let ((result (gensym "RESULT")))
+    `(break-level
+       (let ((,result (truthy-exit-info)))
+         (loop :while (exit-info-true-p (shell ,condition)) :do
+            (setf ,result (continue-level (shell ,@body))))
+         ,result))))
+
+(define-shell-form-translator for ((variable word-seq) &body body)
+  (let ((result (gensym "RESULT"))
+        (value (gensym "VALUE")))
+    `(break-level
+       (let ((,result (truthy-exit-info)))
+         (do-iterator (,value (iterator ,word-seq))
+           (setf (env ,variable) ,value)
+           (setf ,result (continue-level (shell ,@body))))
+         ,result))))

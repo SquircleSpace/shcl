@@ -25,26 +25,12 @@
    #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
-  (:export #:evaluation-form #:evaluation-form-iterator #:translate #:evaluate))
+  (:export #:evaluation-form #:evaluation-form-iterator #:translate))
 (in-package :shcl/core/evaluate)
 
 (optimization-settings)
 
 (defgeneric translate (thing))
-
-(defgeneric evaluate (syntax-tree)
-  (:documentation
-   "This is the main driver for evaluating shell expressions.
-
-It is analogous to `eval' for Common Lisp.
-
-The methods on this function are tightly coupled to the shell grammar."))
-
-(defmethod translate (sy)
-  `(lisp (evaluate ,sy)))
-
-(defmethod evaluate (sy)
-  (error 'not-implemented :feature (format nil "Eval of ~A" (class-name (class-of sy)))))
 
 (defun evaluation-form (thing)
   (let ((bake-form (bake-form thing))
@@ -189,44 +175,8 @@ directly."))
     (when redirect-list-tail
       (handle-redirect redirect-list-tail))))
 
-(defun evaluate-background-job (sy)
-  (declare (ignore sy))
-  (error 'not-implemented :feature "Background jobs"))
-
 (defun translate-background-job (sy)
   `(& ,(translate sy)))
-
-(defun evaluate-synchronous-job (sy)
-  "Evaluate the given syntax tree synchronously.
-
-This is a synonym for `evaluate'."
-  (evaluate sy))
-
-(defun evaluate-async-job (sy completion-handler)
-  "Evaluate the given syntax tree asynchronously.
-
-This function does not create an entry in the job table."
-  (let ((shell-environment (preserve-shell-environment :label 'evaluate-async-job)))
-    (labels
-        ((async-eval ()
-           (unwind-protect
-                (handler-bind
-                    ((error (lambda (e)
-                              (return-from async-eval (funcall completion-handler nil e)))))
-                  (with-restored-shell-environment shell-environment
-                    (destroy-preserved-shell-environment shell-environment)
-                    (let* ((result (evaluate sy)))
-                      ;; TODO: What if we encounter an error?  We
-                      ;; still need to signal completion (one way or
-                      ;; the other!)
-                      (funcall completion-handler result nil))))
-             ;; Just in case we never even made it into the body of
-             ;; with-resotred-shell-environment, let's destroy the
-             ;; environment again.
-             (destroy-preserved-shell-environment shell-environment)
-             (debug-log status "Worker thread exit ~A" sy))))
-      ;; TODO: What if thread creation errors out?
-      (make-thread #'async-eval))))
 
 (defmethod translate ((sy complete-command))
   (with-slots (newline-list complete-command command-list) sy
@@ -405,27 +355,6 @@ This function does not create an entry in the job table."
 (defmethod translate ((sy term))
   (return-from translate (translate-term sy)))
 
-(define-condition loop-jump ()
-  ((count
-    :initarg :count
-    :initform 1
-    :accessor loop-jump-count)
-   (exit-info
-    :initarg :exit-info
-    :initform (truthy-exit-info)
-    :reader loop-jump-exit-info)))
-
-(defun stop-loop-jump (condition)
-  (setf (loop-jump-count condition) 0))
-
-(defmacro loop-jump-boundary (&body body)
-  `(handler-bind
-       ((loop-jump 'stop-loop-jump))
-     ,@body))
-
-(define-condition loop-break (loop-jump)
-  ())
-
 (define-special-builtin (builtin-break "break") (&optional (count "1"))
   (wrap-errors
     (let ((count (parse-integer count :junk-allowed nil)))
@@ -433,9 +362,6 @@ This function does not create an entry in the job table."
         (error "Count must be positive"))
       (signal 'loop-break :count count))
     (error "No loops detected")))
-
-(define-condition loop-continue (loop-jump)
-  ())
 
 (define-special-builtin (builtin-continue "continue") (&optional (count "1"))
   (wrap-errors
@@ -445,36 +371,15 @@ This function does not create an entry in the job table."
       (signal 'loop-continue :count count))
     (error "No loops detected")))
 
-(defun %shell-while-loop (condition-fn body-fn)
-  (let (result)
-    (macrolet
-        ((%loop-jump-propagate (&body body)
-           (let ((err (gensym "ERR")))
-             `(lambda (,err)
-                (when (plusp (loop-jump-count ,err))
-                  (decf (loop-jump-count ,err))
-                  (setf result (loop-jump-exit-info ,err))
-                  (when (plusp (loop-jump-count ,err))
-                    (signal ,err))
-                  ,@body)))))
-      (loop :while (funcall condition-fn)
-         :do
-         (block continue
-           (restart-case
-               (handler-bind
-                   ((loop-break
-                       (%loop-jump-propagate (return)))
-                    (loop-continue
-                       (%loop-jump-propagate (return-from continue))))
-                 (setf result (funcall body-fn)))
-             (break-loop ()
-               (return))
-             (continue-loop ()
-               (return-from continue))))))
-    (or result (truthy-exit-info))))
+(defmethod translate ((sy while-clause))
+  (with-slots (condition body) sy
+    `(shcl/core/shell-form:while ,(translate condition)
+       ,(translate body))))
 
-(defmacro shell-while-loop (condition &body body)
-  `(%shell-while-loop (lambda () ,condition) (lambda () ,@body)))
+(defmethod translate ((sy until-clause))
+  (with-slots (condition body) sy
+    `(while (! ,(translate condition))
+       ,(translate body))))
 
 (defun wordlist-words (wordlist)
   (let ((result (make-extensible-vector)))
@@ -487,26 +392,19 @@ This function does not create an entry in the job table."
       (handle wordlist)
       result)))
 
-(defmethod evaluate ((sy for-clause))
-  (with-slots (name-nt in-nt wordlist sequential-sep do-group) sy
-    (let* ((wordlist
-            (cond
-              ((not (slot-boundp sy 'sequential-sep))
-               `#(,(make-instance 'double-quote :parts `#(,(make-instance 'variable-expansion-word :variable "@")))))
-              ((slot-boundp sy 'wordlist)
-               (wordlist-words wordlist))
-              (t
-               #())))
-           (words (expansion-for-words wordlist :expand-pathname t))
-           (name (simple-word-text (slot-value name-nt 'name)))
-           (iter (iterator words))
-           current-word)
-      (shell-while-loop
-          (multiple-value-bind (value valid) (next iter)
-            (setf current-word value)
-            valid)
-        (setf (env name) current-word)
-        (evaluate-synchronous-job do-group)))))
+(defmethod translate ((sy for-clause))
+  (with-slots (name-nt wordlist body) sy
+    (let ((name (simple-word-text (slot-value name-nt 'name)))
+          (words
+           (cond
+             ((not (slot-boundp sy 'in-nt))
+              `#(,(make-instance 'double-quote :parts `#(,(make-instance 'variable-expansion-word :variable "@")))))
+             ((slot-boundp sy 'wordlist)
+              (wordlist-words wordlist))
+             (t
+              #()))))
+      `(shcl/core/shell-form:for (,name (expansion-for-words ,words :expand-pathname t))
+         ,(translate body)))))
 
 (defmethod translate ((sy else-part))
   (with-slots (condition body else-part) sy
@@ -532,12 +430,6 @@ This function does not create an entry in the job table."
        `(if ,(translate condition)
             ,(translate body))))))
 
-(defmethod evaluate ((sy while-clause))
-  (with-slots (compound-list do-group) sy
-    (shell-while-loop
-        (exit-info-true-p (evaluate-synchronous-job compound-list))
-      (evaluate-synchronous-job do-group))))
-
 (defmethod translate ((sy brace-group))
   (with-slots (compound-list) sy
     (translate compound-list)))
@@ -545,10 +437,6 @@ This function does not create an entry in the job table."
 (defmethod translate ((sy do-group))
   (with-slots (compound-list) sy
     (translate compound-list)))
-
-(defmethod evaluate ((sy do-group))
-  (with-slots (compound-list) sy
-    (return-from evaluate (evaluate-synchronous-job compound-list))))
 
 (defun cmd-prefix-parts (prefix)
   "Given a cmd-prefix, separate it into the 2 things it
@@ -644,7 +532,7 @@ and io redirects."
     :initarg :redirects
     :type list)))
 
-(defmethod evaluate ((sy simple-command))
+(defun evaluate-simple-command (sy)
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (assignments raw-arguments redirects) (simple-command-parts sy)
       (debug-log status "EXEC: ~A ~A ~A" assignments raw-arguments redirects)
@@ -662,22 +550,5 @@ and io redirects."
                (command (lookup-command (car arguments))))
           (apply 'invoke-command command #'modify-environment arguments))))))
 
-(define-condition not-an-exit-info (warning)
-  ((actual-type
-    :initarg :actual-type
-    :accessor not-an-exit-info-actual-type
-    :initform (required)
-    :type symbol)
-   (eval-target
-    :initarg :eval-target
-    :accessor not-an-exit-info-eval-target
-    :initform (required)))
-  (:report (lambda (c s) (format s "~A is not an exit info.  Given ~A~%"
-                                 (not-an-exit-info-actual-type c) (not-an-exit-info-eval-target c)))))
-
-(defmethod evaluate :around (sy)
-  (let ((result (call-next-method)))
-    (if (exit-info-p result)
-        (setf (env "?") (format nil "~A" (exit-info-code result)))
-        (warn 'not-an-exit-info :actual-type (class-name (class-of result)) :eval-target sy))
-    result))
+(defmethod translate ((sy simple-command))
+  `(lisp (evaluate-simple-command ,sy)))
