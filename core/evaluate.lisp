@@ -538,9 +538,9 @@ This function does not create an entry in the job table."
         (exit-info-true-p (evaluate-synchronous-job compound-list))
       (evaluate-synchronous-job do-group))))
 
-(defmethod evaluate ((sy brace-group))
+(defmethod translate ((sy brace-group))
   (with-slots (compound-list) sy
-    (return-from evaluate (evaluate-synchronous-job compound-list))))
+    (translate compound-list)))
 
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
