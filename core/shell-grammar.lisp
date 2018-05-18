@@ -29,8 +29,8 @@
    #:function-body #:fname #:brace-group #:do-group #:simple-command #:cmd-name
    #:cmd-word #:cmd-prefix #:cmd-prefix-tail #:cmd-suffix #:cmd-suffix-tail
    #:redirect-list #:redirect-list-tail #:io-redirect #:io-file #:filename
-   #:io-here #:here-end #:newline-list #:newline-list-tail #:linebreak
-   #:separator-op #:separator #:command-separator #:sequential-sep
+   #:io-source #:io-here #:here-end #:newline-list #:newline-list-tail
+   #:linebreak #:separator-op #:separator #:command-separator #:sequential-sep
    #:wordly-word #:redirect #:fd-description #:condition #:body))
 (in-package :shcl/core/shell-grammar)
 
@@ -241,9 +241,9 @@
 
   (io-redirect
    io-file
-   (io-number io-file)
+   (io-number (io-source io-file))
    io-here
-   (io-number io-here))
+   (io-number (io-source io-here)))
 
   (io-file
    ((redirect less) filename)
