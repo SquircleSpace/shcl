@@ -542,6 +542,10 @@ This function does not create an entry in the job table."
   (with-slots (compound-list) sy
     (translate compound-list)))
 
+(defmethod translate ((sy do-group))
+  (with-slots (compound-list) sy
+    (translate compound-list)))
+
 (defmethod evaluate ((sy do-group))
   (with-slots (compound-list) sy
     (return-from evaluate (evaluate-synchronous-job compound-list))))
