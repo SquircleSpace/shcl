@@ -76,33 +76,9 @@ iterator.  That is, the values of the resulting iterator are syntax
 trees.
 
 ** Translation
-During the translation phase, a shell syntax tree is translated into
-lisp forms.  Although it doesn't happen today, the goal is to
-translate the AST into the Shell Forms DSL.  This DSL effectively
-serves as an intermediate representation for the shell language as it
-is translated to run-of-the-mill Common Lisp.  The shell form language
-is can be translated into Common Lisp with the help of some lisp
-macros.
-
-Details for the old, deprecated translation phase are below.  Until
-all the old translation logic is converted into new-style logic, the
-old and the new will coexist.  The new-style translation logic will
-translate as much as it can and then the old style logic will take
-over.
-
-*** Old-Style Translation
-The most important part of old-style translation is the ~EVALUATE~
-generic function.  This function is responsible for, well, evaluating
-a shell syntax tree recursively.  It is responsible for honoring all
-the semantics of the shell language.
-
-During expansion (see below), some tokens need to access the lexical
-environment in which they appeared.  To accomodate that, a special
-facility called "baking" is provided.  Before a syntax tree will be
-evaluated, each token involved in the parse will get baked.  That is,
-~BAKE-FORM~ will be called on the token and the returned lisp form
-will get evaluated.  If possible, the form will be evaluated in the
-lexical environment where the token was originally lexed.
+There are two parts to the translation stage.  First, a parsed shell
+abstract syntax tree is translated into the Shell Form language.
+Then, the Shell Form is macroexpanded into plain-old Common Lisp.
 
 ** Evaluation
 Evaluation is the simplest phase of the pipeline.  At the end of the
