@@ -18,11 +18,9 @@
    :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer
    :shcl/core/expand :shcl/core/environment
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
-   :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
+   :shcl/core/working-directory :shcl/core/iterator)
   (:import-from :shcl/core/shell-form #:shell #:& #:lisp #:! #:run)
   (:import-from :shcl/core/baking #:bake-form)
-  (:import-from :shcl/core/command
-   #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluation-form #:evaluation-form-iterator #:translate))
@@ -251,22 +249,6 @@ for the given redirect."))
 
 (defmethod translate ((sy term))
   (return-from translate (translate-term sy)))
-
-(define-special-builtin (builtin-break "break") (&optional (count "1"))
-  (wrap-errors
-    (let ((count (parse-integer count :junk-allowed nil)))
-      (unless (plusp count)
-        (error "Count must be positive"))
-      (signal 'loop-break :count count))
-    (error "No loops detected")))
-
-(define-special-builtin (builtin-continue "continue") (&optional (count "1"))
-  (wrap-errors
-    (let ((count (parse-integer count :junk-allowed nil)))
-      (unless (plusp count)
-        (error "Count must be positive"))
-      (signal 'loop-continue :count count))
-    (error "No loops detected")))
 
 (defmethod translate ((sy while-clause))
   (with-slots (condition body) sy
