@@ -18,17 +18,20 @@
   (:import-from :shcl/core/shell-environment
    #:destroy-preserved-shell-environment #:preserve-shell-environment
    #:with-restored-shell-environment #:with-subshell)
+  (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/exit-info
    #:exit-info-true-p #:exit-info-false-p #:invert-exit-info #:truthy-exit-info
    #:falsey-exit-info)
   (:import-from :shcl/core/fd-table
    #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding
-   #:fd-bind*)
+   #:fd-bind* #:receive-ref-counted-fd)
+  (:import-from :shcl/core/command #:invoke-command #:lookup-command)
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
   (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell
-           #:when #:unless #:if #:while #:for #:loop-break #:loop-continue))
+           #:when #:unless #:if #:while #:for #:loop-break #:loop-continue
+           #:run))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -319,3 +322,25 @@ This is the shell form equivalent of `progn'."
            (setf (env ,variable) ,value)
            (setf ,result (continue-level (shell ,@body))))
          ,result))))
+
+(defun %run (arguments modify-environment)
+  (if arguments
+      (apply 'invoke-command (lookup-command (car arguments)) modify-environment arguments)
+      (with-fd-scope ()
+        (funcall modify-environment))))
+
+(define-shell-form-translator run (argument-list &key environment-changes fd-changes)
+  (let ((modify-environment (gensym "MODIFY-ENVIRONMENT"))
+        (fd (gensym "FD")))
+    `(labels
+         ((,modify-environment ()
+            ,@(loop :for redirect :in fd-changes :collect
+                 (destructuring-bind (virtual-fd physical-fd-form)
+                     redirect
+                   `(receive-ref-counted-fd (,fd ,physical-fd-form)
+                      (set-fd-binding ,virtual-fd ,fd))))
+            ,@(loop :for assign :in environment-changes :collect
+                 (destructuring-bind (env-var value) assign
+                   `(setf (env ,env-var) ,value)))))
+       (declare (dynamic-extent #',modify-environment))
+       (%run ,argument-list #',modify-environment))))
