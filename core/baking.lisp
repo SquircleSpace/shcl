@@ -44,6 +44,11 @@
 (defmethod bake-form ((token double-quote))
   (bake-form-for-parts (double-quote-parts token)))
 
+(defmethod bake-form ((token assignment-word))
+  (progn-concatenate
+   (bake-form (assignment-word-name token))
+   (bake-form (assignment-word-value-word token))))
+
 (defmethod bake-form ((syntax-tree syntax-tree))
   (let (forms)
     (loop :for subtree :across (syntax-tree-parts syntax-tree) :do
