@@ -380,10 +380,7 @@ and io redirects."
 
 (defun translate-assignment (assignment)
   `(,(simple-word-text (assignment-word-name assignment))
-     (or (fset:first
-          (expansion-for-words '(,(assignment-word-value-word assignment))
-                               :expand-pathname t :split-fields nil))
-         "")))
+     (expand-1 '(,(assignment-word-value-word assignment)))))
 
 (defmethod translate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy

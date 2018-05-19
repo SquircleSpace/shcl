@@ -348,7 +348,10 @@ This is the shell form equivalent of `progn'."
 
 (define-shell-form-translator run (argument-list &key environment-changes fd-changes)
   (let ((modify-environment (gensym "MODIFY-ENVIRONMENT"))
-        (fd (gensym "FD")))
+        (fd (gensym "FD"))
+        (value (gensym "VALUE"))
+        (exit-info (gensym "EXIT-INFO"))
+        (result (gensym "RESULT")))
     `(labels
          ((,modify-environment ()
             ,@(loop :for redirect :in fd-changes :collect
@@ -356,8 +359,13 @@ This is the shell form equivalent of `progn'."
                      redirect
                    `(receive-ref-counted-fd (,fd ,physical-fd-form)
                       (set-fd-binding ,virtual-fd ,fd))))
-            ,@(loop :for assign :in environment-changes :collect
-                 (destructuring-bind (env-var value) assign
-                   `(setf (env ,env-var) ,value)))))
+            (let ((,result (truthy-exit-info)))
+              ,@(loop :for assign :in environment-changes :collect
+                   (destructuring-bind (env-var value-form) assign
+                     `(multiple-value-bind (,value ,exit-info) ,value-form
+                        (setf (env ,env-var) (or ,value ""))
+                        (when ,exit-info
+                          (setf ,result ,exit-info)))))
+              ,result)))
        (declare (dynamic-extent #',modify-environment))
        (%run ,argument-list #',modify-environment))))
