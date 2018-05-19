@@ -15,11 +15,11 @@
 (defpackage :shcl/core/evaluate
   (:use
    :common-lisp :alexandria :bordeaux-threads
-   :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer :shcl/core/fork-exec
+   :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer
    :shcl/core/expand :shcl/core/environment
    :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/shell-environment :shcl/core/iterator)
-  (:import-from :shcl/core/shell-form #:shell #:& #:lisp #:!)
+  (:import-from :shcl/core/shell-form #:shell #:& #:lisp #:! #:run)
   (:import-from :shcl/core/baking #:bake-form)
   (:import-from :shcl/core/command
    #:lookup-command #:invoke-command #:define-special-builtin #:wrap-errors)
@@ -64,32 +64,6 @@ for the given redirect."))
   (declare (ignore r))
   (logior o-rdwr o-creat))
 
-(defgeneric retained-fd-from-description (description)
-  (:documentation
-   "Given a description of a place, produce a file descriptor for that place.
-
-This function implements part of `bind-fd-description' and should not be called
-directly."))
-(defmethod retained-fd-from-description ((fd integer))
-  (make-instance 'unmanaged-fd :value fd :ensure-opened t))
-(defmethod retained-fd-from-description ((io-file io-file))
-  (with-slots (redirect filename) io-file
-    (let ((expansion (expansion-for-words (fset:seq filename) :split-fields nil :expand-pathname t)))
-      (unless (equal 1 (fset:size expansion))
-        (error 'not-implemented :feature "file name expanded to multiple words"))
-      (setf expansion (fset:first expansion))
-      (retained-fd-openat (get-fd-current-working-directory)
-                          (coerce expansion 'simple-string)
-                          (open-args-for-redirect redirect)
-                          *umask*))))
-(defmethod retained-fd-from-description ((fd fd-wrapper))
-  (fd-wrapper-retain fd))
-
-(defun bind-fd-description (fd description)
-  "Bind `fd' to the fd implied by `description'."
-  (receive-ref-counted-fd (from-fd (retained-fd-from-description description))
-    (set-fd-binding fd from-fd)))
-
 (defun separator-par-p (separator)
   "Return non-nil iff the given separator non-terminal describes a
 & (par) separator."
@@ -97,83 +71,6 @@ directly."))
   (with-slots (separator-op) separator
     (when (slot-boundp separator 'separator-op)
       (typep separator-op 'par))))
-
-(defgeneric handle-redirect (redirect &optional fd-override)
-  (:documentation
-   "Bind fds (as necessary) to actualize the redirect requested."))
-
-(defmethod handle-redirect ((r io-redirect) &optional fd-override)
-  (when fd-override
-    (error "You did bad.  This shouldn't be set here."))
-
-  (assert (slot-boundp r 'io-number))
-
-  (labels
-      ((to-int (io-number)
-         (parse-integer (token-value io-number))))
-    (with-slots (io-number io-file io-here) r
-      (cond
-        ((slot-boundp r 'io-here)
-         (error 'not-implemented :feature "Here-documents"))
-
-        ((slot-boundp r 'io-file)
-         (handle-redirect io-file (to-int io-number)))
-
-        (t
-         (error "Impossible"))))))
-
-(defmethod handle-redirect ((r io-file) &optional fd-override)
-  (labels
-      ((to-int (filename)
-         (let* ((fd-string (simple-word-text filename)))
-           (parse-integer fd-string)))
-       (fd (default) (or fd-override default))
-       (lookup-fd (fd)
-         (get-fd-binding fd :if-unbound :unmanaged)))
-    (with-slots (redirect filename fd-description) r
-      (etypecase redirect
-        (less
-         (bind-fd-description (fd 0) r))
-
-        (lessand
-         (bind-fd-description (fd 0) (lookup-fd (to-int fd-description))))
-
-        (great
-         (bind-fd-description (fd 1) r))
-
-        (greatand
-         (bind-fd-description (fd 1) (lookup-fd (to-int fd-description))))
-
-        (dgreat
-         (bind-fd-description (fd 1) r))
-
-        (lessgreat
-         (bind-fd-description (fd 0) r))
-
-        (clobber
-         (bind-fd-description (fd 1) r))))))
-
-(defmethod handle-redirect ((r io-here) &optional fd-override)
-  (declare (ignore fd-override))
-  (error 'not-implemented :feature "Here-documents"))
-
-(defmethod handle-redirect ((r redirect-list) &optional fd-override)
-  (when fd-override
-    (error "You did bad.  This shouldn't be set here."))
-
-  (with-slots (io-redirect redirect-list-tail) r
-    (handle-redirect io-redirect)
-    (when redirect-list-tail
-      (handle-redirect redirect-list-tail))))
-
-(defmethod handle-redirect ((r redirect-list-tail) &optional fd-override)
-  (when fd-override
-    (error "You did bad.  This shouldn't be set here."))
-
-  (with-slots (io-redirect redirect-list-tail) r
-    (handle-redirect io-redirect)
-    (when redirect-list-tail
-      (handle-redirect redirect-list-tail))))
 
 (defun translate-background-job (sy)
   `(& ,(translate sy)))
@@ -499,56 +396,17 @@ and io redirects."
 
       (values (nreverse assignments) (nreverse arguments) (nreverse redirects)))))
 
-(defun evaluate-assignment-word (assignment-word)
-  "Modify the environment to include the given variable assignment."
-  (with-accessors ((value assignment-word-value-word) (name assignment-word-name)) assignment-word
-    (let ((expanded (expansion-for-words
-                     (list value)
-                     :expand-aliases nil
-                     :expand-pathname nil
-                     :split-fields nil)))
-      (unless (equal 1 (fset:size expanded))
-        (error 'not-implemented :feature "Variables with multiple fields"))
-      (setf (env (simple-word-text name)) (fset:first expanded)))))
-
-(defun evaluate-command-free (assignments redirects)
-  "Not all simple-commands have a command!"
-  (dolist (assign assignments)
-    (evaluate-assignment-word assign))
-  (with-fd-scope ()
-    (dolist (redirect redirects)
-      (handle-redirect redirect)))
-  (truthy-exit-info))
-
-(defclass invocation ()
-  ((arguments
-    :initarg :arguments
-    :type fset:seq
-    :reader invocation-arguments)
-   (assignments
-    :initarg :assignments
-    :type list)
-   (redirects
-    :initarg :redirects
-    :type list)))
-
-(defun evaluate-simple-command (sy)
-  (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
-    (multiple-value-bind (assignments raw-arguments redirects) (simple-command-parts sy)
-      (debug-log status "EXEC: ~A ~A ~A" assignments raw-arguments redirects)
-      (when (zerop (length raw-arguments))
-        (return-from evaluate (evaluate-command-free assignments redirects)))
-
-      (labels
-          ((modify-environment ()
-             (dolist (r redirects)
-               (handle-redirect r))
-             (dolist (assign assignments)
-               (evaluate-assignment-word assign))))
-        (let* ((arguments (with-fd-streams ()
-                            (fset:convert 'list (expansion-for-words raw-arguments :expand-aliases t :expand-pathname t))))
-               (command (lookup-command (car arguments))))
-          (apply 'invoke-command command #'modify-environment arguments))))))
+(defun translate-assignment (assignment)
+  `(,(simple-word-text (assignment-word-name assignment))
+     (or (fset:first
+          (expansion-for-words '(,(assignment-word-value-word assignment))
+                               :expand-pathname t :split-fields nil))
+         "")))
 
 (defmethod translate ((sy simple-command))
-  `(lisp (evaluate-simple-command ,sy)))
+  (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
+    (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
+      (let ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
+            (assignments (mapcar 'translate-assignment raw-assignments))
+            (arguments `(fset:convert 'list (with-fd-streams () (expansion-for-words ',raw-arguments :expand-aliases t :expand-pathname t)))))
+        `(run ,arguments :environment-changes ,assignments :fd-changes ,redirects)))))
