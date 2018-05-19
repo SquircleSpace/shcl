@@ -25,7 +25,8 @@
   (:import-from :shcl/core/fd-table
    #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding
    #:fd-bind* #:receive-ref-counted-fd)
-  (:import-from :shcl/core/command #:invoke-command #:lookup-command)
+  (:import-from :shcl/core/command
+   #:invoke-command #:lookup-command #:define-special-builtin #:wrap-errors)
   (:import-from :bordeaux-threads)
   (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
@@ -304,6 +305,22 @@ This is the shell form equivalent of `progn'."
 (defmacro continue-level (&body body)
   `(jump-level loop-continue
      ,@body))
+
+(define-special-builtin (builtin-break "break") (&optional (count "1"))
+  (wrap-errors
+    (let ((count (parse-integer count :junk-allowed nil)))
+      (unless (plusp count)
+        (error "Count must be positive"))
+      (signal 'loop-break :count count))
+    (error "No loops detected")))
+
+(define-special-builtin (builtin-continue "continue") (&optional (count "1"))
+  (wrap-errors
+    (let ((count (parse-integer count :junk-allowed nil)))
+      (unless (plusp count)
+        (error "Count must be positive"))
+      (signal 'loop-continue :count count))
+    (error "No loops detected")))
 
 (define-shell-form-translator while (condition &body body)
   (let ((result (gensym "RESULT")))
