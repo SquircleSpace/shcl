@@ -16,11 +16,8 @@
 #+AUTHOR: Brad Jensen
 
 SHCL is
-1. a shell made with secret alien technology,
-2. a Common Lisp library that makes it very convenient to create new
-   processes, and
-3. an embedding of Common Lisp into POSIX shell and POSIX shell into
-   Common Lisp.
+1. a very customizable shell made with secret alien technology, and
+2. an unholy union of POSIX Shell and Common Lisp.
 
 Behold Common Lisp embedded in POSIX shell embedded in Common Lisp!
 Notice that the Common Lisp form embedded in the shell expression can
@@ -60,11 +57,16 @@ make
 
 * Example Usage
 
-I don't know what you're expecting to see here.  Its a POSIX-like shell.
+I don't know what you're expecting to see here.  Its a POSIX-like
+shell.  You can do (almost) all your normal POSIX shell stuff in it.
 
 #+BEGIN_EXAMPLE
 shcl> echo foobar
 foobar
+shcl> FOO=$(echo echo foo; false) || echo assignment returned false
+assignment returned false
+shcl> $FOO
+foo
 shcl> { echo foobar ; echo baz ; echo blip ; } | tail -n 1
 blip
 shcl> shcl-enable-lisp-syntax
@@ -72,154 +74,21 @@ shcl> if [ ,(+ 1 2 3) = ,(* 2 3) ]; then
 > echo woah
 > fi
 woah
+shcl> shcl-repl
+shcl (lisp)> (format t "Hello world~%")
+Hello world
+NIL
+shcl (lisp)> (define-builtin set-env (&option print &required var value)
+> (loop :for str :across print :do (format t "~A~%" str))
+> (setf (env var) value)
+> 0)
+SET-ENV
+shcl (lisp)> ^D
+shcl> set-env --print hi --print there VAR value | wc -l
+2
+shcl> echo $VAR
+value
 shcl> ^D
 #+END_EXAMPLE
 
-Okay, actually, that last part was a bit crazy.
-
-* Why Would You Make This?!
-
-SHCL serves two specific needs: customization and conversion.
-
-** Customization
-
-SHCL is designed to be flexible and extensible.  Emacs is the gold
-standard for runtime-configuration, and SHCL follows in Emacs's
-footsteps.  Almost anything can be changed at runtime.
-
-For example, you can change how SHCL translates input into an AST.
-You've already seen that SHCL lets you cut out to lisp using the ','
-character.  That is done by modifying the table that SHCL uses to
-interpret input from the user.  You can easily make your own
-modifications to that table, too!  Look how easy it is to change how
-SHCL handles '!'.
-
-#+BEGIN_EXAMPLE
-shcl> echo The universe began with a big !
-The universe began with a big !
-shcl> shcl-repl
-shcl (lisp)> (in-package :shcl/shell/main)
-#<PACKAGE "SHCL/SHELL/MAIN">
-shcl (lisp)> (defun bang (s ic c)
-> (declare (ignore s ic))
-> (shell-lexer-context-add-part c "*BANG!*"))
-BANG
-shcl (lisp)> (progn (setf *shell-readtable* (with-handler *shell-readtable* "!" 'bang)) nil)
-NIL
-shcl (lisp)> ^D
-shcl> echo The universe began with a big !
-The universe began with a big *BANG!*
-#+END_EXAMPLE
-
-To put things in perspective, many "special" shell characters are just
-entries in that table.  You can remake the shell language as you see
-fit!
-
-** Conversion
-
-Wanna hear a funny joke?  =chsh -s/usr/bin/python=.  Hahahaha.  Oh,
-wouldn't that be silly.
-
-Sorry, Python.  Its not just you.  Like so many other languages, you
-have pretty good facilities for spawning processes, but let's be real,
-here.  It just isn't good enough for interactive use.  Spawning jobs
-just requires too much typing!
-#+BEGIN_SRC python
->>> import subprocess
->>> subprocess.run(["ls", "-l", "/dev/null"], stdout=subprocess.PIPE)
-CompletedProcess(args=['ls', '-l', '/dev/null'], returncode=0,
-stdout=b'crw-rw-rw- 1 root root 1, 3 Jan 23 16:23 /dev/null\n')
-#+END_SRC
-Yes, people have made libraries that simplify things, and other
-languages might have less friction, but nothing gets close to a proper
-shell.  I think we can all agree on that.
-
-No, respectable people like you and me use a /real/ shell.
-Respectable people like you and me also don't write everything in
-POSIX shell scripts.  We use /real/ languages for /real/ programs.
-
-Unfortunately, programs (even humble shell scripts) are always
-changing.  We add new features, fix bugs, port them to new
-environments.  Let's face it, shell scripts suck once your problem
-becomes complex enough, and your problem WILL become complex.  So,
-what do we do?
-
-Some people say you should never use a shell script ever.  Other
-people say you should rewrite as soon as your script reaches a certain
-level of complexity.  Since re-writing is an error-prone and annoying
-process, people normally recommend switching languages early.
-
-SHCL offers a different solution.  SHCL lets you use shell syntax when
-its the right tool for the job.  When you need more advanced features,
-the entirety of Common Lisp is at your disposal.  Since you can freely
-intermix shell script and Common Lisp, you can even gradually convert
-your shell script into a Common Lisp program.
-
-* The Shell
-
-The goal is for SHCL to be fully POSIX compliant.  Its still got a
-long way to go, but we'll get there one day.
-
-To mitigate some of the deficiencies of the POSIX shell language, SHCL
-supports embedding lisp expressions inside your shell expressions.
-Granted, the following examples are pretty contrived, but it does show
-off some neat features of SHCL!
-
-#+BEGIN_SRC shell-script
-# Embed arbitrary lisp code
-: ,(defparameter *counter* 0)
-while [ ,*counter* != 3 ]; do
-    echo ,(incf *counter*)
-done
-
-# Output:
-# 1
-# 2
-# 3
-#+END_SRC
-
-#+BEGIN_SRC shell-script
-# Control the shell environment from lisp (define functions, change variables)
-SHELL_COUNTER=0
-: ,(define-builtin example-condition ()
-     (if (equal "3" (env "SHELL_COUNTER"))
-       1
-       0))
-
-while example-condition; do
-    : ,(let ((count (1+ (parse-integer (env "SHELL_COUNTER")))))
-         (setf (env "SHELL_COUNTER") (format nil "~A" count)))
-    echo $SHELL_COUNTER
-done
-
-# Output:
-# 1
-# 2
-# 3
-#+END_SRC
-
-#+BEGIN_SRC shell-script
-# Pipe lisp *standard-output* into wc
-: ,(format t "hello world~%") | wc -c
-
-# Output:
-# 12
-#+END_SRC
-
-* The Library
-
-The API for SHCL isn't yet set-in-stone, so don't be surprised if it
-changes tomorrow.  However, the goal is to provide a fluent way to
-launch programs.  The API will probably include
-- a function similar to ~UIOP:RUN-PROGRAM~
-- a reader macro that reads shell expressions (especially ones that
-  have embedded lisp expressions!)
-- a function analogous to the POSIX ~system~ function
-- a declarative macro interface for describing complex pipelines
-
-Currently, you can do things like the following.
-
-#+BEGIN_SRC lisp
-(defvar *str* "abc")
-(defvar *text* (capture (:stdout) #$ if [ ,*str* == abc ]; then echo woo ; fi #$ ))
-#+END_SRC
+Okay, actually, that kind of went off the rails.
