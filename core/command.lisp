@@ -754,7 +754,8 @@ it with the given args."
              ,@(when documentation
                  `(,documentation))
              (apply (shell-lambda ,shell-lambda-list ,@declarations ,@real-body) ,args))
-           (install-command ,string-form (make-instance ',class :handler #',function-sym)))))))
+           (install-command ,string-form (make-instance ',class :handler #',function-sym))
+           ',function-sym)))))
 
 (defmacro define-builtin (name shell-lambda-list &body body)
   "Define a new shell builtin.
