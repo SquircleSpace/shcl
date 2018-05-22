@@ -33,10 +33,19 @@
   (:import-from :uiop)
   (:import-from :swank)
   (:import-from :fset)
-  (:export #:main #:run-shell-commands-in-stream))
+  (:export
+   #:main #:run-shell-commands-in-stream
+   #:default-prompt #:*prompt-function* #:*fresh-prompt*))
 (in-package :shcl/shell/main)
 
 (optimization-settings)
+
+(defpackage :shcl-user
+  (:use :common-lisp :shcl/shell/lisp-repl)
+  (:import-from :shcl/core/environment #:env)
+  (:import-from :shcl/core/command #:define-builtin)
+  (:import-from :shcl/shell/main
+    #:default-prompt #:*prompt-function* #:*fresh-prompt*))
 
 (defparameter *shell-readtable* +standard-shell-readtable+
   "The shell readtable used by the main shell loop.
@@ -57,12 +66,17 @@ standard prompt should be displayed.
 When nil, a prompt indicating that the previous line is incomplete
 should be displayed.")
 
+(defun default-prompt ()
+  (if *fresh-prompt* "shcl> " "> "))
+
+(defvar *prompt-function* 'default-prompt)
+
 (defun main-prompt ()
   "Return the string which should be displayed as the prompt for the
 next line.
 
 See `*fresh-prompt*'."
-  (let ((result (if *fresh-prompt* "shcl> " "> ")))
+  (let ((result (funcall *prompt-function*)))
     (setf *fresh-prompt* nil)
     result))
 
@@ -190,7 +204,10 @@ example, that...
       (with-history (h)
         (history-set-size h 800)
         (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
-              (*package* (find-package :shcl-user)))
+              (*package* (find-package :shcl-user))
+              (startup-file (probe-file "~/.shclrc.lisp")))
+          (when startup-file
+            (load startup-file))
           (handler-bind
               ((abort-parse
                 (lambda (e)

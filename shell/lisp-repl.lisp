@@ -22,11 +22,6 @@
 
 (optimization-settings)
 
-(defpackage :shcl-user
-  (:use :common-lisp :shcl/shell/lisp-repl)
-  (:import-from :shcl/core/environment #:env)
-  (:import-from :shcl/core/command #:define-builtin))
-
 (defun return-to-shell ()
   "Exit the lisp repl and return to the shell.
 
