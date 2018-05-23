@@ -57,6 +57,10 @@ Building without nix:
 make
 #+END_EXAMPLE
 
+You'll need the package ~libedit-dev~ available; and your ASDF needs to have 
+~fset~ and ~prove~, so you might need to run ~(QL:QUICKLOAD '(:alexandria 
+:prove :fset))~ manually as well.
+
 * Example Usage
 
 I don't know what you're expecting to see here.  Its a POSIX-like
