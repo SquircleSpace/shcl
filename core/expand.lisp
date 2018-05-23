@@ -785,7 +785,7 @@ current value of $ifs.
 
 This function returns a `fset:seq' of string fragments."
   (multiple-value-bind (whitespace non-whitespace) (ifs-parts $ifs)
-    (when (and (zerop (length whitespace)) (zerop non-whitespace))
+    (when (and (zerop (length whitespace)) (zerop (length non-whitespace)))
       (return-from split string))
 
     (let* ((result (fset:empty-seq))
