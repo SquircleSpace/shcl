@@ -18,9 +18,14 @@
 
 (declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
 
+(defun shcl-load (package)
+  (if (find-package :ql)
+      (funcall (intern "QUICKLOAD" :ql) package)
+      (asdf:load-system package)))
+
 #+sbcl
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (asdf:load-system :trivial-gray-streams))
+  (shcl-load :trivial-gray-streams))
 
 #+sbcl
 (progn
@@ -61,15 +66,15 @@
     (progn
       (reduce-compile-noise
         (asdf:compile-system :shcl))
-      (asdf:load-system :shcl)
+      (shcl-load :shcl)
       (when (uiop:getenv "SHCL_DEBUG")
         (push (make-pathname :directory (concatenate 'list (pathname-directory *load-truename*) '("test"))
                                :name nil :type nil
                                :defaults *load-truename*)
               asdf:*central-registry*)
         (reduce-compile-noise
-          (asdf:load-system :shcl/core/debug)
-          (asdf:load-system :shcl-test)))
+          (shcl-load :shcl/core/debug)
+          (shcl-load :shcl-test)))
 
       (asdf:oos 'asdf:program-op :shcl))
     #+ecl
