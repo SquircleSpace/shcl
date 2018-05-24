@@ -15,6 +15,8 @@
 (defpackage :shcl/core/fork-exec
   (:use :common-lisp :alexandria :cffi :shcl/core/utility :shcl/core/shell-grammar
         :shcl/core/posix-types :shcl/core/posix :shcl/core/support)
+  (:import-from :shcl/core/fd-table #:fd-wrapper-release #:fd-wrapper-value
+                #:retained-fd-dup)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:import-from :cl-fad #:list-directory #:directory-pathname-p #:pathname-as-file)
   (:export #:run))
@@ -33,19 +35,39 @@
 (defun take-fd-map (alist managed-fd-list fd-actions)
   (debug-log status "FETAKE ~A" alist)
 
-  (let ((managed-fds (make-hash-table)))
-    (dolist (fd managed-fd-list)
-      (setf (gethash fd managed-fds) t))
+  (let ((managed-fds (make-hash-table))
+        temp-fd)
+    (unwind-protect
+         (labels
+             ((get-temp-fd (&key donor-fd)
+                (unless temp-fd
+                  (assert donor-fd)
+                  (setf temp-fd (retained-fd-dup donor-fd)))
+                (fd-wrapper-value temp-fd)))
 
-    (dolist (pair alist)
-      (destructuring-bind (target-fd . value-fd) pair
-        (remhash target-fd managed-fds)
-        (debug-log status "FEDUP2 ~A -> ~A (~A = ~A)" value-fd target-fd target-fd value-fd)
-        (fd-actions-add-dup2 fd-actions value-fd target-fd)))
+           (dolist (fd managed-fd-list)
+             (setf (gethash fd managed-fds) t))
 
-    (loop :for fd :in (hash-table-keys managed-fds) :do
-       (debug-log status "FECLOSE ~A" fd)
-       (fd-actions-add-close fd-actions fd))))
+           (dolist (pair alist)
+             (destructuring-bind (target-fd . value-fd) pair
+               (remhash target-fd managed-fds)
+               (when (eq :temp value-fd)
+                 (setf value-fd (get-temp-fd)))
+               (when (eq :temp target-fd)
+                 (setf target-fd (get-temp-fd :donor-fd value-fd)))
+
+               (cond
+                 (value-fd
+                  (debug-log status "FEDUP2 ~A -> ~A (~A = ~A)" value-fd target-fd target-fd value-fd)
+                  (fd-actions-add-dup2 fd-actions value-fd target-fd))
+                 (t
+                  (debug-log status "FDCLOSE ~A" target-fd)
+                  (fd-actions-add-close fd-actions target-fd)))))
+
+           (loop :for fd :in (hash-table-keys managed-fds) :do
+              (debug-log status "FECLOSE ~A" fd)
+              (fd-actions-add-close fd-actions fd)))
+      (fd-wrapper-release temp-fd))))
 
 (defun run (command &key fd-alist managed-fds (environment (fset:empty-seq)) working-directory-fd)
   (setf command (fset:convert 'fset:seq command))

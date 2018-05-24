@@ -7,6 +7,7 @@
   (:import-from :shcl/test/data)
   (:import-from :shcl/test/iterator)
   (:import-from :shcl/test/command)
+  (:import-from :shcl/test/fd-table)
   (:import-from :shcl/test/foundation #:run-all-tests)
   (:import-from :shcl/core/command)
   (:import-from :prove)
