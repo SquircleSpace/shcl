@@ -108,7 +108,7 @@ indirection
 
 To make subshells work, SHCL avoids making destructive changing the
 process at all.  All changes go through a layer of indirection.  For
-example, uppose you ask SHCL to redirect standard output to a file.
+example, suppose you ask SHCL to redirect standard output to a file.
 #+BEGIN_EXAMPLE
 exec > tmp.txt
 #+END_EXAMPLE
