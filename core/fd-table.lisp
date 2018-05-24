@@ -513,16 +513,9 @@ descriptors.
 Each vertex is labeled with an `fd' (i.e. integer).  An edge from x to
 y indicates that x must be resolved (had its desired value fd dup'd
 into place) prior to resolving y."
-  (let ((graph (make-graph))
-        (physical-fd-lookup (make-hash-table)))
+  (let ((graph (make-graph)))
     (fset:do-map (virtual-fd physical-fd fd-bindings)
-      (declare (ignore virtual-fd))
-      (setf (gethash (fd-wrapper-value physical-fd) physical-fd-lookup) physical-fd))
-    (fset:do-map (virtual-fd physical-fd fd-bindings)
-      (let ((blocking-physical-fd (gethash virtual-fd physical-fd-lookup)))
-        (when blocking-physical-fd
-          (graph-ensure-edge graph blocking-physical-fd virtual-fd)))
-      (graph-ensure-edge graph virtual-fd physical-fd))
+      (graph-ensure-edge graph virtual-fd (fd-wrapper-value physical-fd)))
     graph))
 
 (defun graph-tarjan-strongly-connected-components (graph)
@@ -569,6 +562,14 @@ into place) prior to resolving y."
 
       components)))
 
+#|
+((1 2) (2 3) (3 1))
+1 --> 2 --> 3
+^-----------/
+
+x --> y means that physical x gets bound to physical y
+|#
+
 (defun linearize-fd-bindings (&optional (fd-bindings *fd-bindings*))
   (let* ((fd-graph (fd-bindings-dependency-graph fd-bindings))
          (components (nreverse (graph-tarjan-strongly-connected-components fd-graph)))
@@ -582,7 +583,39 @@ into place) prior to resolving y."
               (vector-push-extend (cons label (fd-wrapper-value bound-to)) bindings))))
 
          (t
-          (error 'not-implemented :feature "Cyclic fd dependencies"))))
+          (assert (plusp (length component)))
+          ;; Each file descriptor can only be bound to a single value.
+          ;; That means that each vertex can only have one outbound
+          ;; edge.  That means that there is a unique traversal for
+          ;; every cycle.  In a standard graph, Tarjan's algorithm
+          ;; outputs the vertices for a given component in an
+          ;; arbitrary order.  In our case, once Tarjan's algorithm
+          ;; visits a vertex in a cycle, it will not be able to
+          ;; "escape" the cycle until it has detected and emitted the
+          ;; cycle.  So, we can actually rely on the component
+          ;; ordering being significant.  It is a reverse traversal of
+          ;; the cycle!
+          (let ((component (nreverse component)))
+            (labels
+                ((fd-to-dup-from-for-vertex (vertex)
+                   (if (eq vertex (aref component 0))
+                       :temp
+                       (vertex-label vertex)))
+                 (fd-to-dup-to-for-vertex (vertex)
+                   (vertex-label vertex)))
+              (let ((previous-vertex (aref component 0)))
+                (vector-push-extend (cons :temp (vertex-label previous-vertex)) bindings)
+                (loop :for index :from 1 :below (length component)
+                   :for vertex = (aref component index) :do
+                   (progn
+                     (vector-push-extend (cons (fd-to-dup-to-for-vertex previous-vertex)
+                                               (fd-to-dup-from-for-vertex vertex))
+                                         bindings)
+                     (setf previous-vertex vertex)))
+                (vector-push-extend (cons (fd-to-dup-to-for-vertex previous-vertex)
+                                          (fd-to-dup-from-for-vertex (aref component 0)))
+                                    bindings)
+                (vector-push-extend (cons :temp nil) bindings)))))))
     (coerce bindings 'list)))
 
 (defclass fd-stream (fundamental-stream)
