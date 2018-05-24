@@ -53,8 +53,9 @@ make LISP='cl-wrapper.sh sbcl'
 Building without nix:
 
 #+BEGIN_EXAMPLE
-# Acquire dependencies (don't forget the lisp dependencies!)
-make
+# Acquire dependencies (sbcl, quicklisp, libedit, and clang)
+QUICKLISP_SETUP=~/quicklisp/setup.lisp # or wherever you installed quicklisp
+make LISP="sbcl --load \"$QUICKLISP_SETUP\""
 #+END_EXAMPLE
 
 * Example Usage
