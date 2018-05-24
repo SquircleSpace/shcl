@@ -61,6 +61,65 @@ The tests are run by the =test.lisp= script in the root directory.
 This directory contains scripts which detect stylistic issues with
 SHCL's source.
 
+* SHCL Doesn't Fork
+SHCL is not a typical shell.  In a typical shell, forking isn't a
+problem.  SHCL doesn't fork unless it is going to exec.  That design
+decision has far-reaching implications, and it substantially
+complicates many tasks that a shell must perform.
+
+Subshells, for example, are significantly more difficult.  Consider
+the following shell commands.
+
+#+BEGIN_EXAMPLE
+(
+  exec > tmp.txt;
+  VAR=value;
+  cd somePath;
+  exec echo some content;
+  echo not echoed;
+)
+echo other content
+#+END_EXAMPLE
+
+Imagine how a normal forking shell would handle this.  When it tries
+to evaluate the subshell it would fork off a new shell process.  It
+would then evaluate the body of the subshell inside the new process.
+That body involves making irreversible changes to the shell process.
+Meanwhile, the main shell is unaffected by any of the the subshell's
+changes.  They are neatly and automatically contained within the
+subshell.
+
+Since SHCL doesn't fork, subshells aren't quite so simple.  Subshells
+are evaluated inside the same process as the main shell, but changes
+to the process environment must not leak outside of the subshell.
+With careful use of ~UNWIND-PROTECT~, you can imagine emulating the
+effect of a sunshell.  Just carefully put everything back to the way
+it was as the stack unwinds.  Things get even more complicated when
+you consider that subshells must be able to execute in parallel with
+the main shell.  After all, they might have been run in the background
+with ~&~.  You could even have multiple subshells with different
+opinions on what file descriptor 1 refers to!
+
+#+BEGIN_QUOTE
+All problems in computer science can be solved by another level of
+indirection
+  -- David Wheeler
+#+END_QUOTE
+
+To make subshells work, SHCL avoids making destructive changing the
+process at all.  All changes go through a layer of indirection.  For
+example, uppose you ask SHCL to redirect standard output to a file.
+#+BEGIN_EXAMPLE
+exec > tmp.txt
+#+END_EXAMPLE
+SHCL opens the desired file.  Let's say that the operating system
+returns file descriptor 3 as the handle for =tmp.txt=.  Instead of
+using ~dup2~ to modify file descriptor 1, SHCL instead just makes a
+note in its own data structures that virtual file descriptor 1 should
+take on the value of physical file descriptor 3.  When spawning a
+subprocess, SHCL will consult that table and make the appropriate
+changes prior to calling ~exec~.
+
 * The Pipeline
 SHCL is, at its heart, a pipeline.  Generally, each stage is a
 transformation from one iterator to another.
