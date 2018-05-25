@@ -1,0 +1,14 @@
+language: common-lisp
+sudo: required
+
+env:
+  matrix:
+    - LISP=sbcl-bin
+
+install:
+  - sudo apt-get install clang
+  - sudo apt-get install libedit-dev
+  - curl -L https://raw.githubusercontent.com/snmsts/roswell/release/scripts/install-for-ci.sh | sh
+
+script:
+  - make LISP='ros -s cffi-grovel run --'
