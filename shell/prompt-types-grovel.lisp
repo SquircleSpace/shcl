@@ -28,6 +28,7 @@
          (lastchar "lastchar" :type (:pointer :char)))
 
 (constant (+el-prompt+ "EL_PROMPT"))
+(constant (+el-prompt-esc+ "EL_PROMPT_ESC"))
 (constant (+el-rprompt+ "EL_RPROMPT"))
 (constant (+el-editor+ "EL_EDITOR"))
 (constant (+el-addfn+ "EL_ADDFN"))
