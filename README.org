@@ -40,22 +40,27 @@ shcl> : ,(shcl/core/debug:graph-dependencies) | dot -Tpng > graph.png
 
 SHCL is only really tested against SBCL, but it should be portable to
 other lisp compilers.  Be aware that ECL is known to be problematic
-because it tries to reap child processes automatically.  In addition
-to several lisp libraries, SHCL depends on clang and libedit.
+because it tries to reap child processes automatically.
 
-Building with Nix:
+First, you'll need to install some dependencies.  To start with,
+you'll need Clang and libedit.  There's also some Common Lisp
+dependencies that need to be taken care of: SBCL, Quicklisp, and
+cffi-grovel.  If you're new to building Common Lisp projects, you
+might want to let [[https://github.com/roswell/roswell][Roswell]] set up your lisp environment for you.
 
 #+BEGIN_EXAMPLE
-nix-shell
-make LISP='cl-wrapper.sh sbcl'
+# Set up Clang, libedit, and Roswell
+make LISP='ros -s cffi-grovel run --'
 #+END_EXAMPLE
 
-Building without nix:
+You can skip Roswell if you want.  Just make sure that you set ~LISP~
+to a command that runs SBCL with Quicklisp and cffi-grovel loaded.
+For example,
 
 #+BEGIN_EXAMPLE
-# Acquire dependencies (sbcl, quicklisp, libedit, and clang)
+# Set up Clang, libedit, SBCL, and Quicklisp
 QUICKLISP_SETUP=~/quicklisp/setup.lisp # or wherever you installed quicklisp
-make LISP="sbcl --load \"$QUICKLISP_SETUP\""
+make LISP="sbcl --no-userinit --load \"$QUICKLISP_SETUP\" --eval '(ql:quickload :cffi-grovel)'"
 #+END_EXAMPLE
 
 * Example Usage
