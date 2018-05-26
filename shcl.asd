@@ -12,15 +12,19 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defsystem "shcl/core/posix-types"
+(defsystem "shcl/core/posix-types/grovel"
   :defsystem-depends-on ("cffi-grovel")
   :components ((:file "core/posix-types")
                (:cffi-grovel-file "core/posix-types-grovel" :depends-on ("core/posix-types"))))
 
-(defsystem "shcl/shell/prompt-types"
+(register-system-packages "shcl/core/posix-types/grovel" '(:shcl/core/posix-types))
+
+(defsystem "shcl/shell/prompt-types/grovel"
   :defsystem-depends-on ("cffi-grovel")
   :components ((:file "shell/prompt-types")
                (:cffi-grovel-file "shell/prompt-types-grovel" :depends-on ("shell/prompt-types"))))
+
+(register-system-packages "shcl/shell/prompt-types/grovel" '(:shcl/shell/prompt-types))
 
 (defsystem "shcl"
   :class :package-inferred-system
