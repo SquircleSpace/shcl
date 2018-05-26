@@ -65,8 +65,7 @@
     #-ecl
     (progn
       (reduce-compile-noise
-        (asdf:compile-system :shcl))
-      (shcl-load :shcl)
+        (shcl-load :shcl))
       (when (uiop:getenv "SHCL_DEBUG")
         (push (make-pathname :directory (concatenate 'list (pathname-directory *load-truename*) '("test"))
                                :name nil :type nil
