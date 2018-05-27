@@ -450,6 +450,10 @@ file descriptors."
   lowlink
   on-stack-p)
 
+(defmethod print-object ((vertex vertex) stream)
+  (print-unreadable-object (vertex stream :type t)
+    (format stream "~S" (vertex-label vertex))))
+
 (defmethod fset:compare ((l vertex) (r vertex))
   (fset:compare-slots l r #'vertex-label #'vertex-outbound-edges
                       #'vertex-inbound-edges #'vertex-index
