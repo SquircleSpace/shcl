@@ -1,11 +1,10 @@
 (defpackage :shcl/test/data
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/data)
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/data
+        :shcl/test/foundation)
   (:import-from :fset))
 (in-package :shcl/test/data)
 
 (optimization-settings)
-
-(plan 3)
 
 (define-data base ()
   ((a
@@ -30,7 +29,7 @@
     :initarg :a
     :initform nil)))
 
-(deftest basics
+(define-test basics
   (let* ((base (make-instance 'base :a 123))
          (derived (make-instance 'derived :a 456 :b 789))
          (cons (cons base derived)))
@@ -66,7 +65,7 @@
                (equal (base-a old-base) 123))
           "Circularity isn't confusing"))))
 
-(deftest inheritance
+(define-test inheritance
   (is-error (eval '(define-data bad-data (vanilla) ())) 'error
             "Inheriting from a normal class is an error")
   (is-error (eval '(defclass bad-class (base) ())) 'error
@@ -94,7 +93,7 @@
     :initform 0
     :updater numbers-d)))
 
-(deftest ordering
+(define-test ordering
   (let ((a (make-instance 'numbers :a 123 :b 123))
         (b (make-instance 'numbers :a 123 :b 123)))
     (is (fset:compare a b) :equal

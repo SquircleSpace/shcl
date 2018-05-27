@@ -13,13 +13,12 @@
 ;; limitations under the License.
 
 (defpackage :shcl/test/command
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/command)
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/command
+        :shcl/test/foundation)
   (:import-from :fset))
 (in-package :shcl/test/command)
 
 (optimization-settings)
-
-(plan 4)
 
 (defclass test-command ()
   ())
@@ -51,7 +50,7 @@
   (declare (ignore args modifier))
   (slot-value command 'value))
 
-(deftest command-namespace
+(define-test command-namespace
   (let ((*command-namespace* (make-command-namespace :fallback (make-instance 'fallback))))
     (is (invoke-command (lookup-command (gensym)) nil)
         'fallback)
@@ -77,7 +76,7 @@
         (declare (ignore e))
         (fail "Correct usage generated a warning")))))
 
-(deftest happy-argument-parsing
+(define-test happy-argument-parsing
   (is 123 (funcall (shell-lambda () 123) "argv0")
       "Trivial shell lambda works")
 
@@ -223,7 +222,7 @@
       (is (aref %flag2 1) "--no-flag2" :test 'equal
           "Second flag2 argument is correct"))))
 
-(deftest sad-argument-parsing
+(define-test sad-argument-parsing
   (is-error
    (funcall (shell-lambda ())) 'error
    "Not providing argv0 is an error")
@@ -301,7 +300,7 @@
    (eval '(shell-lambda (&flag (flag "--A" "--A")))) 'error
    "Duplicate flags is an error"))
 
-(deftest argument-parsing-declarations
+(define-test argument-parsing-declarations
   (funcall (shell-lambda (&whole whole)
              (declare (ignore whole))
              (ok (not (boundp 'whole))
