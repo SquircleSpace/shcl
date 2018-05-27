@@ -12,3 +12,4 @@ install:
 
 script:
   - make LISP='ros -s cffi-grovel run --'
+  - echo -shcl-run-tests | ./shcl
