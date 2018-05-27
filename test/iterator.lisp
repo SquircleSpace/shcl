@@ -1,7 +1,7 @@
-(defpackage :shcl-test/iterator
+(defpackage :shcl/test/iterator
   (:use :common-lisp :prove :shcl/core/iterator)
   (:import-from :shcl/core/utility #:optimization-settings))
-(in-package :shcl-test/iterator)
+(in-package :shcl/test/iterator)
 
 (optimization-settings)
 

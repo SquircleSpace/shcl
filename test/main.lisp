@@ -1,10 +1,16 @@
-(defpackage :shcl-test/main
+(defpackage :shcl/test/main
   (:use :common-lisp)
+  (:import-from :shcl/test/lexer)
+  (:import-from :shcl/test/utility)
+  (:import-from :shcl/test/posix)
+  (:import-from :shcl/test/lisp-interpolation)
+  (:import-from :shcl/test/data)
+  (:import-from :shcl/test/iterator)
+  (:import-from :shcl/test/command)
   (:import-from :shcl/core/command)
   (:import-from :prove)
-  (:import-from :fset)
   (:export #:run-tests))
-(in-package :shcl-test/main)
+(in-package :shcl/test/main)
 
 (defun run-tests (&key enable-colors (output-stream *standard-output*))
   (let ((prove:*enable-colors* enable-colors)

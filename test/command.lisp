@@ -12,10 +12,10 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl-test/command
+(defpackage :shcl/test/command
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/command)
   (:import-from :fset))
-(in-package :shcl-test/command)
+(in-package :shcl/test/command)
 
 (optimization-settings)
 

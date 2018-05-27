@@ -67,13 +67,9 @@
       (reduce-compile-noise
         (shcl-load :shcl))
       (when (uiop:getenv "SHCL_DEBUG")
-        (push (make-pathname :directory (concatenate 'list (pathname-directory *load-truename*) '("test"))
-                               :name nil :type nil
-                               :defaults *load-truename*)
-              asdf:*central-registry*)
         (reduce-compile-noise
           (shcl-load :shcl/core/debug)
-          (shcl-load :shcl-test)))
+          (shcl-load :shcl/test/main)))
 
       (asdf:oos 'asdf:program-op :shcl))
     #+ecl

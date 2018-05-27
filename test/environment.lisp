@@ -1,6 +1,6 @@
-(defpackage :shcl-test/environment
+(defpackage :shcl/test/environment
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/environment))
-(in-package :shcl-test/environment)
+(in-package :shcl/test/environment)
 
 (optimization-settings)
 
