@@ -18,9 +18,9 @@
 
 (declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
 
-(defun shcl-load (package)
+(defun shcl-load (package &key verbose)
   (if (find-package :ql)
-      (funcall (intern "QUICKLOAD" :ql) package)
+      (funcall (intern "QUICKLOAD" :ql) package :verbose verbose)
       (asdf:load-system package)))
 
 #+sbcl
@@ -65,11 +65,11 @@
     #-ecl
     (progn
       (reduce-compile-noise
-        (shcl-load :shcl))
+        (shcl-load :shcl :verbose t))
       (when (uiop:getenv "SHCL_DEBUG")
         (reduce-compile-noise
-          (shcl-load :shcl/core/debug)
-          (shcl-load :shcl/test/main)))
+          (shcl-load :shcl/core/debug :verbose t)
+          (shcl-load :shcl/test/main :verbose t)))
 
       (asdf:oos 'asdf:program-op :shcl))
     #+ecl
