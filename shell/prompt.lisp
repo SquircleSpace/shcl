@@ -19,14 +19,17 @@
   (:import-from :shcl/core/command #:define-builtin)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/posix #:file-ptr)
+  (:import-from :shcl/shell/directory #:physical-pwd)
   (:import-from
    :shcl/core/fd-table
    #:make-fd-stream #:fd-stream #:get-fd-binding #:dup-fd-into-file-ptr
    #:close-file-ptr #:fd-wrapper-value)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
+  (:import-from :osicat-posix)
   (:export
    #:with-history #:define-history #:history-set-size #:get-line
+   #:interpret-env-to-string
    #:make-editline-stream))
 (in-package :shcl/shell/prompt)
 
@@ -613,3 +616,64 @@ The prompt the user sees is decided by the `prompt-fn'."))
   "Create a stream whose contents are retrieved from the user using
 the editline library."
   (make-instance 'editline-stream :prompt-fn prompt-fn :history history))
+
+
+(defgeneric escape-sequence (shell char)
+  (:documentation
+    "Using *STANDARD-INPUT* and *STANDARD-OUTPUT*, interpret CHAR as SHELL would do."))
+
+
+;; Hostname and similar
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\H)))
+  (princ (osicat-posix:gethostname)))
+
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\h)))
+  (let* ((hostname (osicat-posix:gethostname))
+         (dot (position #\. hostname)))
+    ;; Not sure whether that is really compatible with a hostname of ".foo"
+    (if (and dot
+             (plusp dot))
+      (princ (subseq hostname 0 (1- dot)))
+      (princ hostname))))
+
+
+;; Information escape sequences
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\w)))
+  (princ (physical-pwd)))
+
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\u)))
+  (princ (osicat-posix:getpwuid
+           (osicat-posix:getuid))))
+
+
+;; ANSI color sequences and similar stuff
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\e)))
+  (princ (code-char #o33)))
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\[)))
+  )
+(defmethod escape-sequence ((shell (eql :bash))
+                            (char (eql #\])))
+  )
+
+
+;; Default: copy escape sequence.
+(defmethod escape-sequence (shell char)
+  (princ #\\)
+  (princ char))
+
+(defun interpret-env-to-string (var &optional (shell-compat :bash))
+  "Provide some level of bash compatibility."
+  (with-output-to-string (*standard-output*)
+    (with-input-from-string (*standard-input* (env var))
+      (loop for ch = (read-char *standard-input* nil nil)
+            while ch
+            if (eql ch #\\)
+            do (escape-sequence shell-compat (read-char *standard-input* nil nil))
+            else
+            do (princ ch)))))

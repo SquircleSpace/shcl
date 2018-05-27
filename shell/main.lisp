@@ -29,7 +29,8 @@
   (:import-from :shcl/shell/lisp-repl)
   (:import-from :shcl/core/parser #:abort-parse)
   (:import-from :shcl/shell/prompt
-   #:with-history #:history-enter #:history-set-size #:make-editline-stream)
+   #:with-history #:history-enter #:history-set-size #:make-editline-stream
+   #:interpret-env-to-string)
   (:import-from :uiop)
   (:import-from :swank)
   (:import-from :fset)
@@ -67,7 +68,12 @@ When nil, a prompt indicating that the previous line is incomplete
 should be displayed.")
 
 (defun default-prompt ()
-  (if *fresh-prompt* "shcl> " "> "))
+  (if *fresh-prompt*
+    (or
+      (interpret-env-to-string "PS1")
+      "shcl> ")
+    (or (interpret-env-to-string "PS2")
+        "> ")))
 
 (defvar *prompt-function* 'default-prompt)
 
