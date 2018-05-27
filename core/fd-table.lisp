@@ -525,8 +525,7 @@ into place) prior to resolving y."
       (graph-ensure-edge graph virtual-fd physical-fd))
     graph))
 
-(defun graph-strongly-connected-components (graph)
-  ;; Tarjan's algorithm
+(defun graph-tarjan-strongly-connected-components (graph)
   (let ((index 0)
         (stack (make-extensible-vector))
         (components (make-extensible-vector)))
@@ -572,7 +571,7 @@ into place) prior to resolving y."
 
 (defun linearize-fd-bindings (&optional (fd-bindings *fd-bindings*))
   (let* ((fd-graph (fd-bindings-dependency-graph fd-bindings))
-         (components (graph-strongly-connected-components fd-graph))
+         (components (nreverse (graph-tarjan-strongly-connected-components fd-graph)))
          (bindings (make-extensible-vector)))
     (loop :for component :across components :do
        (cond
