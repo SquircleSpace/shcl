@@ -32,7 +32,7 @@
   (:import-from :alexandria #:parse-body)
   (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell
            #:when #:unless #:if #:while #:for #:loop-break #:loop-continue
-           #:run))
+           #:run #:t #:nil))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -49,6 +49,12 @@
 
 (defmethod translate-shell-form ((form cons) environment)
   (funcall (symbol-shell-form-translator (car form)) form environment))
+
+(defmethod translate-shell-form ((form (eql t)) environment)
+  '(truthy-exit-info))
+
+(defmethod translate-shell-form ((form (eql nil)) environment)
+  '(falsey-exit-info))
 
 (defmacro define-shell-form-translator (&whole whole name lambda-list &body body)
   (let ((macro-name (gensym (symbol-name name))))

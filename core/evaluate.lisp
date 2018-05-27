@@ -81,7 +81,7 @@ for the given redirect."))
       ((slot-boundp sy 'command-list)
        (return-from translate (translate command-list)))
       (t
-       (return-from translate '(truthy-exit-info))))))
+       (return-from translate t)))))
 
 (defun translate-command-list (sy)
   (with-slots (and-or separator-op command-list-tail) sy
