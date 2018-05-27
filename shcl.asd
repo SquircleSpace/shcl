@@ -32,7 +32,7 @@
   :description "Shcl, a lisp shell"
   :version "0.0.1"
   :author "Brad Jensen <brad@bradjensen.net>"
-  :licence "Modified BSD License"
+  :licence "Apache License, Version 2.0"
   :depends-on ("shcl/shell/main")
   :entry-point "shcl/shell/main::main"
   :output-files (program-op (o c) (values (list (make-pathname :name "shcl" :type nil :defaults *load-truename*)) t)))
