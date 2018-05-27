@@ -206,6 +206,8 @@ command they describe."
          (evaluates (iterator-values (evaluation-form-iterator commands))))
     (do-iterator (value token-iter)
       (assert nil nil "Unconsumed token ~A found" value))
+    (when (zerop (length evaluates))
+      (setf evaluates #((truthy-exit-info))))
     (apply 'progn-concatenate (coerce evaluates 'list))))
 
 (define-condition exit-failure (error)

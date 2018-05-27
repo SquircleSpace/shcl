@@ -5,19 +5,23 @@
 
 (optimization-settings)
 
-(plan 9)
+(plan 10)
 
 (defun shell (str)
   (evaluate-shell-string str))
 
 (defun exit-ok (thing &optional description)
-  (ok (and (typep thing 'exit-info)
-           (exit-info-true-p thing))
+  (unless (typep thing 'exit-info)
+    (fail description)
+    (return-from exit-ok))
+  (ok (exit-info-true-p thing)
       (or description "Expecting truthy status")))
 
 (defun exit-fail (thing &optional description)
-  (ok (and (typep thing 'exit-info)
-           (exit-info-false-p thing))
+  (unless (typep thing 'exit-info)
+    (fail description)
+    (return-from exit-fail))
+  (ok (exit-info-false-p thing)
       (or description "Expecting falsey status")))
 
 (define-builtin -shcl-assert-equal (&rest args)
@@ -168,3 +172,14 @@ done)"
           (format nil "1~%2~%3~%")
           :test #'equal
           "Basic while loop test")))
+
+(deftest empty
+  (exit-ok
+   (shell "")
+   "Empty string is truthy")
+  (exit-ok
+   (shell (format nil "~C" #\newline))
+   "Single newline is truthy")
+  (exit-ok
+   (shell (format nil " ~C ~C " #\newline #\tab))
+   "Miscellaneous whitespace is truthy"))
