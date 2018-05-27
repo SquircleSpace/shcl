@@ -36,3 +36,5 @@
   :depends-on ("shcl/shell/main")
   :entry-point "shcl/shell/main::main"
   :output-files (program-op (o c) (values (list (make-pathname :name "shcl" :type nil :defaults *load-truename*)) t)))
+
+(register-system-packages "osicat" '(:osicat-posix))

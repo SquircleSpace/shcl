@@ -26,6 +26,7 @@
    #:close-file-ptr #:fd-wrapper-value)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
+  (:import-from :osicat-posix)
   (:export
    #:with-history #:define-history #:history-set-size #:get-line
    #:interpret-env-to-string

@@ -25,8 +25,7 @@
 
 #+sbcl
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (shcl-load :trivial-gray-streams)
-  (shcl-load :osicat))
+  (shcl-load :trivial-gray-streams))
 
 #+sbcl
 (progn
