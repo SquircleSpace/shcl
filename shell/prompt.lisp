@@ -29,8 +29,7 @@
   (:import-from :osicat-posix)
   (:export
    #:with-history #:define-history #:history-set-size #:get-line
-   #:interpret-env-to-string
-   #:make-editline-stream))
+   #:interpret-prompt-string #:make-editline-stream))
 (in-package :shcl/shell/prompt)
 
 (optimization-settings)
@@ -667,13 +666,13 @@ the editline library."
   (princ #\\)
   (princ char))
 
-(defun interpret-env-to-string (var &optional (shell-compat :bash))
+(defun interpret-prompt-string (prompt-string &optional (shell-compat :bash))
   "Provide some level of bash compatibility."
   (with-output-to-string (*standard-output*)
-    (with-input-from-string (*standard-input* (env var))
-      (loop for ch = (read-char *standard-input* nil nil)
-            while ch
-            if (eql ch #\\)
-            do (escape-sequence shell-compat (read-char *standard-input* nil nil))
-            else
-            do (princ ch)))))
+    (with-input-from-string (in-stream prompt-string)
+      (loop for ch = (read-char in-stream nil nil)
+         while ch
+         if (eql ch #\\ )
+         do (escape-sequence shell-compat (read-char in-stream nil nil))
+         else
+         do (princ ch)))))

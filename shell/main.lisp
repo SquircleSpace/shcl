@@ -24,13 +24,14 @@
   (:import-from :shcl/core/command #:exit-condition #:exit-condition-exit-info)
   (:import-from :shcl/core/exit-info
    #:truthy-exit-info #:exit-info-code #:exit-info-p)
+  (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
   (:import-from :shcl/shell/lisp-repl)
   (:import-from :shcl/core/parser #:abort-parse)
   (:import-from :shcl/shell/prompt
    #:with-history #:history-enter #:history-set-size #:make-editline-stream
-   #:interpret-env-to-string)
+   #:interpret-prompt-string)
   (:import-from :uiop)
   (:import-from :swank)
   (:import-from :fset)
@@ -69,11 +70,14 @@ should be displayed.")
 
 (defun default-prompt ()
   (if *fresh-prompt*
-    (or
-      (interpret-env-to-string "PS1")
-      "shcl> ")
-    (or (interpret-env-to-string "PS2")
-        "> ")))
+      (multiple-value-bind (value found) (env "PS1")
+        (if found
+            (interpret-prompt-string value)
+            "shcl> "))
+      (multiple-value-bind (value found) (env "PS2")
+        (if found
+            (interpret-prompt-string value)
+            "> "))))
 
 (defvar *prompt-function* 'default-prompt)
 
