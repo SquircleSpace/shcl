@@ -670,7 +670,7 @@ the editline library."
 (defun interpret-env-to-string (var &optional (shell-compat :bash))
   "Provide some level of bash compatibility."
   (with-output-to-string (*standard-output*)
-    (with-input-from-string (*standard-input* (shcl/core/environment:env var))
+    (with-input-from-string (*standard-input* (env var))
       (loop for ch = (read-char *standard-input* nil nil)
             while ch
             if (eql ch #\\)
