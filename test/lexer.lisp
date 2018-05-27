@@ -1,10 +1,9 @@
 (defpackage :shcl/test/lexer
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lexer :shcl/core/shell-readtable))
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lexer
+        :shcl/core/shell-readtable :shcl/test/foundation))
 (in-package :shcl/test/lexer)
 
 (optimization-settings)
-
-(plan 3)
 
 (defun lexes-to-token-types (string &rest tokens)
   (let ((real-tokens (tokenize string)))
@@ -16,7 +15,7 @@
        (return-from lexes-to-token-types nil))))
   t)
 
-(deftest basics
+(define-test basics
   (ok (lexes-to-token-types "foobar" 'simple-word))
   (ok (lexes-to-token-types "foo$(bar)" 'compound-word))
   (ok (lexes-to-token-types "FOO=bar" 'assignment-word))
@@ -40,7 +39,7 @@
   (ok (lexes-to-token-types "$1" 'variable-expansion-word))
   (ok (lexes-to-token-types "some words # and the rest" 'simple-word 'simple-word)))
 
-(deftest word-boundaries
+(define-test word-boundaries
   (ok (lexes-to-token-types (format nil "spaces    seperate  ~C   words  " #\tab) 'simple-word 'simple-word 'simple-word))
   (ok (lexes-to-token-types ">new-word" 'great 'simple-word))
   (ok (lexes-to-token-types "word>" 'simple-word 'great))
@@ -55,7 +54,7 @@
 (defun make-form (value)
   (make-instance 'form-token :form value))
 
-(deftest extensible-reading
+(define-test extensible-reading
   (let* ((readtable +standard-shell-readtable+)
          (stream (make-string-input-stream "[(+ 1 2 3)#,\"asdf\"#.stuff"))
          hash-hit

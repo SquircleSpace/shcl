@@ -1,13 +1,11 @@
 (defpackage :shcl/test/iterator
-  (:use :common-lisp :prove :shcl/core/iterator)
+  (:use :common-lisp :prove :shcl/core/iterator :shcl/test/foundation)
   (:import-from :shcl/core/utility #:optimization-settings))
 (in-package :shcl/test/iterator)
 
 (optimization-settings)
 
-(plan 2)
-
-(deftest iterator-tests
+(define-test iterator-tests
   (let* ((vector #(1 2 3 4 5))
          (list '(a b c d e))
          (seq (fset:seq 'q 'w 'e 'r))
@@ -24,7 +22,7 @@
         (fset:convert 'list seq)
         :test #'equal)))
 
-(deftest lookahead-iterator-tests
+(define-test lookahead-iterator-tests
   (let* ((count 5)
          (iter (make-iterator (:type 'lookahead-iterator)
                  (when (equal 0 count)

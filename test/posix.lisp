@@ -1,12 +1,11 @@
 (defpackage :shcl/test/posix
-  (:use :common-lisp :prove :cffi :shcl/core/utility :shcl/core/posix)
+  (:use :common-lisp :prove :cffi :shcl/core/utility :shcl/core/posix
+        :shcl/test/foundation)
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
   (:import-from :shcl/core/fd-table #:with-private-fds))
 (in-package :shcl/test/posix)
 
 (optimization-settings)
-
-(plan 1)
 
 (defcfun (opendir "opendir") dir-ptr
   (name :string))
@@ -79,7 +78,7 @@
          (finish-output *standard-output*)
          (_exit 1))))))
 
-(deftest fds
+(define-test fds
   (block fds
     (cl-fad:with-open-temporary-file (s)
       (let ((path (pathname s)))

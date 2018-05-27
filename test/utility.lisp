@@ -1,15 +1,13 @@
 (defpackage :shcl/test/utility
-  (:use :common-lisp :prove :shcl/core/utility))
+  (:use :common-lisp :prove :shcl/core/utility :shcl/test/foundation))
 (in-package :shcl/test/utility)
 
 (optimization-settings)
 
-(plan 5)
-
 (defparameter *value* 0)
 (define-once-global test-global (incf *value*))
 
-(deftest once-global
+(define-test once-global
   (is 1 test-global)
   (is 1 test-global)
   (is 1 *value*))
@@ -22,7 +20,7 @@
 
 (define-hook test-hook)
 
-(deftest hooks
+(define-test hooks
   (define-hook test-hook)
   (add-hook test-hook 'signals-test)
   (is-condition (run-hook test-hook) test-condition)
@@ -34,7 +32,7 @@
   (handler-case (progn (run-hook test-hook) (pass "No signal expected"))
     (test-condition () (fail "Unexpected signal"))))
 
-(deftest when-let-tests
+(define-test when-let-tests
   (is (when-let ((a (+ 1 2))
                  (b (format nil "asdf"))
                  (c (not 'not))
@@ -49,14 +47,14 @@
         (is c t)
         (and a b c))))
 
-(deftest try-tests
+(define-test try-tests
   (is
    (try (progn (throw 'baz 123))
      (bap () 'xyz)
      (baz (value) (is value 123 :test #'equal) 'foobar))
    'foobar))
 
-(deftest threading-macros
+(define-test threading-macros
   (is-expand (-> 0 (+ 1) (abs) #'-)
              (as-> 0 $ (+ $ 1) (abs $) (funcall #'- $))
              "-> works")

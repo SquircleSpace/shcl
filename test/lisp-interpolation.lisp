@@ -1,11 +1,10 @@
 (defpackage :shcl/test/lisp-interpolation
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lisp-interpolation :shcl/core/exit-info :shcl/core/command)
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/lisp-interpolation
+        :shcl/core/exit-info :shcl/core/command :shcl/test/foundation)
   (:shadow #:run))
 (in-package :shcl/test/lisp-interpolation)
 
 (optimization-settings)
-
-(plan 10)
 
 (defun shell (str)
   (evaluate-shell-string str))
@@ -51,7 +50,7 @@
        (evaluate-shell-string s))
       (or description (format nil "Command exited with code 0: ~A" s))))
 
-(deftest check-result
+(define-test check-result
   (exit-ok
    (shell "true")
    "True is true")
@@ -74,7 +73,7 @@
            (fail "exit-failure signal is expected"))
          result)))))
 
-(deftest capture
+(define-test capture
   (is (capture (:streams '(:stdout)) (shell "echo   \f'o'\"o\"   "))
       (format nil "foo~%")
       :test #'equal
@@ -84,7 +83,7 @@
       :test #'equal
       "Capturing works for slightly more complex strings"))
 
-(deftest splice
+(define-test splice
   (let ((lexical-variable "ABC"))
     (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "echo ,lexical-variable" :readtable *splice-table*))
         (format nil "ABC~%")
@@ -103,13 +102,13 @@
         :test #'equal
         "Splicing a lexical seq works")))
 
-(deftest test-infrastructure
+(define-test test-infrastructure
   (run "-shcl-assert-equal 0 0"
        "Equality comparison works")
   (run "-shcl-assert-unequal 1 0"
        "Inequality comparison works"))
 
-(deftest variables
+(define-test variables
   (run "FOO=123 ; -shcl-assert-equal \"$FOO\" 123"
        "$variable expansion works")
   (run "FOO=123 ; -shcl-assert-equal \"${FOO}\" 123"
@@ -117,7 +116,7 @@
   (run "FOO=123 ; -shcl-assert-equal ${#FOO} 3"
        "${#variable} expansion works"))
 
-(deftest for-loops
+(define-test for-loops
   (run "-shcl-assert-equal '' \"$(for VAR in ; do
 echo $VAR
 done)\""
@@ -136,7 +135,7 @@ echo $VAR
 done)"
        "For loops over non-empty lists work"))
 
-(deftest if
+(define-test if
   (exit-fail
    (shell "if true ; then true ; false ; fi")
    "Last exit code of then block is exit code of if")
@@ -160,20 +159,20 @@ done)"
       :test #'equal
       "Only the elif branch runs"))
 
-(deftest bang
+(define-test bang
   (exit-fail
    (shell "! true"))
   (exit-ok
    (shell "! false")))
 
-(deftest while
+(define-test while
     (let ((count 0))
       (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
           (format nil "1~%2~%3~%")
           :test #'equal
           "Basic while loop test")))
 
-(deftest empty
+(define-test empty
   (exit-ok
    (shell "")
    "Empty string is truthy")

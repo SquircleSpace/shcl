@@ -1,15 +1,14 @@
 (defpackage :shcl/test/environment
-  (:use :common-lisp :prove :shcl/core/utility :shcl/core/environment))
+  (:use :common-lisp :prove :shcl/core/utility :shcl/core/environment
+        :shcl/test/foundation))
 (in-package :shcl/test/environment)
 
 (optimization-settings)
 
-(plan 1)
-
 (defun contains-p (key)
   (nth-value 1 (env key)))
 
-(deftest basics
+(define-test basics
   (let ((*environment* *environment*))
     (clear-environment)
     (ok (not (contains-p "foo")))

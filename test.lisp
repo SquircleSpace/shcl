@@ -25,7 +25,7 @@
           (uiop:quit 1)))))
   (asdf:load-system :shcl/test/main)
 
-  (let* ((run-tests-sym (intern "RUN-TESTS" (find-package "SHCL/TEST/MAIN")))
+  (let* ((run-tests-sym (intern "RUN-ALL-TESTS" (find-package "SHCL/TEST/MAIN")))
          (interactive-p (interactive-stream-p *standard-output*))
          (target-file (uiop:getenv "TEST_OUTPUT"))
          (stream
