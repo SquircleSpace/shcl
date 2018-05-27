@@ -1,7 +1,7 @@
-(defpackage :shcl-test/data
+(defpackage :shcl/test/data
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/data)
   (:import-from :fset))
-(in-package :shcl-test/data)
+(in-package :shcl/test/data)
 
 (optimization-settings)
 

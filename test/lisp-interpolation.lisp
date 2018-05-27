@@ -1,7 +1,7 @@
-(defpackage :shcl-test/lisp-interpolation
+(defpackage :shcl/test/lisp-interpolation
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/lisp-interpolation :shcl/core/exit-info :shcl/core/command)
   (:shadow #:run))
-(in-package :shcl-test/lisp-interpolation)
+(in-package :shcl/test/lisp-interpolation)
 
 (optimization-settings)
 

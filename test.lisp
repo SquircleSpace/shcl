@@ -15,8 +15,7 @@
 (declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
 
 (let ((here (truename ".")))
-  (push here asdf:*central-registry*)
-  (push (merge-pathnames #P"test/" here) asdf:*central-registry*))
+  (push here asdf:*central-registry*))
 
 (handler-bind
     ((error
@@ -24,9 +23,9 @@
         (unless (interactive-stream-p *standard-output*)
           (format *error-output* "Fatal error: ~A~%" c)
           (uiop:quit 1)))))
-  (asdf:load-system :shcl-test)
+  (asdf:load-system :shcl/test/main)
 
-  (let* ((run-tests-sym (intern "RUN-TESTS" (find-package "SHCL-TEST/MAIN")))
+  (let* ((run-tests-sym (intern "RUN-TESTS" (find-package "SHCL/TEST/MAIN")))
          (interactive-p (interactive-stream-p *standard-output*))
          (target-file (uiop:getenv "TEST_OUTPUT"))
          (stream

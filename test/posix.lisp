@@ -1,8 +1,8 @@
-(defpackage :shcl-test/posix
+(defpackage :shcl/test/posix
   (:use :common-lisp :prove :cffi :shcl/core/utility :shcl/core/posix)
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
   (:import-from :shcl/core/fd-table #:with-private-fds))
-(in-package :shcl-test/posix)
+(in-package :shcl/test/posix)
 
 (optimization-settings)
 
