@@ -14,7 +14,15 @@
 
 SHCL_DEBUG=
 
-SHCL_DEPENDS= core/*.lisp shell/*.lisp shcl.asd libshcl-support.so make.lisp
+ifeq ("$(shell uname -s)","Darwin")
+LIBSHCL_SUPPORT=libshcl-support.dylib
+endif
+
+ifeq ("$(shell uname -s)","Linux")
+LIBSHCL_SUPPORT=libshcl-support.so
+endif
+
+SHCL_DEPENDS= core/*.lisp shell/*.lisp shcl.asd ${LIBSHCL_SUPPORT} make.lisp
 SUPPORT_OBJS= core/support/macros.o core/support/spawn.o
 LISP=sbcl
 
@@ -26,7 +34,7 @@ all: shcl
 core/support/spawn.o: core/support/spawn.c core/support/spawn.h Makefile
 	clang -fPIC -o $@ -c $<
 
-libshcl-support.so: ${SUPPORT_OBJS} Makefile
+$(LIBSHCL_SUPPORT): ${SUPPORT_OBJS} Makefile
 	clang -shared -o $@ ${SUPPORT_OBJS}
 
 shcl: ${SHCL_DEPENDS} Makefile

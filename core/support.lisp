@@ -25,6 +25,7 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (define-foreign-library shcl-support
+    (:darwin (:default "libshcl-support") :search-path ".")
     (:linux (:default "libshcl-support") :search-path ".")))
 
 (use-foreign-library shcl-support)
