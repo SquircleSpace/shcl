@@ -20,7 +20,7 @@
   (:import-from :fset)
   (:export
    ;; High-level access
-   #:env #:env-exported-p
+   #:env #:env-exported-p #:env-readonly-p
    ;; Utility
    #:linearized-exported-environment #:with-environment-scope
    #:colon-list-iterator #:clear-environment #:reset-environment
@@ -30,7 +30,7 @@
    ;; Low-level access
    #:environment-binding #:environment-binding-value
    #:environment-binding-exported-p #:default-environment-binding
-   #:do-environment-bindings))
+   #:environment-binding-readonly-p #:do-environment-bindings))
 (in-package :shcl/core/environment)
 
 (optimization-settings)
@@ -53,7 +53,15 @@
     :type boolean
     :documentation
     "A boolean indicating whether this binding should be shared with
-spawned processes."))
+spawned processes.")
+   (readonly-p
+    :initarg :readonly-p
+    :initform nil
+    :updater environment-binding-readonly-p
+    :type boolean
+    :documentation
+    "A boolean indicating whether this binding's value should be
+readonly or not."))
   (:documentation
    "Everything there is to know about an environment variable."))
 
@@ -156,12 +164,25 @@ forms."
         (values (environment-binding-value entry) t)
         (values default nil))))
 
+(define-condition readonly-violation (error)
+  ((variable
+    :initarg :variable
+    :reader readonly-violation-variable
+    :initform (required)))
+  (:report (lambda (c s)
+             (format s "Cannot change value for readonly variable ~S"
+                     (readonly-violation-variable c)))))
+
 (defun %set-env (key value default)
   "The brains of `(setf env)'."
   (declare (ignore default))
   ;; We only take in a default so that (setf env) can pass it to us
   ;; (and thus mark the default as "used") to supress warnings.
-  (setf (environment-binding-value (environment-binding key)) value)
+  (let ((binding (environment-binding key)))
+    (when (environment-binding-readonly-p binding)
+      (error 'readonly-violation :variable key))
+    (setf (environment-binding-value binding) value)
+    (setf (environment-binding key) binding))
   value)
 
 (defsetf env (key &optional default) (value)
@@ -173,6 +194,14 @@ forms."
 
 (defun (setf env-exported-p) (value key)
   (setf (environment-binding-exported-p (environment-binding key))
+        (not (not value)))
+  value)
+
+(defun env-readonly-p (key)
+  (environment-binding-readonly-p (environment-binding key)))
+
+(defun (setf env-readonly-p) (value key)
+  (setf (environment-binding-readonly-p (environment-binding key))
         (not (not value)))
   value)
 

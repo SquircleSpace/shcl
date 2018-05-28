@@ -30,7 +30,7 @@
   (:import-from :shcl/core/posix #:waitpid)
   (:import-from :shcl/core/environment #:linearized-exported-environment
                 #:do-environment-bindings #:environment-binding-exported-p
-                #:environment-binding-value
+                #:environment-binding-value #:environment-binding-readonly-p
                 #:deconstruct-environment-assignment-string)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/core/fork-exec #:run)
@@ -844,14 +844,12 @@ automatically.")
          (write-char char output)))
   (format output "'"))
 
-(defun print-environment-command-for-binding (key binding &optional (output *standard-output*))
+(defun print-environment-assignment-for-binding (key binding &optional (output *standard-output*))
   (let* ((value (environment-binding-value binding)))
-    (format output "export ")
     (print-escaped key output)
     (when value
       (format output "=")
-      (print-escaped value output))
-    (format output "~%"))
+      (print-escaped value output)))
   (values))
 
 (define-special-builtin (builtin-export "export") (&flag (print "-p") &rest args)
@@ -871,15 +869,38 @@ automatically.")
 
      (do-environment-bindings (key binding)
        (when (environment-binding-exported-p binding)
-         (print-environment-command-for-binding key binding)))
+         (format *standard-output* "export ")
+         (print-environment-assignment-for-binding key binding *standard-output*)
+         (format *standard-output* "~%")))
      0)
 
     (otherwise
      (error 'command-error :message "-p argument cannot be specified multiple times"))))
 
-(define-special-builtin readonly (&rest args)
-  (declare (ignore args))
-  (error 'not-implemented :feature "readonly"))
+(define-special-builtin readonly (&flag (print "-p") &rest args)
+  (case (length print)
+    (0
+     (dolist (arg args)
+       (multiple-value-bind (var value)
+           (deconstruct-environment-assignment-string arg :if-no-assignment nil)
+         (when value
+           (setf (shcl/core/environment:env var) value))
+         (setf (shcl/core/environment:env-readonly-p var) t)))
+     0)
+
+    (1
+     (when args
+       (error 'command-error :message "-p argument cannot be followed by positional arguments"))
+
+     (do-environment-bindings (key binding)
+       (when (environment-binding-readonly-p binding)
+         (format *standard-output* "readonly ")
+         (print-environment-assignment-for-binding key binding *standard-output*)
+         (format *standard-output* "~%")))
+     0)
+
+    (otherwise
+     (error 'command-error :message "-p argument cannot be specified multiple times"))))
 
 (define-special-builtin (builtin-return "return") (&rest args)
   (declare (ignore args))
