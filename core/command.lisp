@@ -28,7 +28,10 @@
                 #:wstopsig)
   (:import-from :shcl/core/posix-types #:wuntraced)
   (:import-from :shcl/core/posix #:waitpid)
-  (:import-from :shcl/core/environment #:linearized-exported-environment)
+  (:import-from :shcl/core/environment #:linearized-exported-environment
+                #:do-environment-bindings #:environment-binding-exported-p
+                #:environment-binding-value
+                #:deconstruct-environment-assignment-string)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/core/fork-exec #:run)
   (:import-from :shcl/core/shell-environment #:with-subshell
@@ -830,9 +833,49 @@ automatically.")
   (let ((exit-info (ensure-exit-info exit-status)))
     (error 'exit-condition :exit-info exit-info)))
 
-(define-special-builtin (builtin-export "export") (&rest args)
-  (declare (ignore args))
-  (error 'not-implemented :feature "export"))
+(defun print-escaped (str &optional (output *standard-output*))
+  ;; We're supposed to escape the strings so that they can be read
+  ;; again, but we don't know what readtable is in use.  We're
+  ;; going to assume that its normal-ish.
+  (format output "'")
+  (loop :for char :across str :do
+     (if (equal char #\')
+         (format output "'\\''")
+         (write-char char output)))
+  (format output "'"))
+
+(defun print-environment-command-for-binding (key binding &optional (output *standard-output*))
+  (let* ((value (environment-binding-value binding)))
+    (format output "export ")
+    (print-escaped key output)
+    (when value
+      (format output "=")
+      (print-escaped value output))
+    (format output "~%"))
+  (values))
+
+(define-special-builtin (builtin-export "export") (&flag (print "-p") &rest args)
+  (case (length print)
+    (0
+     (dolist (arg args)
+       (multiple-value-bind (var value)
+           (deconstruct-environment-assignment-string arg :if-no-assignment nil)
+         (when value
+           (setf (shcl/core/environment:env var) value))
+         (setf (shcl/core/environment:env-exported-p var) t)))
+     0)
+
+    (1
+     (when args
+       (error 'command-error :message "-p argument cannot be followed by positional arguments"))
+
+     (do-environment-bindings (key binding)
+       (when (environment-binding-exported-p binding)
+         (print-environment-command-for-binding key binding)))
+     0)
+
+    (otherwise
+     (error 'command-error :message "-p argument cannot be specified multiple times"))))
 
 (define-special-builtin readonly (&rest args)
   (declare (ignore args))

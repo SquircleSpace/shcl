@@ -29,7 +29,8 @@
    #:$ifs #:$path #:$cdpath #:$pwd #:$oldpwd #:$home
    ;; Low-level access
    #:environment-binding #:environment-binding-value
-   #:environment-binding-exported-p #:default-environment-binding))
+   #:environment-binding-exported-p #:default-environment-binding
+   #:do-environment-bindings))
 (in-package :shcl/core/environment)
 
 (optimization-settings)
@@ -74,15 +75,19 @@ spawned processes."))
                (not (find #\= variable-name)))
     (error 'invalid-environment-variable :name variable-name)))
 
-(defun deconstruct-environment-assignment-string (binding)
+(defun deconstruct-environment-assignment-string (binding &key (if-no-assignment :error))
   "Parse a string describing an environment assignment.
 
 Returns two values: the variable name and the value."
+  (check-type if-no-assignment (member :error nil))
   (let ((index (position #\= binding)))
-    (unless index
+    (when (and (eq :error if-no-assignment)
+               (not index))
       (error "Invalid environment binding string: ~A" binding))
-    (let ((var (subseq binding 0 index))
-          (value (subseq binding (1+ index))))
+    (let ((var (if index
+                   (subseq binding 0 index)
+                   binding))
+          (value (when index (subseq binding (1+ index)))))
       (check-valid-environment-variable-name var)
       (values var value))))
 
@@ -139,6 +144,10 @@ forms."
   (if (eq :equal (fset:compare value (default-environment-binding)))
       (setf *environment* (fset:less *environment* key))
       (setf (fset:lookup *environment* key) value)))
+
+(defmacro do-environment-bindings ((key binding) &body body)
+  `(fset:do-map (,key ,binding *environment*)
+     ,@body))
 
 (defun env (key &optional (default *env-default*))
   "Look up the given variable in the current environment."
