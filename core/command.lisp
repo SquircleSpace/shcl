@@ -28,7 +28,8 @@
                 #:wstopsig)
   (:import-from :shcl/core/posix-types #:wuntraced)
   (:import-from :shcl/core/posix #:waitpid)
-  (:import-from :shcl/core/environment #:*environment* #:linearized-exported-environment)
+  (:import-from :shcl/core/environment #:*environment* #:linearized-exported-environment
+                #:deconstruct-environment-binding #:set-env #:export-variable)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/core/fork-exec #:run)
   (:import-from :shcl/core/shell-environment #:with-subshell
@@ -831,8 +832,13 @@ automatically.")
     (error 'exit-condition :exit-info exit-info)))
 
 (define-special-builtin (builtin-export "export") (&rest args)
-  (declare (ignore args))
-  (error 'not-implemented :feature "export"))
+  (loop for arg in args
+        do (multiple-value-bind (key value found?) 
+               (deconstruct-environment-binding arg :error-p nil)
+             (if found?
+               (set-env key value))
+             (export-variable key)))
+  0)
 
 (define-special-builtin readonly (&rest args)
   (declare (ignore args))
@@ -842,9 +848,16 @@ automatically.")
   (declare (ignore args))
   (error 'not-implemented :feature "return"))
 
+;; TODO: commandline args, options
+;; TODO: non-exported as well?
+;; TODO: quoting, fix non-printable characters?
 (define-special-builtin (builtin-set "set") (&rest args)
+  "List all the exported variables."
   (declare (ignore args))
-  (error 'not-implemented :feature "set"))
+  (fset:do-seq (val (fset:sort (linearized-exported-environment)
+                               #'string<))
+    (format t "~a~%" val))
+  0)
 
 (define-special-builtin shift (&rest args)
   (declare (ignore args))
