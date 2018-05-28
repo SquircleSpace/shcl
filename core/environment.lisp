@@ -16,12 +16,20 @@
   (:use
    :common-lisp :shcl/core/utility :shcl/core/posix :shcl/core/shell-environment
    :shcl/core/iterator)
+  (:import-from :shcl/core/data #:define-data)
   (:import-from :fset)
   (:export
-   #:*environment* #:linearized-exported-environment #:with-environment-scope
-   #:env #:export-variable #:unexport-variable #:clear-environment #:exported-p
-   #:unset-env #:colon-list-iterator
-   #:$ifs #:$path #:$cdpath #:$pwd #:$oldpwd #:$home))
+   ;; High-level access
+   #:env #:env-exported-p
+   ;; Utility
+   #:linearized-exported-environment #:with-environment-scope
+   #:colon-list-iterator #:clear-environment #:reset-environment
+   #:deconstruct-environment-assignment-string
+   ;; Common environment variables
+   #:$ifs #:$path #:$cdpath #:$pwd #:$oldpwd #:$home
+   ;; Low-level access
+   #:environment-binding #:environment-binding-value
+   #:environment-binding-exported-p #:default-environment-binding))
 (in-package :shcl/core/environment)
 
 (optimization-settings)
@@ -29,18 +37,18 @@
 (defparameter *env-default* ""
   "The value of unset environment variables.")
 
-(defclass environment-binding ()
+(define-data environment-binding ()
   ((value
     :initarg :value
-    :initform *env-default*
-    :accessor environment-binding-value
-    :type string
+    :initform nil
+    :updater environment-binding-value
+    :type (or null string)
     :documentation
     "The string value which this environment variable is bound to.")
    (exported-p
     :initarg :exported
     :initform nil
-    :accessor environment-binding-exported-p
+    :updater environment-binding-exported-p
     :type boolean
     :documentation
     "A boolean indicating whether this binding should be shared with
@@ -51,25 +59,39 @@ spawned processes."))
 (defparameter *env-default-binding* (make-instance 'environment-binding)
   "The default state for an environment binding.")
 
-(defun deconstruct-environment-binding (binding)
-  "Parse a string describing an environment binding.
+(define-condition invalid-environment-variable (error)
+  ((name
+    :initarg :name
+    :reader invalid-environment-variable-name
+    :initform (required)))
+  (:report (lambda (c s)
+             (format s "Variable name ~S is invalid.  It must be a non-empty string and cannot contain #\="
+                     (invalid-environment-variable-name c)))))
+
+(defun check-valid-environment-variable-name (variable-name)
+  (unless (and (stringp variable-name)
+               (plusp (length variable-name))
+               (not (find #\= variable-name)))
+    (error 'invalid-environment-variable :name variable-name)))
+
+(defun deconstruct-environment-assignment-string (binding)
+  "Parse a string describing an environment assignment.
 
 Returns two values: the variable name and the value."
-  (let (index)
-    (loop :for i :below (length binding) :do
-       (when (equal (aref binding i) #\=)
-         (setf index i)
-         (return)))
+  (let ((index (position #\= binding)))
     (unless index
       (error "Invalid environment binding string: ~A" binding))
-    (values (subseq binding 0 index) (subseq binding (1+ index)))))
+    (let ((var (subseq binding 0 index))
+          (value (subseq binding (1+ index))))
+      (check-valid-environment-variable-name var)
+      (values var value))))
 
 (defun environment-to-map ()
   "Translate the posix environment of the current process into a map
 suitable for storing in `*environment*'."
   (let ((map (fset:empty-map *env-default-binding*)))
     (do-iterator (binding (environment-iterator))
-      (multiple-value-bind (key value) (deconstruct-environment-binding binding)
+      (multiple-value-bind (key value) (deconstruct-environment-assignment-string binding)
         (setf map (fset:with map key (make-instance 'environment-binding
                                                     :value value
                                                     :exported t)))))
@@ -81,20 +103,24 @@ suitable for storing in `*environment*'."
 (on-dump clear-environment)
 (preserve-special-variable '*environment*)
 
+(defun default-environment-binding ()
+  (fset:map-default *environment*))
+
 (defun reset-environment ()
   "Set `*environment*' based on the current posix environment."
   (setf *environment* (environment-to-map)))
 
 (defun clear-environment ()
   "Empty out `*environment*'."
-  (setf *environment* (fset:empty-map)))
+  (setf *environment* (fset:empty-map *env-default-binding*)))
 
 (defun linearized-exported-environment (&optional (environment *environment*))
   "Produce a sequence containing all the exported environment binding
 strings."
   (let ((result (fset:empty-seq)))
     (fset:do-map (key value environment)
-      (when (environment-binding-exported-p value)
+      (when (and (environment-binding-exported-p value)
+                 (environment-binding-value value))
         (fset:push-last result (concatenate 'string key "=" (environment-binding-value value)))))
     result))
 
@@ -104,54 +130,42 @@ forms."
   `(let ((*environment* ,environment))
      ,@body))
 
+(defun environment-binding (key)
+  (nth-value 0 (fset:lookup *environment* key)))
+
+(defun (setf environment-binding) (value key)
+  (check-type value environment-binding)
+  (check-valid-environment-variable-name key)
+  (if (eq :equal (fset:compare value (default-environment-binding)))
+      (setf *environment* (fset:less *environment* key))
+      (setf (fset:lookup *environment* key) value)))
+
 (defun env (key &optional (default *env-default*))
   "Look up the given variable in the current environment."
-  (multiple-value-bind (entry found) (fset:lookup *environment* key)
-    (if found
+  (let ((entry (environment-binding key)))
+    (if (environment-binding-value entry)
         (values (environment-binding-value entry) t)
         (values default nil))))
 
-(defun exported-p (key)
-  "Returns t iff the variable named by `key' should be exported."
-  (let ((entry (fset:lookup *environment* key)))
-    (when entry
-      (environment-binding-exported-p entry))))
-
 (defun %set-env (key value default)
-  "The brains of `set-env' and `(setf env)'."
+  "The brains of `(setf env)'."
   (declare (ignore default))
   ;; We only take in a default so that (setf env) can pass it to us
   ;; (and thus mark the default as "used") to supress warnings.
-  (setf *environment* (fset:with *environment* key
-                                 (make-instance 'environment-binding
-                                                :value value
-                                                :exported (exported-p key))))
+  (setf (environment-binding-value (environment-binding key)) value)
   value)
-
-(defun set-env (key value)
-  "Change the environment by changing the value associated with a
-given key."
-  (%set-env key value nil))
 
 (defsetf env (key &optional default) (value)
   "Set an environment variable."
   `(%set-env ,key ,value ,default))
 
-(defun unset-env (key)
-  "Remove the variable with the given name from the environment."
-  (setf *environment* (fset:less *environment* key)))
+(defun env-exported-p (key)
+  (environment-binding-exported-p (environment-binding key)))
 
-(defun export-variable (key)
-  "Make the variable with the given name exported."
-  (setf (fset:lookup *environment* key) (make-instance 'environment-binding
-                                                       :value (env key)
-                                                       :exported t)))
-
-(defun unexport-variable (key)
-  "Make the variable with the given name not exported."
-  (setf (fset:lookup *environment* key) (make-instance 'environment-binding
-                                                       :value (env key)
-                                                       :exported nil)))
+(defun (setf env-exported-p) (value key)
+  (setf (environment-binding-exported-p (environment-binding key))
+        (not (not value)))
+  value)
 
 (defun colon-list-iterator (string)
   "This function interprets `string' as a #\: delimited list and

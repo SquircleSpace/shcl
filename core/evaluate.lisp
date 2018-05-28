@@ -16,8 +16,8 @@
   (:use
    :common-lisp :alexandria :bordeaux-threads
    :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer
-   :shcl/core/expand :shcl/core/environment
-   :shcl/core/posix :shcl/core/posix-types :shcl/core/exit-info :shcl/core/fd-table
+   :shcl/core/expand :shcl/core/posix :shcl/core/posix-types
+   :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/iterator)
   (:import-from :shcl/core/shell-form #:shell #:& #:lisp #:! #:run)
   (:import-from :shcl/core/baking #:bake-form)

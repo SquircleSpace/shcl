@@ -70,13 +70,13 @@ should be displayed.")
 
 (defun default-prompt ()
   (if *fresh-prompt*
-      (multiple-value-bind (value found) (env "PS1")
-        (if found
-            (interpret-prompt-string value)
+      (let ((ps1 (env "PS1" nil)))
+        (if ps1
+            (interpret-prompt-string ps1)
             "shcl> "))
-      (multiple-value-bind (value found) (env "PS2")
-        (if found
-            (interpret-prompt-string value)
+      (let ((ps2 (env "PS2" nil)))
+        (if ps2
+            (interpret-prompt-string ps2)
             "> "))))
 
 (defvar *prompt-function* 'default-prompt)

@@ -15,15 +15,15 @@
 
     (setf (env "foo") "bar")
     (ok (equal (env "foo") "bar"))
-    (ok (not (exported-p "foo")))
+    (ok (not (env-exported-p "foo")))
 
-    (export-variable "foo")
-    (ok (exported-p "foo"))
+    (setf (env-exported-p "foo") t)
+    (ok (env-exported-p "foo"))
 
-    (unexport-variable "foo")
-    (ok (not (exported-p "foo")))
+    (setf (env-exported-p "foo") nil)
+    (ok (not (env-exported-p "foo")))
 
-    (unset-env "foo")
+    (setf (env "foo") nil)
     (ok (not (contains-p "foo")))
 
     (setf (env "not_exported") "value")
@@ -32,7 +32,7 @@
       (ok (equal (env "bar") "baz"))
       (export-variable "not_exported"))
     (ok (not (contains-p "bar")))
-    (ok (not (exported-p "not_exported")))
+    (ok (not (env-exported-p "not_exported")))
 
     (setf $path "path")
     (ok (equal $path "path"))))

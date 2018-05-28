@@ -28,7 +28,7 @@
                 #:wstopsig)
   (:import-from :shcl/core/posix-types #:wuntraced)
   (:import-from :shcl/core/posix #:waitpid)
-  (:import-from :shcl/core/environment #:*environment* #:linearized-exported-environment)
+  (:import-from :shcl/core/environment #:linearized-exported-environment)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/core/fork-exec #:run)
   (:import-from :shcl/core/shell-environment #:with-subshell
@@ -210,7 +210,7 @@ invoke a binary instead of a builtin."
       (run args
            :fd-alist bindings
            :managed-fds fds
-           :environment (linearized-exported-environment *environment*)
+           :environment (linearized-exported-environment)
            :working-directory-fd (fd-wrapper-value (get-fd-current-working-directory))))))
 
 (defmethod invoke-command ((command binary) environment-modifier &rest args)

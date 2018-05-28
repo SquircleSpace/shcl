@@ -17,7 +17,6 @@
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
   (:import-from :shcl/core/command #:define-builtin)
-  (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/posix #:file-ptr)
   (:import-from :shcl/shell/directory #:physical-pwd)
   (:import-from

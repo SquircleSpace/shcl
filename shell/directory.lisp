@@ -15,8 +15,10 @@
 (defpackage :shcl/shell/directory
   (:use
    :common-lisp :cffi :shcl/core/utility :shcl/core/iterator :shcl/core/command
-   :shcl/core/environment :shcl/core/working-directory :shcl/core/fd-table
-   :shcl/core/lisp-interpolation :shcl/core/posix :shcl/core/posix-types))
+   :shcl/core/working-directory :shcl/core/fd-table
+   :shcl/core/lisp-interpolation :shcl/core/posix :shcl/core/posix-types)
+  (:import-from :shcl/core/environment #:env #:$pwd #:$oldpwd #:$home
+                #:$cdpath #:colon-list-iterator))
 (in-package :shcl/shell/directory)
 
 (optimization-settings)
