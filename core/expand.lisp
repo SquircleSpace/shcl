@@ -14,7 +14,7 @@
 
 (defpackage :shcl/core/expand
   (:use
-   :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/environment
+   :common-lisp :shcl/core/utility :shcl/core/lexer
    :shcl/core/working-directory :shcl/core/iterator)
   (:import-from :fset)
   (:import-from :cl-ppcre #:create-scanner #:scan)
@@ -23,6 +23,7 @@
   (:import-from :shcl/core/posix-types #:dirent #:d-name)
   (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:retained-fd-openat #:fd-wrapper-release)
   (:import-from :shcl/core/exit-info #:exit-info)
+  (:import-from :shcl/core/environment #:env #:$ifs #:$home)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
    #:word-boundary #:*split-fields* #:split #:expand-1))
