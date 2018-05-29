@@ -60,9 +60,25 @@ and all of its subclasses"))
 
 (defun graph-dependencies (&key
                              (stream *standard-output*)
-                             (seed-package-name "shcl/shell/main")
+                             (seed-system-name "shcl/shell/main")
                              (include-predicate (constantly t))
                              (explore-predicate 'shcl-system-name-p))
+  "Produce a graph of ASDF system dependencies.
+
+This function walks the dependency tree and prints a graphviz
+description of the tree.
+
+`stream' is the output stream to write to.
+
+`seed-system-name' is the name of the system where the traversal
+should start.
+
+`include-predicate' is a function that is given a system name and
+returns non-nil if the system should be included in the graph.
+
+`explore-predicate' is a function that is given a system name and
+returns non-nil if the graph traversal should explore the dependencies
+of the named system."
   (format stream "digraph G {~%")
   (let ((visited (make-hash-table :test 'equal)))
     (labels
@@ -76,7 +92,7 @@ and all of its subclasses"))
                  (format stream "\"~A\" -> \"~A\"~%" name peer))
                (when (funcall explore-predicate peer)
                  (visit peer))))))
-      (visit seed-package-name)))
+      (visit seed-system-name)))
   (format stream "}~%"))
 
 (defparameter *intentionally-undocumented-packages*
