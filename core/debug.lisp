@@ -88,7 +88,7 @@ and all of its subclasses"))
 be documented."
   (when (fset:lookup *intentionally-undocumented-packages* package)
     (return-from documented-shcl-package-p nil))
-  (shcl-package-name-p (symbol-name package)))
+  (shcl-package-name-p (package-name package)))
 
 (defun symbol-documentation-types ()
   "Return an array of types of documentation a symbol can have.
