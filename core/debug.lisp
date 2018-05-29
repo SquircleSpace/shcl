@@ -15,6 +15,7 @@
 (defpackage :shcl/core/debug
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/utility :shcl/core/iterator)
+  (:import-from :shcl/core/command #:define-builtin)
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export
@@ -138,6 +139,20 @@ array `syms'."
     (do-iterator (package shcl-packages)
       (%undocumented-symbols-in-package package syms))
     syms))
+
+(define-builtin -shcl-undocumented-symbols (&option (package "-p"))
+  (let (syms)
+    (cond
+      ((zerop (length package))
+       (setf syms (undocumented-symbols)))
+      (t
+       (setf syms (make-extensible-vector))
+       (loop :for package-name :across package :do
+          (%undocumented-symbols-in-package (find-package package-name) syms))))
+    (loop :for sym :across syms :do
+       (format t "~A:~A~%" (package-name (symbol-package sym))
+               (symbol-name sym)))
+    0))
 
 (defclass verbose-echo-stream (fundamental-character-output-stream)
   ((output-stream
