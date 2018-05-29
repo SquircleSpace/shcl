@@ -51,18 +51,22 @@ spawned processes."))
 (defparameter *env-default-binding* (make-instance 'environment-binding)
   "The default state for an environment binding.")
 
-(defun deconstruct-environment-binding (binding)
+(defun deconstruct-environment-binding (binding &key (error-p t))
   "Parse a string describing an environment binding.
 
-Returns two values: the variable name and the value."
-  (let (index)
-    (loop :for i :below (length binding) :do
-       (when (equal (aref binding i) #\=)
-         (setf index i)
-         (return)))
-    (unless index
-      (error "Invalid environment binding string: ~A" binding))
-    (values (subseq binding 0 index) (subseq binding (1+ index)))))
+  Returns two values: the variable name and the value."
+  (let ((index (position #\= binding)))
+    (cond
+      (index
+       ;; All right
+       (values (subseq binding 0 index) (subseq binding (1+ index)) T))
+      (error-p
+       ;; No "=" found
+       (error "Invalid environment binding string: ~A" binding))
+      (T
+       ;; Don't throw an error, just return "not found" as third value;
+       ;; the "key" is the whole binding.
+       (values binding nil nil)))))
 
 (defun environment-to-map ()
   "Translate the posix environment of the current process into a map
