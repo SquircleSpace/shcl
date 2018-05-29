@@ -22,6 +22,15 @@
 #include <string.h>
 #include <errno.h>
 
+#ifdef __APPLE__
+static inline int clearenv(void)
+{
+  extern char **environ;
+  environ = NULL;
+  return 0;
+}
+#endif
+
 enum shcl_fd_action {
     shcl_fd_action_close,
     shcl_fd_action_dup2,
