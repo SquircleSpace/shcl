@@ -36,8 +36,7 @@
   (:import-from :swank)
   (:import-from :fset)
   (:export
-   #:main #:run-shell-commands-in-stream
-   #:default-prompt #:*prompt-function* #:*fresh-prompt*))
+   #:main #:default-prompt #:*prompt-function* #:*fresh-prompt*))
 (in-package :shcl/shell/main)
 
 (optimization-settings)
@@ -69,6 +68,10 @@ When nil, a prompt indicating that the previous line is incomplete
 should be displayed.")
 
 (defun default-prompt ()
+  "The default prompt function.
+
+If PS1 and PS2 are defined, they will be used as the prompt.
+Otherwise, this function uses a generic prompt."
   (if *fresh-prompt*
       (let ((ps1 (env "PS1" nil)))
         (if ps1
@@ -79,7 +82,10 @@ should be displayed.")
             (interpret-prompt-string ps2)
             "> "))))
 
-(defvar *prompt-function* 'default-prompt)
+(defvar *prompt-function* 'default-prompt
+  "A function which produces the shell's prompt.
+
+This function should return a string.  See also: `*fresh-prompt*'.")
 
 (defun main-prompt ()
   "Return the string which should be displayed as the prompt for the
