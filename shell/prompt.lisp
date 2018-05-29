@@ -128,6 +128,13 @@ the EL_PROMPT sub-routine of `el-set'."
 the EL_RPROMPT sub-routine of `el-set'."
   (el-set e +el-rprompt+ :pointer prompt-callback))
 
+(defun el-set-prompt-esc (e prompt-callback esc-char)
+  "A wrapper around `el-set' which provides a convenient way to use
+the EL_PROMPT_ESC sub-routine of `el-set'."
+  (el-set e +el-prompt-esc+ 
+          :pointer prompt-callback
+          :char (char-code esc-char)))
+
 (defun el-set-editor (e mode)
   "A wrapper around `el-set' which provides a convenient way to use
 the EL_EDITOR sub-routine of `el-set'."
@@ -229,6 +236,9 @@ object."))
   "This table provides a way to find the instance of the `editline'
 class corresponding to a given `editline-ptr'.")
 
+(defconstant +prompt-escape-char+ (code-char 3)
+             "The character used to start/stop literal sequences. See EL_PROMPT_ESC.")
+
 (defclass editline ()
   ((stdin
     :reader editline-stdin
@@ -313,7 +323,7 @@ encouraged to use `with-editline' to ensure the object is destroyed."
 
            (setf extra-prompt (foreign-string-alloc prompt))
            (setf extra-rprompt (foreign-string-alloc rprompt))
-           (el-set-prompt ptr (callback get-prompt))
+           (el-set-prompt-esc ptr (callback get-prompt) +prompt-escape-char+)
            (el-set-rprompt ptr (callback get-rprompt))
 
            (el-set-editor ptr editor)
@@ -654,11 +664,10 @@ the editline library."
   (princ (code-char #o33)))
 (defmethod escape-sequence ((shell (eql :bash))
                             (char (eql #\[)))
-  )
+  (princ +prompt-escape-char+))
 (defmethod escape-sequence ((shell (eql :bash))
                             (char (eql #\])))
-  )
-
+  (princ +prompt-escape-char+))
 
 ;; Default: copy escape sequence.
 (defmethod escape-sequence (shell char)
