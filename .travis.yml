@@ -1,13 +1,16 @@
 language: common-lisp
 sudo: required
+os:
+  - linux
+  - osx
 
 env:
   matrix:
     - LISP=sbcl-bin
 
 install:
-  - sudo apt-get install clang
-  - sudo apt-get install libedit-dev
+  - if [ "$TRAVIS_OS_NAME" = linux ]; then sudo apt-get install clang; fi
+  - if [ "$TRAVIS_OS_NAME" = linux ]; then sudo apt-get install libedit-dev; else brew install libedit; fi
   - curl -L https://raw.githubusercontent.com/snmsts/roswell/release/scripts/install-for-ci.sh | sh
 
 script:
