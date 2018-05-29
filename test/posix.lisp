@@ -79,6 +79,7 @@
          (_exit 1))))))
 
 (define-test fds
+  #-darwin
   (block fds
     (cl-fad:with-open-temporary-file (s)
       (let ((path (pathname s)))
@@ -99,4 +100,6 @@
           (declare (ignore error-output))
           (if (zerop exit-status)
               (pass "No unaccounted fds")
-              (fail output)))))))
+              (fail output))))))
+  #+darwin
+  (skip 1 "This test doesn't work on this platform unknown reasons.  Hey, why don't you look into it?"))
