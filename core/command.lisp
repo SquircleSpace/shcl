@@ -907,8 +907,19 @@ automatically.")
   (error 'not-implemented :feature "return"))
 
 (define-special-builtin (builtin-set "set") (&rest args)
-  (declare (ignore args))
-  (error 'not-implemented :feature "set"))
+  (when args
+    (error 'not-implemented :feature "set with more than 0 arguments"))
+
+  ;; POSIX says the output must be sorted
+  (let ((bindings (make-extensible-vector)))
+    (do-environment-bindings (key binding)
+      (vector-push-extend (cons key binding) bindings))
+    (setf bindings (sort bindings #'string< :key 'car))
+    (loop :for pair :across bindings :do
+       (destructuring-bind (key . binding) pair
+         (print-environment-assignment-for-binding key binding *standard-output*)
+         (format *standard-output* "~%"))))
+  0)
 
 (define-special-builtin shift (&rest args)
   (declare (ignore args))
