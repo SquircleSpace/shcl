@@ -27,7 +27,7 @@
   (:import-from :fset)
   (:import-from :osicat-posix)
   (:export
-   #:with-history #:define-history #:history-set-size #:get-line
+   #:with-history #:history-set-size #:get-line
    #:interpret-prompt-string #:make-editline-stream))
 (in-package :shcl/shell/prompt)
 
@@ -226,11 +226,6 @@ object."))
             (let ((,name (make-foreign-history :ptr ,history)))
               ,@body)
          (history-end ,history)))))
-
-(defmacro define-history (name &optional documentation)
-  `(defvar ,name (make-foreign-history :ptr (history-init))
-     ,@(when documentation
-         (list documentation))))
 
 (defvar *editline-sidetable* (make-hash-table)
   "This table provides a way to find the instance of the `editline'
