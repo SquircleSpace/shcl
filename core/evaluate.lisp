@@ -28,14 +28,36 @@
 
 (optimization-settings)
 
-(defgeneric translate (thing))
+(defgeneric translate (thing)
+  (:documentation
+   "Translate a shell syntax tree object into a shell form.
+
+The returned form is not a standard Common Lisp form.  It must be
+interpreted using the `shell' macro.
+
+See `evaluation-form'."))
 
 (defun evaluation-form (thing)
+  "Translate a shell syntax tree object into a lisp form.
+
+The evaluation form for a syntax tree is comprised of two parts:
+1. the bake forms (see `shcl/core/baking:bake-form'), and
+2. the shell forms (see `translate') evaluated with `shell'.
+
+This function simply combines the bake forms and the shell forms with
+`progn'.  If you want to evaluate a shell syntax tree, this function
+produces the Common Lisp form you're looking for."
   (let ((bake-form (bake-form thing))
         (translation `(shell ,(translate thing))))
     (progn-concatenate bake-form translation)))
 
 (defun evaluation-form-iterator (command-iterator)
+  "Given an iterator that produces shell syntax trees, return an
+iterator that produces Common Lisp forms for evaluating the shell
+command.
+
+This just maps `evaluation-form' onto every value produced by the
+given iterator."
   (map-iterator command-iterator 'evaluation-form))
 
 (defparameter *umask*
