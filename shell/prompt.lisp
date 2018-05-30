@@ -201,6 +201,10 @@ the EL_BIND sub-routine of `el-set'."
   ptr)
 
 (defun history-set-size (h size)
+  "Set the number of entries the given history object should
+remember.
+
+To obtain a history object, use `with-history'."
   (with-histevent (ev)
     (history (foreign-history-ptr h) ev +h-setsize+ :int size)))
 
@@ -218,6 +222,8 @@ object."))
           (foreign-history-ptr history)))
 
 (defmacro with-history ((name) &body body)
+  "Create a history object and bind it to `name' for the dynamic
+extent of the body."
   (let ((history (gensym "HISTORY")))
     `(let ((,history (history-init)))
        (when (null-pointer-p ,history)
