@@ -19,7 +19,9 @@
    :shcl/core/expand :shcl/core/posix :shcl/core/posix-types
    :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/working-directory :shcl/core/iterator)
-  (:import-from :shcl/core/shell-form #:shell #:& #:lisp #:! #:run)
+  (:import-from :shcl/core/shell-form
+   #:shell-pipeline #:shell-not #:& #:shell-not #:with-subshell #:shell-if
+   #:shell-while #:shell-for #:shell-run #:shell-and #:shell-or)
   (:import-from :shcl/core/baking #:bake-form)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
@@ -30,10 +32,7 @@
 
 (defgeneric translate (thing)
   (:documentation
-   "Translate a shell syntax tree object into a shell form.
-
-The returned form is not a standard Common Lisp form.  It must be
-interpreted using the `shell' macro.
+   "Translate a shell syntax tree object into its corresponding lisp form.
 
 See `evaluation-form'."))
 
@@ -42,13 +41,13 @@ See `evaluation-form'."))
 
 The evaluation form for a syntax tree is comprised of two parts:
 1. the bake forms (see `shcl/core/baking:bake-form'), and
-2. the shell forms (see `translate') evaluated with `shell'.
+2. the shell forms (see `translate').
 
 This function simply combines the bake forms and the shell forms with
 `progn'.  If you want to evaluate a shell syntax tree, this function
 produces the Common Lisp form you're looking for."
   (let ((bake-form (bake-form thing))
-        (translation `(shell ,(translate thing))))
+        (translation (translate thing)))
     (progn-concatenate bake-form translation)))
 
 (defun evaluation-form-iterator (command-iterator)
@@ -103,7 +102,7 @@ for the given redirect."))
       ((slot-boundp sy 'command-list)
        (return-from translate (translate command-list)))
       (t
-       (return-from translate t)))))
+       (return-from translate '(truthy-exit-info))))))
 
 (defun translate-command-list (sy)
   (with-slots (and-or separator-op command-list-tail) sy
@@ -131,9 +130,9 @@ for the given redirect."))
       ((operation (and-or-tail)
          (cond
            ((slot-boundp and-or-tail 'and-if)
-            'and)
+            'shell-and)
            ((slot-boundp and-or-tail 'or-if)
-            'or)
+            'shell-or)
            (t
             (error "Invalid and-or-tail: ~A" and-or-tail))))
        (pipeline (and-or)
@@ -165,7 +164,7 @@ for the given redirect."))
 (defmethod translate ((sy pipeline))
   (with-slots (pipe-sequence) sy
     (if (slot-boundp sy 'bang)
-        (return-from translate `(! ,(translate pipe-sequence)))
+        (return-from translate `(shell-not ,@(bodyify (translate pipe-sequence))))
         (return-from translate (translate pipe-sequence)))))
 
 (defun translate-pipe-sequence (sy)
@@ -177,7 +176,7 @@ for the given redirect."))
          (loop :for node = sy :then (slot-value node 'pipe-sequence-tail)
             :while node
             :collect (translate (slot-value node 'command)))))
-    `(shcl/core/shell-form:pipeline
+    `(shell-pipeline
       ,@commands)))
 
 (defmethod translate ((sy pipe-sequence))
@@ -239,13 +238,13 @@ for the given redirect."))
   (with-slots (compound-command redirect-list) sy
     `(fd-bind*
          ,(translate-redirect-list-to-fd-bindings redirect-list)
-       ,(translate compound-command))))
+       ,@(bodyify (translate compound-command)))))
 
 (defmethod translate ((sy subshell))
   (with-slots (compound-list) sy
     (return-from translate
-      `(subshell
-        ,(translate compound-list)))))
+      `(with-subshell
+        ,@(bodyify (translate compound-list))))))
 
 (defmethod translate ((sy compound-list))
   (with-slots (term) sy
@@ -256,31 +255,31 @@ for the given redirect."))
     (unless (slot-boundp sy 'separator)
       (return-from translate-term (translate and-or)))
 
-    `(shell
-       ,@(loop :for node = sy :then (when (typep node '(or term term-tail))
-                                      (slot-value node 'term-tail))
-            :while node :collect
-            (typecase node
-              ((or term term-tail)
-               (let ((translation (translate (slot-value node 'and-or))))
-                 (if (separator-par-p (slot-value node 'separator))
-                     `(& ,translation)
-                     translation)))
-              (t
-               (translate node)))))))
+    (apply 'progn-concatenate
+           (loop :for node = sy :then (when (typep node '(or term term-tail))
+                                        (slot-value node 'term-tail))
+              :while node :collect
+              (typecase node
+                ((or term term-tail)
+                 (let ((translation (translate (slot-value node 'and-or))))
+                   (if (separator-par-p (slot-value node 'separator))
+                       `(& ,translation)
+                       translation)))
+                (t
+                 (translate node)))))))
 
 (defmethod translate ((sy term))
   (return-from translate (translate-term sy)))
 
 (defmethod translate ((sy while-clause))
   (with-slots (condition body) sy
-    `(shcl/core/shell-form:while ,(translate condition)
+    `(shell-while ,(translate condition)
        ,(translate body))))
 
 (defmethod translate ((sy until-clause))
   (with-slots (condition body) sy
-    `(while (! ,(translate condition))
-       ,(translate body))))
+    `(shell-while (shell-not ,(translate condition))
+       ,@(bodyify (translate body)))))
 
 (defun wordlist-words (wordlist)
   (let ((result (make-extensible-vector)))
@@ -304,18 +303,18 @@ for the given redirect."))
               (wordlist-words wordlist))
              (t
               #()))))
-      `(shcl/core/shell-form:for (,name (expansion-for-words ,words :expand-pathname t))
-         ,(translate body)))))
+      `(shell-for (,name (expansion-for-words ,words :expand-pathname t))
+         ,@(bodyify (translate body))))))
 
 (defmethod translate ((sy else-part))
   (with-slots (condition body else-part) sy
     (cond
       ((slot-boundp sy 'else-part)
-       `(if ,(translate condition)
+       `(shell-if ,(translate condition)
             ,(translate body)
             ,(translate else-part)))
       ((slot-boundp sy 'condition)
-       `(if ,(translate condition)
+       `(shell-if ,(translate condition)
             ,(translate body)))
       (t
        (translate body)))))
@@ -324,11 +323,11 @@ for the given redirect."))
   (with-slots (condition body else-part) sy
     (cond
       ((slot-boundp sy 'else-part)
-       `(if ,(translate condition)
-            ,(translate body)
+       `(shell-if ,(translate condition)
+                  ,(translate body)
             ,(translate else-part)))
       (t
-       `(if ,(translate condition)
+       `(shell-if ,(translate condition)
             ,(translate body))))))
 
 (defmethod translate ((sy brace-group))
@@ -410,4 +409,4 @@ and io redirects."
       (let ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
             (assignments (mapcar 'translate-assignment raw-assignments))
             (arguments `(fset:convert 'list (with-fd-streams () (expansion-for-words ',raw-arguments :expand-aliases t :expand-pathname t)))))
-        `(run ,arguments :environment-changes ,assignments :fd-changes ,redirects)))))
+        `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects)))))

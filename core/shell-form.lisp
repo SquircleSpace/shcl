@@ -28,73 +28,13 @@
   (:import-from :shcl/core/command
    #:invoke-command #:lookup-command #:define-special-builtin #:wrap-errors)
   (:import-from :bordeaux-threads)
-  (:import-from :lisp-namespace #:define-namespace)
   (:import-from :alexandria #:parse-body)
-  (:export #:pipeline #:shell #:progn #:! #:or #:and #:& #:lisp #:subshell
-           #:when #:unless #:if #:while #:for #:loop-break #:loop-continue
-           #:run #:t #:nil))
+  (:export #:shell-pipeline #:shell-not #:& #:with-subshell #:shell-when
+           #:shell-unless #:shell-if #:shell-while #:shell-for #:loop-break
+           #:loop-continue #:shell-run))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun lambda-over-shell (form)
-    `(lambda () (shell ,form))))
-
-(deftype macro-type ()
-  '(function (cons t) (values t &optional)))
-
-(define-namespace shell-form-translator
-    macro-type nil)
-
-(defmethod translate-shell-form ((form cons) environment)
-  (funcall (symbol-shell-form-translator (car form)) form environment))
-
-(defmethod translate-shell-form ((form (eql t)) environment)
-  '(truthy-exit-info))
-
-(defmethod translate-shell-form ((form (eql nil)) environment)
-  '(falsey-exit-info))
-
-(defmacro define-shell-form-translator (&whole whole name lambda-list &body body)
-  (let ((macro-name (gensym (symbol-name name))))
-    (multiple-value-bind (real-body declarations documentation)
-        (parse-body body :documentation t :whole whole)
-      `(progn
-         ;; Leverage defmacro to get macro lambda-list support
-         (defmacro ,macro-name ,lambda-list
-           ,@declarations
-           (block ,name
-             ,@real-body))
-         (setf (symbol-shell-form-translator ',name) (macro-function ',macro-name))
-         (setf (documentation ',name 'shell-form-translator) ,documentation)
-         ',name))))
-
-(defmacro shell (&body body &environment env)
-  (cond
-    ((null body)
-     `(falsey-exit-info))
-
-    ((null (cdr body))
-     (translate-shell-form (car body) env))
-
-    (t
-     (apply 'progn-concatenate
-            (loop :for form :in body :collect
-               (translate-shell-form form env))))))
-
-(define-shell-form-translator shell (&whole whole &body body &environment env)
-  "Evaluate each form in `body' as a shell form.
-
-This is the shell form equivalent of `progn'."
-  (declare (ignore body))
-  (macroexpand-1 whole env))
-
-(define-shell-form-translator progn (&body body &environment env)
-  (macroexpand-1 `(shell ,@body) env))
-
-(define-shell-form-translator lisp (&body body)
-  (apply 'progn-concatenate body))
 
 (defstruct async-result
   values
@@ -196,82 +136,71 @@ This is the shell form equivalent of `progn'."
 
     (async-result-get (aref results (1- (length pipeline-fns))))))
 
-(define-shell-form-translator pipeline (&body body)
+(defmacro shell-pipeline (&body body)
   `(pipeline-fn
     ,@(mapcar 'lambda-over-shell body)))
 
-(define-shell-form-translator ! (&body body)
-  `(invert-exit-info (shell ,@body)))
+(defmacro shell-not (&body body)
+  `(invert-exit-info (progn ,@body)))
 
-(define-shell-form-translator and (&body body)
+(defmacro shell-and (&body body)
   (unless body
-    (return-from and
+    (return-from shell-and
       '(truthy-exit-info)))
 
   (unless (cdr body)
-    (return-from and
-      `(shell ,(car body))))
+    (return-from shell-and
+      (car body)))
 
   (let ((and (gensym "AND"))
         (result (gensym "RESULT")))
     `(block ,and
        ,@(loop :for tail :on body :collect
             (if (cdr tail)
-                `(let ((,result (shell ,(car tail))))
+                `(let ((,result ,(car tail)))
                    (unless (exit-info-true-p ,result)
                      (return-from ,and ,result)))
-                `(shell ,(car tail)))))))
+                (car tail))))))
 
-(define-shell-form-translator or (&body body)
+(defmacro shell-or (&body body)
   (unless body
-    (return-from or
+    (return-from shell-or
       '(falsey-exit-info)))
 
   (unless (cdr body)
-    (return-from or
-      `(shell ,(car body))))
+    (return-from shell-or
+      (car body)))
 
   (let ((or (gensym "OR"))
         (result (gensym "RESULT")))
     `(block ,or
        ,@(loop :for tail :on body :collect
             (if (cdr tail)
-                `(let ((,result (shell ,(car tail))))
+                `(let ((,result ,(car tail)))
                    (when (exit-info-true-p ,result)
                      (return-from ,or ,result)))
-                `(shell ,(car tail)))))))
+                (car tail))))))
 
-(define-shell-form-translator & (&body body)
+(defmacro & (&body body)
   (declare (ignore body))
   (error 'not-implemented :feature "Background jobs"))
 
-(define-shell-form-translator subshell (&body body)
-  `(with-subshell
-     (shell ,@body)))
-
-(define-shell-form-translator if (condition then &optional (else nil else-p))
+(defmacro shell-if (condition then &optional (else nil else-p))
   (let ((value (gensym "VALUE")))
-    `(let ((,value (shell ,condition)))
+    `(let ((,value ,condition))
        (if (exit-info-true-p ,value)
-           (shell ,then)
+           ,then
            ,(if else-p
-                `(shell ,else)
+                else
                 value)))))
 
-(define-shell-form-translator when (condition &body body)
-  `(shell
-     (if ,condition
-         (shell ,@body))))
+(defmacro shell-when (condition &body body)
+  `(shell-if ,condition
+             ,@body))
 
-(define-shell-form-translator unless (condition &body body)
-  `(shell
-     (if (! ,condition)
-         (shell ,@body))))
-
-(define-shell-form-translator fd-bind* (bindings &body body)
-  `(fd-bind*
-       ,bindings
-     (shell ,@body)))
+(defmacro shell-unless (condition &body body)
+  `(shell-if (shell-not ,condition)
+             ,@body))
 
 (define-condition loop-jump ()
   ((count
@@ -328,22 +257,22 @@ This is the shell form equivalent of `progn'."
       (signal 'loop-continue :count count))
     (error "No loops detected")))
 
-(define-shell-form-translator while (condition &body body)
+(defmacro shell-while (condition &body body)
   (let ((result (gensym "RESULT")))
     `(break-level
        (let ((,result (truthy-exit-info)))
-         (loop :while (exit-info-true-p (shell ,condition)) :do
-            (setf ,result (continue-level (shell ,@body))))
+         (loop :while (exit-info-true-p ,condition) :do
+            (setf ,result (continue-level ,@body)))
          ,result))))
 
-(define-shell-form-translator for ((variable word-seq) &body body)
+(defmacro shell-for ((variable word-seq) &body body)
   (let ((result (gensym "RESULT"))
         (value (gensym "VALUE")))
     `(break-level
        (let ((,result (truthy-exit-info)))
          (do-iterator (,value (iterator ,word-seq))
            (setf (env ,variable) ,value)
-           (setf ,result (continue-level (shell ,@body))))
+           (setf ,result (continue-level ,@body)))
          ,result))))
 
 (defun %run (arguments modify-environment)
@@ -352,7 +281,7 @@ This is the shell form equivalent of `progn'."
       (with-fd-scope ()
         (funcall modify-environment))))
 
-(define-shell-form-translator run (argument-list &key environment-changes fd-changes)
+(defmacro shell-run (argument-list &key environment-changes fd-changes)
   (let ((modify-environment (gensym "MODIFY-ENVIRONMENT"))
         (fd (gensym "FD"))
         (value (gensym "VALUE"))
