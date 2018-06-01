@@ -21,7 +21,7 @@
    #:whitespace-p #:as-> #:-> #:->> #:define-once-global #:required
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
-   #:symbol-nconc-gensym #:symbol-nconc-intern #:progn-concatenate
+   #:symbol-nconc-gensym #:symbol-nconc-intern #:progn-concatenate #:bodyify
    ;; Conditions
    #:not-implemented
    ;; Hooks
@@ -410,3 +410,9 @@ adjustable array with a fill pointer."
        (nreverse result))
       ((cdr result)
        (car result)))))
+
+(defun bodyify (form)
+  (if (and (consp form)
+           (eq 'progn (car form)))
+      (cdr form)
+      (list form)))
