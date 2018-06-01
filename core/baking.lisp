@@ -22,7 +22,13 @@
 
 (optimization-settings)
 
-(defgeneric bake-form (object))
+(defgeneric bake-form (object)
+  (:documentation
+   "Return the Common Lisp forms required for baking the given
+object.
+
+For syntax tree objects, this function generally just recursively
+descends through the syntax tree."))
 
 (defmethod bake-form (object)
   (declare (ignore object))
