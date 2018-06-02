@@ -138,7 +138,10 @@
 
 (defmacro shell-pipeline (&body body)
   `(pipeline-fn
-    ,@(mapcar 'lambda-over-shell body)))
+    ,@(mapcar (lambda (form)
+                `(lambda ()
+                   ,form))
+              body)))
 
 (defmacro shell-not (&body body)
   `(invert-exit-info (progn ,@body)))
