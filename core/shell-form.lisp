@@ -30,8 +30,8 @@
   (:import-from :bordeaux-threads)
   (:import-from :alexandria #:parse-body)
   (:export #:shell-pipeline #:shell-not #:& #:with-subshell #:shell-when
-           #:shell-unless #:shell-if #:shell-while #:shell-for #:loop-break
-           #:loop-continue #:shell-run))
+           #:shell-unless #:shell-if #:shell-while #:shell-for
+           #:shell-run #:shell-and #:shell-or))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -137,6 +137,8 @@
     (async-result-get (aref results (1- (length pipeline-fns))))))
 
 (defmacro shell-pipeline (&body body)
+  "Evaluate each form of body where standard-output of each form is
+connected to standard-input of the next form."
   `(pipeline-fn
     ,@(mapcar (lambda (form)
                 `(lambda ()
@@ -144,9 +146,16 @@
               body)))
 
 (defmacro shell-not (&body body)
+  "Invert the exit status returned by the given forms.
+
+This is basically just `invert-exit-info' as a macro."
   `(invert-exit-info (progn ,@body)))
 
 (defmacro shell-and (&body body)
+  "Return the first falsey exit status produced by a form in `body'.
+
+When a falsey exit status is produced, this macro will short circut
+and skip the remaining forms."
   (unless body
     (return-from shell-and
       '(truthy-exit-info)))
@@ -166,6 +175,10 @@
                 (car tail))))))
 
 (defmacro shell-or (&body body)
+  "Return the first truthy exit status produced by a form in `body'.
+
+When a truthy exit status is produced, this macro will short circut
+and skip the remaining forms."
   (unless body
     (return-from shell-or
       '(falsey-exit-info)))
@@ -185,10 +198,18 @@
                 (car tail))))))
 
 (defmacro & (&body body)
+  "Evaluate the given forms in the background."
   (declare (ignore body))
   (error 'not-implemented :feature "Background jobs"))
 
 (defmacro shell-if (condition then &optional (else nil else-p))
+  "The shell version of `if'.
+
+First, `condition' is evaluated.  If it produces a truthy exit status,
+then the `then' form is evaluated and the result is returned.  If it a
+produces a falsey exit status, then this macro will evaluate and
+return the result of `else'.  If an `else' form isn't provided, then
+the return value of `condition' is produced."
   (let ((value (gensym "VALUE")))
     `(let ((,value ,condition))
        (if (exit-info-true-p ,value)
@@ -198,10 +219,12 @@
                 value)))))
 
 (defmacro shell-when (condition &body body)
+  "Like `when', but `condition' is evaluated as an `exit-info'."
   `(shell-if ,condition
              ,@body))
 
 (defmacro shell-unless (condition &body body)
+  "Like `unless', but `condition' is evaluated as a `exit-info'"
   `(shell-if (shell-not ,condition)
              ,@body))
 
@@ -216,10 +239,16 @@
     :reader loop-jump-exit-info)))
 
 (define-condition loop-break (loop-jump)
-  ())
+  ()
+  (:documentation
+   "A condition representing that the an enclosing loop should stop
+running."))
 
 (define-condition loop-continue (loop-jump)
-  ())
+  ()
+  (:documentation
+   "A condition representing that an enclosing loop should skip ahead
+to the next iteration."))
 
 (defmacro jump-level (name &body body)
   (let ((block-label (gensym (symbol-name name)))
@@ -261,6 +290,8 @@
     (error "No loops detected")))
 
 (defmacro shell-while (condition &body body)
+  "As long as `condition' returns a truthy exit status, repeatedly
+evaluate `body'."
   (let ((result (gensym "RESULT")))
     `(break-level
        (let ((,result (truthy-exit-info)))
@@ -269,12 +300,22 @@
          ,result))))
 
 (defmacro shell-for ((variable word-seq) &body body)
+  "Evaluate `body' with shell environment variable named `variable'
+bound to each string in `word-seq'.
+
+`variable' should be a string or a form that produces a string.  It is
+evaluated once.
+
+`word-seq' should be an object that can be iterated using `iterator'.
+The values produced by the iterator should be strings."
   (let ((result (gensym "RESULT"))
-        (value (gensym "VALUE")))
+        (value (gensym "VALUE"))
+        (var (gensym "VAR")))
     `(break-level
-       (let ((,result (truthy-exit-info)))
+       (let ((,result (truthy-exit-info))
+             (,var ,variable))
          (do-iterator (,value (iterator ,word-seq))
-           (setf (env ,variable) ,value)
+           (setf (env ,var) ,value)
            (setf ,result (continue-level ,@body)))
          ,result))))
 
@@ -285,6 +326,10 @@
         (funcall modify-environment))))
 
 (defmacro shell-run (argument-list &key environment-changes fd-changes)
+  "Run a shell command.
+
+This function is not documented in detail because it is likely to get
+changed."
   (let ((modify-environment (gensym "MODIFY-ENVIRONMENT"))
         (fd (gensym "FD"))
         (value (gensym "VALUE"))
