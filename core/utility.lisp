@@ -48,6 +48,24 @@ Put this at the top of every file!"
   (find char +whitespace-characters+))
 
 (defmacro as-> (value sigil &body forms)
+  "Thread the given value through the provided forms.
+
+This is very similar to Clojure's macro with the same name.
+
+This macro first binds `sigil' to `value'.  Then, it repeatedly binds
+`sigil' to be the output of each form you provide in `forms'.  These
+forms should produce the same result.
+
+    (as-> value x
+      (+ x 1)
+      (* x x)
+      3)
+
+    (let ((x value)
+          (x (+ x 1))
+          (x (* x x))
+          (x 3))
+      x)"
   (labels
       ((binding (form)
          `(,sigil ,form)))
@@ -56,6 +74,28 @@ Put this at the top of every file!"
        ,sigil)))
 
 (defmacro -> (value &body forms)
+  "Thread the given value through the provided forms.
+
+This is very similar to Clojure's macro with the same name.
+
+This macro is just a simpler form of `as->' where the sigil is
+automatically inserted as the first argument to each function call.
+As a convenience, some forms will be re-written to use `funcall'
+automatically.  For example, these forms should have the same result.
+
+    (let ((fn-4 (lambda (arg) (1+ arg))))
+      (-> value
+        (fn arg1 arg2)
+        (fn2)
+        #'fn3
+        fn-4))
+
+    (let ((fn-4 (lambda (arg) (1+ arg))))
+      (as-> value #:sigil
+        (fn #:sigil arg1 arg2)
+        (fn2 #:sigil)
+        (funcall #'fn3 #:sigil)
+        (funcall fn-4 #:sigil)))"
   (let ((sigil (gensym "SIGIL")))
     (labels
         ((prepare (form)
@@ -66,6 +106,12 @@ Put this at the top of every file!"
       `(as-> ,value ,sigil ,@(mapcar #'prepare forms)))))
 
 (defmacro ->> (value &body forms)
+  "Thread the given value through the provided forms.
+
+This is very similar to Clojure's macro with the same name.
+
+See `->'.  Unlike `->', this threads the value through as the last
+argument to the function rather than the first argument."
   (let ((sigil (gensym "SIGIL")))
     (labels
         ((prepare (form)
@@ -188,6 +234,7 @@ initialized at most once.  Redefining the variable with
            (values))))))
 
 (defun dump-logs (&optional (output-stream *standard-output*))
+  "Write out all recorded log lines to the given output stream."
   (with-lock-held (*log-buffer-lock*)
     (loop :for chunk :across *log-buffer* :do
        (loop :for line :across chunk :do
@@ -388,14 +435,28 @@ adjustable array with a fill pointer."
     (get-output-stream-string stream)))
 
 (defun symbol-nconc-gensym (first-bit &rest other-bits)
+  "Create a gensym whose name is the concatenation of all the
+fragments provided.
+
+If one of the provided fragments is a symbol, it is turned into a
+string with `symbol-name'."
   (gensym (apply '%symbol-nconc first-bit other-bits)))
 
 (defun symbol-nconc-intern (package first-bit &rest other-bits)
+  "Intern a symbol in the given package whose name is the
+concatenation of all the fragments provided.
+
+If one of the provided fragments is a symbol, it is turned into a
+string with `symbol-name'.
+
+If a non-nil `package' is provided, it will be passed to `intern'."
   (if package
       (intern (apply '%symbol-nconc first-bit other-bits) package)
       (intern (apply '%symbol-nconc first-bit other-bits))))
 
 (defun progn-concatenate (&rest forms)
+  "Return a form equivalent to evaluating each form in `forms' but
+with unnecessary `progn' uses removed."
   (let ((result (list 'progn)))
     (dolist (form forms)
       (cond
@@ -412,6 +473,12 @@ adjustable array with a fill pointer."
        (car result)))))
 
 (defun bodyify (form)
+  "Turn a single form into a list of forms appropriate for splicing
+with ,@ in a macro.
+
+If `form' is a `progn' form, then this simply returns the cdr of
+`form'.  Otherwise, this returns a list containing `form'.  This is
+useful if you want to unroll `progn' forms in your macros."
   (if (and (consp form)
            (eq 'progn (car form)))
       (cdr form)
