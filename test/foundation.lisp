@@ -1,7 +1,8 @@
 (defpackage :shcl/test/foundation
   (:use :common-lisp :prove :lisp-namespace)
   (:import-from :fset)
-  (:export #:define-test))
+  (:export #:define-test #:run-test-set #:all-tests #:package-test-set
+           #:symbol-test))
 (in-package :shcl/test/foundation)
 
 (defvar *package-tests* (fset:empty-map (fset:empty-set)))
@@ -37,15 +38,14 @@ test forms inside the body (e.g. `ok')."
       (funcall (symbol-test test)))
     (finalize)))
 
-(defun run-package-tests (package)
-  "Run the tests in the given test package."
-  (let ((tests (fset:lookup *package-tests* (ensure-package package))))
-    (run-test-set tests)))
+(defun package-test-set (package)
+  "Get the set of tests defined in the given package."
+  (fset:lookup *package-tests* (ensure-package package)))
 
-(defun run-all-tests ()
-  "Run all tests registered with `define-test'."
+(defun all-tests ()
+  "Get the set of all tests defined with `define-test'."
   (let ((all-tests (fset:empty-set)))
     (fset:do-map (package tests *package-tests*)
       (declare (ignore package))
       (fset:unionf all-tests tests))
-    (run-test-set all-tests)))
+    all-tests))
