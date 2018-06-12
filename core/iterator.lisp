@@ -25,6 +25,7 @@
 
 (defclass iterator ()
   ((compute
+    :initform (required)
     :initarg :compute
     :documentation
     "A function that returns the next value."))
@@ -143,11 +144,8 @@ them in an array."
     (do-iterator (value iter :result vector)
       (vector-push-extend value vector))))
 
-(defclass lookahead-iterator ()
-  ((compute
-    :initform (cons t nil)
-    :initarg :compute)
-   (buffer
+(defclass lookahead-iterator (iterator)
+  ((buffer
     :initform (cons 'tail 'tail)
     :initarg :buffer
     :type cons))
@@ -168,16 +166,6 @@ tokens then they are at the same place in the same stream."
   (with-slots (buffer) iter
     buffer))
 
-(defmethod initialize-instance :after ((iter lookahead-iterator) &key)
-  (with-slots (compute buffer) iter
-    (unless (consp compute)
-      (setf compute (cons t compute)))
-    (let ((fn (iterate-function iter)))
-      (closer-mop:set-funcallable-instance-function
-       iter
-       (lambda ()
-         (funcall fn iter))))))
-
 (defun fork-lookahead-iterator (iter)
   "Create a `lookahead-iterator' that shares the same future as the
 given iterator.
@@ -192,13 +180,12 @@ considered part of the same \"family\" as the given iterator."
 (defun iterate-lookahead-iterator (iter)
   "Produce the next value for an iterator of type `lookahead-iterator'"
   (with-slots (buffer compute) iter
-    (when (and (eq (cdr buffer) 'tail)
-               (not (cdr compute)))
+    (when (eq (cdr buffer) 'eof)
       (return-from iterate-lookahead-iterator (values nil nil)))
 
     (cond ((eq (cdr buffer) 'tail)
            ;; Buffer is empty.  Add something to the back
-           (multiple-value-bind (value more) (funcall (cdr compute))
+           (multiple-value-bind (value more) (funcall compute)
              (cond (more
                     (let ((new-tail (cons 'tail 'tail)))
                       (setf (car buffer) value
@@ -206,7 +193,7 @@ considered part of the same \"family\" as the given iterator."
                             buffer (cdr buffer))))
 
                    (t
-                    (setf (cdr compute) nil)))
+                    (setf (cdr buffer) 'eof)))
              (values value more)))
 
           (t
@@ -291,3 +278,6 @@ a new iterator in a given family."
 
 (defmethod iterator ((seq fset:seq))
   (seq-iterator seq))
+
+(defmethod iterator ((iter iterator))
+  iter)
