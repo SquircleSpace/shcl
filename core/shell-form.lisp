@@ -26,12 +26,13 @@
    #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding
    #:fd-bind* #:receive-ref-counted-fd)
   (:import-from :shcl/core/command
-   #:invoke-command #:lookup-command #:define-special-builtin #:wrap-errors)
+   #:invoke-command #:lookup-command #:define-special-builtin #:wrap-errors
+   #:command-error)
   (:import-from :bordeaux-threads)
   (:import-from :alexandria #:parse-body)
   (:export #:shell-pipeline #:shell-not #:& #:with-subshell #:shell-when
            #:shell-unless #:shell-if #:shell-while #:shell-for
-           #:shell-run #:shell-and #:shell-or))
+           #:shell-run #:shell-and #:shell-or #:shell-break #:shell-continue))
 (in-package :shcl/core/shell-form)
 
 (optimization-settings)
@@ -232,27 +233,42 @@ the return value of `condition' is produced."
                  (progn
                    ,@body)))))
 
-(define-condition loop-jump ()
+(define-condition shell-loop-jump ()
   ((count
     :initarg :count
     :initform 1
-    :accessor loop-jump-count)
+    :accessor shell-loop-jump-count)
    (exit-info
     :initarg :exit-info
     :initform (truthy-exit-info)
-    :reader loop-jump-exit-info)))
+    :reader shell-loop-jump-exit-info)))
 
-(define-condition loop-break (loop-jump)
+(define-condition shell-break (shell-loop-jump)
   ()
   (:documentation
    "A condition representing that the an enclosing loop should stop
 running."))
 
-(define-condition loop-continue (loop-jump)
+(defun shell-break (&key (count 1) (exit-info (truthy-exit-info)))
+  "Indicate that an enclosing loop should exit immediately."
+  (unless (plusp count)
+    (error "Must break at least 1 level"))
+  (signal 'shell-break :count count :exit-info exit-info)
+  (truthy-exit-info))
+
+(define-condition shell-continue (shell-loop-jump)
   ()
   (:documentation
    "A condition representing that an enclosing loop should skip ahead
 to the next iteration."))
+
+(defun shell-continue (&key (count 1) (exit-info (truthy-exit-info)))
+  "Indicate that an enclosing loop should advance to the next
+iteration immediately."
+  (unless (plusp count)
+    (error "Must continue at least 1 level"))
+  (signal 'shell-continue :count count :exit-info exit-info)
+  (truthy-exit-info))
 
 (defmacro jump-level (name &body body)
   (let ((block-label (gensym (symbol-name name)))
@@ -261,37 +277,31 @@ to the next iteration."))
        (handler-bind
            ((,name
              (lambda (,err)
-               (when (plusp (loop-jump-count ,err))
-                 (decf (loop-jump-count ,err))
-                 (when (plusp (loop-jump-count ,err))
+               (when (plusp (shell-loop-jump-count ,err))
+                 (decf (shell-loop-jump-count ,err))
+                 (when (plusp (shell-loop-jump-count ,err))
                    (signal ,err))
                  (return-from ,block-label
-                   (loop-jump-exit-info ,err))))))
+                   (shell-loop-jump-exit-info ,err))))))
          ,@body))))
 
 (defmacro break-level (&body body)
-  `(jump-level loop-break
+  `(jump-level shell-break
      ,@body))
 
 (defmacro continue-level (&body body)
-  `(jump-level loop-continue
+  `(jump-level shell-continue
      ,@body))
 
 (define-special-builtin (builtin-break "break") (&optional (count "1"))
-  (wrap-errors
-    (let ((count (parse-integer count :junk-allowed nil)))
-      (unless (plusp count)
-        (error "Count must be positive"))
-      (signal 'loop-break :count count))
-    (error "No loops detected")))
+  (let ((count (wrap-errors (parse-integer count :junk-allowed nil))))
+    (shell-break :count count))
+  (error 'command-error :message "No loops detected"))
 
 (define-special-builtin (builtin-continue "continue") (&optional (count "1"))
-  (wrap-errors
-    (let ((count (parse-integer count :junk-allowed nil)))
-      (unless (plusp count)
-        (error "Count must be positive"))
-      (signal 'loop-continue :count count))
-    (error "No loops detected")))
+  (let ((count (wrap-errors (parse-integer count :junk-allowed nil))))
+    (shell-continue :count count))
+  (error 'command-error :message "No loops detected"))
 
 (defmacro shell-while (condition &body body)
   "As long as `condition' returns a truthy exit status, repeatedly
