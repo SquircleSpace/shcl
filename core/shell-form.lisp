@@ -225,8 +225,12 @@ the return value of `condition' is produced."
 
 (defmacro shell-unless (condition &body body)
   "Like `unless', but `condition' is evaluated as a `exit-info'"
-  `(shell-if (shell-not ,condition)
-             ,@body))
+  (let ((value (gensym "VALUE")))
+    `(let ((,value ,condition))
+       (shell-if ,value
+                 ,value
+                 (progn
+                   ,@body)))))
 
 (define-condition loop-jump ()
   ((count
