@@ -198,7 +198,7 @@ Optional argument is the port to start the server on."
     (swank:create-server :port port)
     0))
 
-(defun main ()
+(defun main (&optional (argv (uiop:raw-command-line-arguments)))
   "Start running SHCL's shell.
 
 This function assumes that SHCL \"owns\" the process.  That means that
@@ -209,7 +209,7 @@ example, that...
 * SHCL may install or remove any signal handlers it wishes"
   ;; We assume that shcl/core/utility:observe-revival has already run
   (handle-command-errors "shcl"
-    (with-options (uiop:raw-command-line-arguments)
+    (with-options argv
       (unless (zerop (length *help*))
         (help)
         (return-from main))
