@@ -167,40 +167,23 @@ with `define-advice'."
     (labels
         ((main-impl (&rest args)
            (loop :for method :across before-functions :do
-              (funcall method args #() 0))
+              (funcall method args nil))
            (multiple-value-prog1
-               (funcall primary-function args #() 0)
+               (funcall primary-function args nil)
              (loop :for method :across after-functions :do
-                (funcall method args #() 0)))))
+                (funcall method args nil)))))
 
       (when (zerop (length around-functions))
         (return-from closer-mop:compute-discriminating-function
           #'main-impl))
 
-      (labels
-          ((main-method-function (args other-methods index)
-             (declare (ignore other-methods index))
-             (apply #'main-impl args))
-           (around-impl (&rest args)
-             (funcall (aref around-functions 0) args around-functions 1)))
-        (vector-push-extend #'main-method-function around-functions)
-        #'around-impl))))
-
-(defmethod closer-mop:make-method-lambda ((gf advisable-generic-function) (m advice-method) lambda env)
-  (let ((args (gensym "ARGS"))
-        (other-fns (gensym "OTHER-FNS"))
-        (index (gensym "INDEX"))
-        (replacement-args (gensym "REPLACEMENT-ARGS")))
-    `(lambda (,args ,other-fns ,index)
-       (declare (ignorable ,args ,other-fns ,index))
-       (labels
-           ((next-method-p ()
-              (< ,index (length ,other-fns)))
-            (call-next-method (&rest ,replacement-args)
-              (unless (next-method-p)
-                (error "There's no next method"))
-              (funcall (aref ,other-fns ,index) (or ,replacement-args ,args) ,other-fns (1+ ,index))))
-         (declare (inline next-method-p call-next-method)
-                  (ignorable #'next-method-p #'call-next-method))
-         (block ,(closer-mop:generic-function-name gf)
-           (apply ,lambda ,args))))))
+      (let (around-functions-list)
+        (labels
+            ((main-method-function (args other-methods)
+               (declare (ignore other-methods))
+               (apply #'main-impl args))
+             (around-impl (&rest args)
+               (funcall (car around-functions-list) args (cdr around-functions-list))))
+          (vector-push-extend #'main-method-function around-functions)
+          (setf around-functions-list (coerce around-functions 'list))
+          #'around-impl)))))
