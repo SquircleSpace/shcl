@@ -50,7 +50,7 @@
 
 (define-condition leaked-fd (warning)
   ((value
-    :initarg :fd
+    :initarg :value
     :reader leaked-fd-value))
   (:report (lambda (c s)
              (format s "File descriptor ~A was leaked"
