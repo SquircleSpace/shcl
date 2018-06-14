@@ -283,4 +283,19 @@
         (if (equal "3" (read-line))
             (truthy-exit-info)
             (falsey-exit-info)))))
-   "Information flowed through the pipeline, last exit status is used"))
+   "Information flowed through the pipeline, last exit status is used")
+
+  (setf (env "foo") "123")
+  (ok
+   (exit-info-true-p
+    (shell-pipeline
+      (truthy-exit-info)
+      (prog1
+          (if (equal (env "foo") "123")
+              (truthy-exit-info)
+              (falsey-exit-info))
+        (setf (env "foo") "abc"))))
+   "Pipelines inherit the shell environment where they are created")
+  (is (env "foo")
+      "123"
+      "Pipelines run in subshells"))
