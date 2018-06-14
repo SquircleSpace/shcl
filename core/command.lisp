@@ -22,7 +22,8 @@
                 #:fd-wrapper-value)
   (:import-from :shcl/core/exit-info #:exit-info #:make-exit-info)
   (:import-from :shcl/core/data #:define-data)
-  (:import-from :shcl/core/shell-environment #:preserve-special-variable #:with-subshell)
+  (:import-from :shcl/core/shell-environment #:preserve-special-variable #:with-subshell
+                #:extend-shell-environment)
   (:import-from :shcl/core/support
                 #:wifexited #:wexitstatus #:wifsignaled #:wtermsig #:wifstopped
                 #:wstopsig)
@@ -34,8 +35,6 @@
                 #:deconstruct-environment-assignment-string)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/core/fork-exec #:run)
-  (:import-from :shcl/core/shell-environment #:with-subshell
-                #:extend-shell-environment)
   (:export
    #:define-builtin #:define-special-builtin #:lookup-command
    #:command-error #:wrap-errors #:invoke-command #:shell-lambda
