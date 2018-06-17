@@ -566,6 +566,23 @@ required.
 
 The prompt the user sees is decided by the `prompt-fn'."))
 
+(defmethod close ((stream editline-stream) &key &allow-other-keys)
+  (with-slots (text) stream
+    (setf text nil)
+    (call-next-method)))
+
+;; CCL doesn't remember that gray streams have been closed.  So, we
+;; need to provide our own implementation.
+#+ccl
+(defmethod open-stream-p ((stream editline-stream))
+  (with-slots (text) stream
+    (not (not text))))
+
+(defmethod print-object ((o editline-stream) stream)
+  (print-unreadable-object (o stream :type t :identity t)
+    (with-slots (text) o
+      (format stream ":text ~W" (when text (fset:convert 'string text))))))
+
 (defun extend-editline-stream (stream)
   "Add another line of content to an `editline-stream'."
   (with-slots (text prompt-fn history) stream
