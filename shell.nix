@@ -22,6 +22,7 @@ pkgs.stdenv.mkDerivation rec {
     pkgs.libedit
     pkgs.lispPackages.quicklisp
     pkgs.sbcl
+    pkgs.ccl
   ];
   LD_LIBRARY_PATH = "${pkgs.stdenv.lib.makeLibraryPath buildInputs}";
 }

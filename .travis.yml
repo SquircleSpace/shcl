@@ -7,6 +7,7 @@ os:
 env:
   matrix:
     - LISP=sbcl-bin
+    - LISP=ccl-bin
 
 install:
   - if [ "$TRAVIS_OS_NAME" = linux ]; then sudo apt-get install clang; fi
