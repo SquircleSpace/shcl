@@ -823,7 +823,7 @@ automatically.")
    'establish-exit-condition-handler
    the-void))
 
-(define-special-builtin exit (&optional exit-status)
+(define-special-builtin exit (&optional (exit-status "0"))
   (handler-case
       (setf exit-status (parse-integer exit-status :junk-allowed nil))
     (parse-error (e)
