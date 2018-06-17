@@ -171,7 +171,7 @@ arguments it receives.")
 (defmacro with-options (argv &body body)
   "Parse options and establish dynamic bindings for them."
   `(with-parsed-arguments
-       (&flag (*debug* "--debug")
+       (&flag (*debug* "--swank")
               (*help* "--help"))
        ,argv
      ,@body))
@@ -181,7 +181,7 @@ arguments it receives.")
 An unholy union of Common Lisp and POSIX shell.
 
 Supported options:
---debug Start a swank server for debugging
+--swank Start a swank server for debugging
 --help Print this message
 "))
 
