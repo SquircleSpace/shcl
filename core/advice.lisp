@@ -15,6 +15,8 @@
 (defpackage :shcl/core/advice
   (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
+  #+ccl
+  (:import-from :alexandria)
   (:export
    #:define-advisable #:define-advice #:remove-advice #:list-advice))
 (in-package :shcl/core/advice)
@@ -22,11 +24,72 @@
 (optimization-settings)
 
 (defclass advisable-generic-function (closer-mop:standard-generic-function)
-  ()
+  (#+ccl
+   (advice-method-table
+    :initform (make-hash-table :test 'equal)
+    :accessor advice-method-table))
   (:metaclass closer-mop:funcallable-standard-class)
   (:documentation
    "A generic function representing an advisable function.  See
 `define-advisable'."))
+
+;; Clozure doesn't do method functions how the MOP says they should.
+;; We're going to get hacky with it.
+#+ccl
+(progn
+  (defun advice-methods (advisable)
+    (alexandria:hash-table-values (advice-method-table advisable)))
+
+  (defclass compatability-advice-method ()
+    ((function
+      :initarg :function
+      :reader closer-mop:method-function)
+     (qualifiers
+      :initarg :qualifiers
+      :reader method-qualifiers)))
+
+  (eval-when (:compile-toplevel :load-toplevel :execute)
+    (defun make-advice-lambda (lambda-expression)
+      (let ((args (gensym "ARGS"))
+            (next-methods (gensym "NEXT-METHODS"))
+            (replacement-args (gensym "REPLACEMENT-ARGS")))
+        `(lambda (,args ,next-methods)
+           (labels
+               ((call-next-method (&rest ,replacement-args)
+                  (unless ,next-methods
+                    (error "No next method to call"))
+                  (funcall (car ,next-methods) (or ,replacement-args ,args) (cdr ,next-methods)))
+                (next-method-p ()
+                  (not (not ,next-methods))))
+             (apply ,lambda-expression ,args))))))
+
+  (defmacro %define-advice (function-name qualifiers lambda-list &body body)
+    (let* ((args (gensym "ARGS"))
+           (method-lambda (make-advice-lambda
+                           `(flet ((,function-name ,lambda-list
+                                     ,@body))
+                              #',function-name))))
+      `(progn
+         (add-method #',function-name
+                     (make-instance 'compatability-advice-method
+                                    :function ,method-lambda
+                                    :qualifiers '(,@qualifiers)))
+         ',function-name)))
+
+  (defmethod add-method ((gf advisable-generic-function) (method compatability-advice-method))
+    (setf (gethash (method-qualifiers method) (advice-method-table gf)) method)
+    (values))
+  (defmethod remove-method ((gf advisable-generic-function) (method compatability-advice-method))
+    (remhash (method-qualifiers method) (advice-method-table gf))
+    (values)))
+
+#-ccl
+(progn
+  (defmacro %define-advice (function-name qualifiers lambda-list &body body)
+    `(defmethod ,function-name ,@qualifiers ,lambda-list ,@body))
+
+  (defun advice-methods (advisable-generic-function)
+    (closer-mop:generic-function-methods advisable-generic-function)))
 
 (defclass advice-method (closer-mop:standard-method)
   ()
@@ -80,7 +143,7 @@ then `define-advisable' is more or less equivalent to `defun'."
            (:method-combination advisable)
            ,@(when documentation
                `((:documentation ,documentation)))))
-       (defmethod ,name ,lambda-list
+       (%define-advice ,name nil ,lambda-list
          ,@body))))
 
 (defmacro define-advice (function-name qualifier advice-name lambda-list &body body)
@@ -103,7 +166,7 @@ Advice can be removed with the `remove-advice' function."
   (check-type advice-name symbol)
   (unless (member qualifier '(:before :after :around))
     (error "Qualifier must be one of :before, :after, or :around."))
-  `(defmethod ,function-name ,qualifier ,advice-name ,lambda-list ,@body))
+  `(%define-advice ,function-name (,qualifier ,advice-name) ,lambda-list ,@body))
 
 (defun remove-advice (function qualifier advice-name)
   "Remove advice from an advisable function.
@@ -115,7 +178,7 @@ with `define-advice'."
     (setf function (symbol-function function)))
   (check-type function advisable-generic-function)
 
-  (let ((methods (closer-mop:generic-function-methods function))
+  (let ((methods (advice-methods function))
         (our-qualifiers (list qualifier advice-name)))
     (dolist (method methods)
       (let ((method-qualifiers (method-qualifiers method)))
@@ -130,7 +193,7 @@ with `define-advice'."
   (check-type function advisable-generic-function)
 
   (let (result)
-    (dolist (method (closer-mop:generic-function-methods function))
+    (dolist (method (advice-methods function))
       (let ((qualifiers (method-qualifiers method)))
         (when (and qualifiers (or (null qualifier)
                                   (eq qualifier (first qualifiers))))
@@ -143,7 +206,7 @@ with `define-advice'."
          (around-functions (make-array 0 :adjustable t :fill-pointer t))
          primary-function)
 
-    (dolist (method (closer-mop:generic-function-methods gf))
+    (dolist (method (advice-methods gf))
       (let ((qualifiers (method-qualifiers method)))
         (cond
           ((null qualifiers)
