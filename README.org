@@ -38,9 +38,9 @@ shcl> : ,(shcl/core/debug:graph-dependencies) | dot -Tpng > graph.png
 
 * Building SHCL
 
-SHCL is only really tested against SBCL, but it should be portable to
-other lisp compilers.  Be aware that ECL is known to be problematic
-because it tries to reap child processes automatically.
+SHCL is only really tested against SBCL and CCL, but it should be
+portable to other lisp compilers.  Be aware that ECL is known to be
+problematic because it tries to reap child processes automatically.
 
 First, you'll need to install some dependencies.  To start with,
 you'll need Clang and libedit.  There's also some Common Lisp
