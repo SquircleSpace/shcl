@@ -15,6 +15,10 @@
 (defpackage :shcl/test/command
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/command
         :shcl/test/foundation)
+  (:import-from :shcl/core/shell-environment #:with-subshell)
+  (:import-from :shcl/core/lisp-interpolation #:evaluate-shell-string)
+  (:import-from :shcl/core/exit-info #:exit-info-true-p #:exit-info-exit-status
+                #:truthy-exit-info)
   (:import-from :fset))
 (in-package :shcl/test/command)
 
@@ -320,3 +324,20 @@
                       (equal '("rest") (symbol-value 'rest-args)))
                  "Special declaration works"))
            args)))
+
+(define-test exit
+  (ok (exit-info-true-p
+       (with-subshell
+         (evaluate-shell-string "exit")))
+      "Exit with no arguments exits with status 0")
+  (is (exit-info-exit-status
+       (with-subshell
+         (evaluate-shell-string "exit 1")))
+      1
+      "Exit respects its argument")
+  (ok (exit-info-true-p
+       (with-subshell
+         (with-subshell
+           (evaluate-shell-string "exit 1"))
+         (truthy-exit-info)))
+      "Exit only exits the inner-most subshell"))
