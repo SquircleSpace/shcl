@@ -253,9 +253,6 @@
 
 (defun syntax-iterator (parser-function token-iterator)
   (make-iterator ()
-    (let ((methods (closer-mop:generic-function-methods parser-function)))
-      (dolist (m methods)
-        (check-type m shcl/core/advice::advice-method)))
     (multiple-value-bind (value error) (funcall parser-function token-iterator)
       (when error
         (error 'abort-parse :message (internal-parse-error-message error)
