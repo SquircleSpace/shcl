@@ -18,7 +18,7 @@
 
 (declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
 
-(when (uiop:getenv "SHCL_DEBUG")
+(when (equal "1" (uiop:getenv "SHCL_DEBUG"))
   (push :shcl-debug *features*))
 
 (defun shcl-load (package &key verbose)
