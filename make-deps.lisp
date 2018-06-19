@@ -17,7 +17,7 @@
 (in-package :shcl/make-deps)
 
 (when (equal "1" (uiop:getenv "SHCL_DEBUG"))
-  (push :shcl-debug *features*))
+  (pushnew :shcl-debug *features*))
 
 (let ((asdf:*central-registry* (cons (directory-namestring *load-truename*) asdf:*central-registry*)))
   (if (find-package :ql)
