@@ -20,7 +20,9 @@
   (:import-from :fset)
   (:export
    #:graph-dependencies #:graph-class-hierarchy #:undocumented-symbols
-   #:undocumented-symbols-in-package #:verbose-echo-stream))
+   #:undocumented-symbols-in-package #:verbose-echo-stream
+   #:traverse-dependencies #:traverse-dependencies-fn #:shcl-system-name-p
+   #:shcl-package-name-p))
 (in-package :shcl/core/debug)
 
 (optimization-settings)
@@ -58,6 +60,41 @@ and all of its subclasses"))
 (defun shcl-system-name-p (system-name)
   (string-prefix-p "shcl/" system-name))
 
+(defun traverse-dependencies-fn (seed-system-name visit-fn)
+  (let ((visited (make-hash-table :test 'equal)))
+    (labels
+        ((unpack-dependency (dep)
+           (typecase dep
+             (symbol
+              (symbol-name peer))
+             (cons
+              (unless (eq :feature (car dep))
+                (warn "Don't know how to deal with dependency ~W" dep)
+                (return-from unpack-dependency))
+              (destructuring-bind (feature-kw feature system) dep
+                (declare (ignore feature-kw))
+                (when (find feature *features*)
+                  (unpack-dependency system))))
+             (string
+              dep)
+             (t
+              (warn "don't know how to deal with dependency ~W" dep)
+              nil)))
+         (visit (name)
+           (when (gethash name visited)
+             (return-from visit))
+           (setf (gethash name visited) t)
+           (let ((system (asdf:find-system name)))
+             (dolist (peer (asdf/system:system-depends-on system))
+               (setf peer (unpack-dependency peer))
+               (when (and peer (funcall visit-fn name peer))
+                 (visit peer))))))
+      (visit seed-system-name))))
+
+(defmacro traverse-dependencies (seed-system-name (depender depended) &body body)
+  `(traverse-dependencies-fn ,seed-system-name
+                             (lambda (,depender ,depended) ,@body)))
+
 (defun graph-dependencies (&key
                              (stream *standard-output*)
                              (seed-system-name "shcl/shell/main")
@@ -80,19 +117,10 @@ returns non-nil if the system should be included in the graph.
 returns non-nil if the graph traversal should explore the dependencies
 of the named system."
   (format stream "digraph G {~%")
-  (let ((visited (make-hash-table :test 'equal)))
-    (labels
-        ((visit (name)
-           (when (gethash name visited)
-             (return-from visit))
-           (setf (gethash name visited) t)
-           (let ((system (asdf:find-system name)))
-             (dolist (peer (asdf/system:system-depends-on system))
-               (when (funcall include-predicate peer)
-                 (format stream "\"~A\" -> \"~A\"~%" name peer))
-               (when (funcall explore-predicate peer)
-                 (visit peer))))))
-      (visit seed-system-name)))
+  (traverse-dependencies seed-system-name (depender depended)
+    (when (funcall include-predicate depended)
+      (format stream "\"~A\" -> \"~A\"~%" depender depended))
+    (funcall explore-predicate depended))
   (format stream "}~%"))
 
 (defparameter *intentionally-undocumented-packages*

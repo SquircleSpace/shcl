@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SHCL_DEBUG=
+SHCL_DEBUG=1
 
 ifeq ("$(shell uname -s)","Darwin")
 LIBSHCL_SUPPORT=libshcl-support.dylib
@@ -22,24 +22,39 @@ ifeq ("$(shell uname -s)","Linux")
 LIBSHCL_SUPPORT=libshcl-support.so
 endif
 
-SHCL_DEPENDS= core/*.lisp shell/*.lisp shcl.asd ${LIBSHCL_SUPPORT} make.lisp
 SUPPORT_OBJS= core/support/macros.o core/support/spawn.o
 LISP=sbcl
+BUILD_CONFIG= Makefile build-settings
 
 all: shcl
 
-%.o : %.c Makefile
+include dependencies
+
+.PHONY: force
+
+build-settings: force
+	@OPTIONS="$$(echo SHCL_DEBUG="${SHCL_DEBUG}"; echo LISP="${LISP}" )"; \
+	echo "$${OPTIONS}" | cmp -s - $@ || { \
+		echo "$${OPTIONS}" > $@; \
+		echo "Build settings changed.  Forcing rebuild..."; \
+	}
+
+dependencies: shcl.asd make-deps.lisp ${BUILD_CONFIG}
+	SHCL_DEBUG="${SHCL_DEBUG}" ${LISP} --eval '(require :asdf)' --load make-deps.lisp
+
+%.o : %.c ${BUILD_CONFIG}
 	clang -fPIC -o $@ -c $<
 
-core/support/spawn.o: core/support/spawn.c core/support/spawn.h Makefile
+core/support/spawn.o: core/support/spawn.c core/support/spawn.h ${BUILD_CONFIG}
 	clang -fPIC -o $@ -c $<
 
-$(LIBSHCL_SUPPORT): ${SUPPORT_OBJS} Makefile
+$(LIBSHCL_SUPPORT): ${SUPPORT_OBJS} ${BUILD_CONFIG}
 	clang -shared -o $@ ${SUPPORT_OBJS}
 
-shcl: ${SHCL_DEPENDS} Makefile
+shcl: shcl.asd make.lisp ${LIBSHCL_SUPPORT} ${BUILD_CONFIG}
+	if [ -f "$@" ]; then rm "$@"; fi
 	SHCL_DEBUG="${SHCL_DEBUG}" ${LISP} --eval '(require :asdf)' --load make.lisp
 
 .PHONY: test
-test: test/*.lisp ${SHCL_DEPENDS} Makefile
+test: test/*.lisp ${SHCL_DEPENDS} ${BUILD_CONFIG}
 	${LISP} --eval '(require :asdf)' --load test.lisp
