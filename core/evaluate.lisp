@@ -399,6 +399,12 @@ and io redirects."
 
       (values (nreverse assignments) (nreverse arguments) (nreverse redirects)))))
 
+(defun expand-1 (words &rest args &key &allow-other-keys)
+  (multiple-value-bind (result-words result-exit-infos)
+      (apply 'expansion-for-words words :split-fields nil args)
+    (values (fset:first result-words)
+            (fset:last result-exit-infos))))
+
 (defun translate-assignment (assignment)
   `(,(simple-word-text (assignment-word-name assignment))
      (expand-1 '(,(assignment-word-value-word assignment)))))
