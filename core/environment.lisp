@@ -117,6 +117,8 @@ suitable for storing in `*environment*'."
 (preserve-special-variable '*environment*)
 
 (defun default-environment-binding ()
+  "Return the environment binding that is used when looking up a
+variable that is unbound."
   (fset:map-default *environment*))
 
 (defun reset-environment ()
@@ -154,6 +156,12 @@ forms."
       (setf (fset:lookup *environment* key) value)))
 
 (defmacro do-environment-bindings ((key binding) &body body)
+  "Iterate across the bindings in effect in the current environment.
+
+`key' is bound to the string name for the binding.
+
+`binding' is bound to the object representing the binding.  See
+`environment-binding'."
   `(fset:do-map (,key ,binding *environment*)
      ,@body))
 
@@ -190,6 +198,11 @@ forms."
   `(%set-env ,key ,value ,default))
 
 (defun env-exported-p (key)
+  "Return non-nil iff the environment variable associated with the
+given key is marked as exported.
+
+Exported environment variables are made available to processes spawned
+by SHCL."
   (environment-binding-exported-p (environment-binding key)))
 
 (defun (setf env-exported-p) (value key)
@@ -198,6 +211,11 @@ forms."
   value)
 
 (defun env-readonly-p (key)
+  "Returns non-nil iff the environment variable named by the given key
+has been marked as readonly.
+
+If an environment variable is readonly then attempting to change the
+value associated with the variable will signal an error."
   (environment-binding-readonly-p (environment-binding key)))
 
 (defun (setf env-readonly-p) (value key)
