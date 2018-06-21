@@ -22,7 +22,7 @@
   (:import-from :trivial-garbage #:finalize #:cancel-finalization)
   (:export
    #:fd-wrapper #:fd-wrapper-close #:ref-counted-fd #:unmanaged-fd
-   #:fd-status #:fd-wrapper-retain #:fd-wrapper-release #:fd-wrapper-value
+   #:fd-wrapper-retain #:fd-wrapper-release #:fd-wrapper-value
    #:with-fd-scope #:with-private-fds #:retained-fd-dup #:retained-fd-open
    #:retained-fd-openat #:retained-fds-pipe #:with-pipe #:set-fd-binding
    #:unset-fd-binding #:get-fd-binding #:fd-bind* #:receive-ref-counted-fd
@@ -59,6 +59,11 @@
 (deftype fd ()
   '(integer 0))
 
+(defgeneric fd-wrapper-value (fd-wrapper)
+  (:documentation
+   "Extract the actual file descriptor that the given wrapper object
+holds."))
+
 (defclass fd-wrapper ()
   ((open-p
     :initform t
@@ -70,7 +75,12 @@
     :initform (required))
    (gc-token
     :type gc-token
-    :accessor fd-wrapper-gc-token)))
+    :accessor fd-wrapper-gc-token))
+  (:documentation
+   "A class that wraps a file descriptor and catches leaks.
+
+If you're creating a new class to manage a file descriptor, you should
+inherit from this class."))
 
 (defmethod shared-initialize :after ((fd fd-wrapper) slot-names
                                      &rest initargs &key &allow-other-keys)
@@ -111,7 +121,16 @@
   (unless *private-fds-locked*
     (error "Unsafe fd manipulation")))
 
-(defgeneric fd-wrapper-close (fd-wrapper))
+(defgeneric fd-wrapper-close (fd-wrapper)
+  (:documentation
+   "This function is called when a file descriptor wrapper should
+close the associated file descriptor.
+
+It is an error to call this function twice on a single object.
+
+You probably shouldn't get in the habit of calling this function
+directly.  Some file descriptor wrappers (e.g. `ref-counted-fd') are
+picky about when this function is called."))
 
 (defmethod fd-wrapper-close :around ((fd-wrapper fd-wrapper))
   (with-safe-fd-manipulation
@@ -131,7 +150,12 @@
     :type (integer 0))
    (lock
     :reader ref-counted-fd-lock
-    :initform (make-lock "ref-counted-fd-lock"))))
+    :initform (make-lock "ref-counted-fd-lock")))
+  (:documentation
+   "A class representing a file descriptor that is managed using
+`fd-wrapper-retain' and `fd-wrapper-release'.
+
+A ref counted fd will be closed when its retain count reaches 0."))
 
 (defmethod print-object ((fd ref-counted-fd) stream)
   (print-unreadable-object (fd stream :type t)
@@ -147,8 +171,15 @@
   (declare (type (integer 0) fd-value))
   (make-instance 'ref-counted-fd :value fd-value))
 
-(defgeneric fd-wrapper-retain (fd))
-(defgeneric fd-wrapper-release (fd))
+(defgeneric fd-wrapper-retain (fd)
+  (:documentation
+   "Indicate that the given wrapper object shouldn't be closed just
+yet."))
+
+(defgeneric fd-wrapper-release (fd)
+  (:documentation
+   "Indicate that you no longer wish to prevent the given wrapper
+object from closing."))
 
 (defmethod fd-wrapper-retain ((fd null))
   fd)
@@ -185,6 +216,28 @@
            (fd-wrapper-release ,fd))))))
 
 (defmacro receive-ref-counted-fd ((variable (function-name &rest args)) &body body)
+  "Safely receive a ref counted fd wrapper from a function.
+
+`function-name' will be called with the given `args' and returned
+value will be bound to `variable'.  For the dynamic extent of this
+form, the ref counted fd will be retained.  As this form unwinds, the
+ref counted fd will be released.
+
+Note that the name of `function-name' is significant.  Functions that
+start with `retained-fd-' should return a fd wrapper that the caller
+is expected to release.  Functions that start with `retained-fds-'
+should return a list of fd wrappers that the caller is expected to
+release.  Functions that start with `get-fd-' should return a file
+descriptor that the caller does not need to release (unless the caller
+issues their own retain, of course).
+
+This macro will respect the naming convention described above.  So,
+for example, if `function-name' starts with `get-fd-', then the
+returned fd wrapper will be retained before control enters the body
+and it will be released as control exits the body.  If `function-name'
+starts with `retained-fd-', then this macro will not issue a retain on
+the returned value, but it will issue a release as control exits the
+body."
   (let ((fd (gensym "FD"))
         (name (symbol-name function-name)))
     (labels
@@ -219,17 +272,32 @@
   ((value
     :reader fd-wrapper-value
     :type fd
-    :initarg :value)))
+    :initarg :value))
+  (:documentation
+   "A class representing a file descriptor that SHCL doesn't own.
+
+SHCL will never attempt to close the file descriptor given to an
+`unmanaged-fd'.  If your process has a file descriptor that SHCL
+didn't open, you can use this class to create a fd wrapper that SHCL
+understands.  This allows you to, for example, bind a virtual file
+descriptor to an arbitrary physical file descriptor.
+
+An error will be signaled if you try to initialize an instance of this
+class using a file descriptor that SHCL owns.
+
+When initializing an instance of this class, you can provide the
+`:ensure-opened-p' keyword arugment.  If the value associated with
+that argument is non-nil, then the given file descriptor will be examined and an error will be signaled if the file descriptor is closed."))
 
 (defmethod shared-initialize :after ((wrapper unmanaged-fd) slot-names
                                      &rest initargs
-                                     &key ensure-opened &allow-other-keys)
+                                     &key ensure-opened-p &allow-other-keys)
   (declare (ignore initargs slot-names))
   (let ((value (fd-wrapper-value wrapper)))
     (with-safe-fd-manipulation
       (when (gethash value %private-fds%)
         (error "Invalid fd ~A" value))
-      (when ensure-opened
+      (when ensure-opened-p
         (handler-case (fcntl value f-getfd)
           (syscall-error ()
             (error "Invalid fd ~A" value)))))))
@@ -255,6 +323,7 @@ bindings with `set-fd-binding', remove bindings with
 `unset-fd-binding', and query bindings with `get-fd-binding'.")
 
 (defun unset-fd-binding (virtual-fd)
+  "Removes any binding for `virtual-fd'."
   (let ((old-value (fset:lookup *fd-bindings* virtual-fd))
         (without-old-value (fset:less *fd-bindings* virtual-fd)))
     (when old-value
@@ -263,6 +332,14 @@ bindings with `set-fd-binding', remove bindings with
     (values)))
 
 (defun set-fd-binding (virtual-fd physical-fd-wrapper)
+  "Bind the given virtual file descriptor to the given physical fd
+wrapper.
+
+If `physical-fd-wrapper' is nil, this simply calls
+`unset-fd-binding'.
+
+The given fd wrapper will be retained as long as this binding remains
+in effect."
   (unless physical-fd-wrapper
     (return-from set-fd-binding (unset-fd-binding virtual-fd)))
   (with-ref-counted-fd-retained physical-fd-wrapper
@@ -272,6 +349,14 @@ bindings with `set-fd-binding', remove bindings with
     (values)))
 
 (defun get-fd-binding (virtual-fd &key (if-unbound :error))
+  "Look up the fd wrapper object bound to the given virtual file
+descriptor.
+
+`virtual-fd' is a file descriptor (aka a positive integer).
+
+`if-unbound' controls the behavior of this function is there is
+nothing bound to `virtual-fd'."
+  (check-type virtual-fd fd)
   (check-type if-unbound (member nil :error :unmanaged))
   (let ((result (nth-value 0 (fset:lookup *fd-bindings* virtual-fd))))
     (unless result
@@ -284,6 +369,17 @@ bindings with `set-fd-binding', remove bindings with
     result))
 
 (defmacro fd-bind* (bindings &body body)
+  "Establish file descriptor bindings for the dynamic extent of this
+form.
+
+Each binding is processed in sequence (like `let*' would).  A binding
+is a list of two elements: the file descriptor to bind and the value
+to bind it to.
+
+The value form must produce a wrapper object which can be retained and
+released with `fd-wrapper-retain' and `fd-wrapper-release'.  The value
+form will be evaluated using `receive-ref-counted-fd', so the value
+form must follow the naming conventions expected by that macro."
   (unless bindings
     (return-from fd-bind* `(progn ,@body)))
   (let ((old-fd (gensym "OLD-FD"))
@@ -571,6 +667,42 @@ x --> y means that physical x gets bound to physical y
 |#
 
 (defun linearize-fd-bindings (&optional (fd-bindings *fd-bindings*))
+  "Produce a linear sequence of bindings suitable for passing to
+`shcl/core/fork-exec:run'.
+
+SHCL makes a distinction between virtual file descriptor bindings and
+physical file descriptors.  When its time to fork off a process, we
+need to merge the physical file descriptors and the virtual file
+descriptors.  This can be problematic.
+
+Consider what happens if the following virtual => physical bindings
+are in effect.
+
+    virtual fd => physical fd (file that the physical fd might represent)
+    1 => 2 (foo.txt)
+    2 => 1 (bar.txt)
+    3 => 1 (bar.txt)
+
+So, in a subprocess, we would expect fd 1 to be bound to foo.txt and
+fds 2 and 3 bound to bar.txt.  When its time to dup the physical file
+descriptors into the places dictated by virtual fd bindings, you need
+to be careful.  If you naievely walk through the bindings and apply
+them in order you'll get the following result.
+
+    1 => 1 (foo.txt)
+    2 => 2 (foo.txt)
+    3 => 3 (foo.txt)
+
+Whoops!  We lost bar.txt.  The correct end result would actually be
+the following.
+
+    1 => 1 (foo.txt)
+    2 => 2 (bar.txt)
+    3 => 3 (bar.txt)
+
+This function produces a sequence of fd dup2 assignments that will
+produce the correct result.  See `shcl/core/fork-exec' for information
+about the format of the list this function produces."
   (let* ((fd-graph (fd-bindings-dependency-graph fd-bindings))
          (components (nreverse (graph-tarjan-strongly-connected-components fd-graph)))
          (bindings (make-extensible-vector)))
@@ -826,9 +958,8 @@ streams."
   "Create a `file-ptr-wrapper' which interacts with a dup'd version of
 the given fd.
 
-This `file-ptr-wrapper' must be closed with `close-file-ptr'.  If you
-leak the `file-ptr-wrapper' without closing it, an error will be
-signaled."
+This `file-ptr-wrapper' must be closed with `close-file-ptr'.  You
+must not leak the `file-ptr-wrapper' without closing it first."
   (with-safe-fd-manipulation
     (let ((close-new-fd t)
           new-fd
@@ -871,6 +1002,11 @@ signaled."
   (dir-ptr-wrapper-raw value))
 
 (defun dup-fd-into-dir-ptr (fd)
+  "create a `dir-ptr-wrapper' which interacts with a dup'd version of
+the given fd.
+
+This `dir-ptr-wrapper' must be closed with `close-dir-ptr'.  You must
+not leak the `dir-ptr-wrapper' without closing it first."
   (with-safe-fd-manipulation
     (let ((close-new-fd t)
           new-fd
