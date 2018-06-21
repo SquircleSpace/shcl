@@ -69,8 +69,41 @@
               (fd-actions-add-close fd-actions fd)))
       (fd-wrapper-release temp-fd))))
 
-(defun run (command &key fd-alist managed-fds (environment (fset:empty-seq)) working-directory-fd)
-  (setf command (fset:convert 'fset:seq command))
+(defun run (command &key fd-alist managed-fds environment working-directory-fd)
+  "Run a program.
+
+`command' is the list of arguments for the binary to receive.  The
+first element of the list is the name of the binary to run.  The PATH
+environment variable specified in the `environment' argument controls
+where this function will search for binaries.
+
+`fd-alist' is a list of file descriptor dup2 actions to perform.  The
+car of each cell represents the file descriptor to act upon and the
+cdr represents the value to place into that file descriptor.  If the
+value is nil, this function will close the file descriptor.  If you
+need to use a temporary file descriptor to break a cycle, you can use
+`:temp' in place of a specific file descriptor.  It is unspecified
+which file descriptor `:temp' represents.  The only guarantee is that
+it will be a file descriptor that is unused in the current process.
+
+Here's an example value for `fd-alist' that rotates file descriptors 1
+through 3.
+
+    ((:temp . 1) (1 . 2) (2 . 3) (3 . :temp) (:temp . nil))
+
+`managed-fds' is a list of file descriptors in the current process
+that should not be shared with the child process.  Note that
+`fd-alist' overrides this.  So, for example, if `managed-fds' contains
+fd 1 and `fd-alist' sets fd 1 to some value, the child process will
+have fd 1 bound to the value specified by `fd-alist'.
+
+`environment' is a sequence containing the environment bindings the
+child process should receive.  The elements of this sequence should be
+strings suitable for passing to the putenv POSIX C function.
+
+`working-directory-fd' is a file descriptor representing the desired
+working directory for the child process.  This file descriptor must be
+suitable for passing to the fchdir POSIX C function."
   (let ((fd-actions (make-fd-actions)))
     (take-fd-map fd-alist managed-fds fd-actions)
     (shcl-spawn (fset:first command) t working-directory-fd fd-actions command environment)))
