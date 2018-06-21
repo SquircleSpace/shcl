@@ -21,6 +21,7 @@
   (:import-from :shcl/test/data)
   (:import-from :shcl/test/iterator)
   (:import-from :shcl/test/command)
+  (:import-from :shcl/test/shell-lambda)
   (:import-from :shcl/test/fd-table)
   (:import-from :shcl/test/shell-form)
   (:import-from :shcl/test/foundation

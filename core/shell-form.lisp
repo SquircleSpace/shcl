@@ -26,8 +26,7 @@
    #:retained-fds-pipe #:fd-wrapper-release #:with-fd-scope #:set-fd-binding
    #:fd-bind* #:receive-ref-counted-fd)
   (:import-from :shcl/core/command
-   #:invoke-command #:lookup-command #:define-special-builtin #:wrap-errors
-   #:command-error)
+   #:invoke-command #:lookup-command #:define-special-builtin #:wrap-errors)
   (:import-from :bordeaux-threads)
   (:import-from :alexandria #:parse-body)
   (:export #:shell-pipeline #:shell-not #:& #:with-subshell #:shell-when

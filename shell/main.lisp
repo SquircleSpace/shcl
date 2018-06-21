@@ -18,8 +18,9 @@
    :shcl/core/utility :shcl/core/evaluate
    :shcl/core/lisp-interpolation :shcl/core/shell-readtable
    :shcl/core/iterator)
-  (:import-from :shcl/core/command
-   #:define-builtin #:handle-command-errors #:with-parsed-arguments)
+  (:import-from :shcl/core/command #:define-builtin)
+  (:import-from :shcl/core/shell-lambda
+   #:handle-command-errors #:with-parsed-arguments)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/core/command #:exit-condition #:exit-condition-exit-info)
   (:import-from :shcl/core/exit-info
