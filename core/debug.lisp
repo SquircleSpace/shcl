@@ -20,7 +20,7 @@
   (:export
    #:graph-dependencies #:graph-class-hierarchy #:undocumented-symbols
    #:undocumented-symbols-in-package #:verbose-echo-stream
-   #:traverse-dependencies #:traverse-dependencies-fn #:shcl-system-name-p
+   #:traverse-dependencies #:shcl-system-name-p
    #:shcl-package-name-p))
 (in-package :shcl/core/debug)
 
@@ -54,9 +54,11 @@ and all of its subclasses"))
     (string= word prefix :end1 (length prefix))))
 
 (defun shcl-package-name-p (package-name)
+  "Returns non-nil iff the given package belongs to SHCL."
   (string-prefix-p "SHCL/" package-name))
 
 (defun shcl-system-name-p (system-name)
+  "Returns non-nil iff the given ASDF system name belongs to SHCL."
   (string-prefix-p "shcl/" system-name))
 
 (defun traverse-dependencies-fn (seed-system-name visit-fn)
@@ -91,6 +93,18 @@ and all of its subclasses"))
       (visit seed-system-name))))
 
 (defmacro traverse-dependencies (seed-system-name (depender depended) &body body)
+  "Explore the ASDF dependencies of a system.
+
+Starting with the system named `seed-system-name', this will traverse
+the ASDF dependency graph.  Every time it finds a dependency, it will
+bind `depender' to the name of the system that is doing the depending
+and `depended' to the name of the system that is depended upon.  It
+will then evaluate the provided body.
+
+If the body returns non-nil, this macro will delve into the
+dependencies of `depended'.  If the body returns nil, this macro will
+not explore `depended' and will instead continue to explore
+`depender'."
   `(traverse-dependencies-fn ,seed-system-name
                              (lambda (,depender ,depended) ,@body)))
 
