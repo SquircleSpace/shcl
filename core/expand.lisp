@@ -26,7 +26,7 @@
   (:import-from :shcl/core/environment #:env #:$ifs #:$home)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
-   #:word-boundary #:*split-fields* #:split #:expand-1))
+   #:word-boundary #:*split-fields* #:split))
 (in-package :shcl/core/expand)
 
 (optimization-settings)
@@ -273,12 +273,6 @@ to understand how it impacts expansion."
         (fset:appendf pathname-expansion-results (expand-pathname fragments)))
       (values pathname-expansion-results
               exit-infos))))
-
-(defun expand-1 (words &rest args &key &allow-other-keys)
-  (multiple-value-bind (result-words result-exit-infos)
-      (apply 'expansion-for-words words :split-fields nil args)
-    (values (fset:first result-words)
-            (fset:last result-exit-infos))))
 
 (defstruct wild-path
   "This struct represents a path which may have components which
