@@ -50,6 +50,21 @@ not called every time the iterator advances."))
      (lambda ()
        (funcall fn i)))))
 
+(defmacro emit (value)
+  "Within the body of `make-iterator', cause the iterator to produce a
+value.
+
+It is an error for this macro to be used outside of `make-iterator'."
+  (declare (ignore value))
+  (error "This macro can only be used within the body of `make-iterator'."))
+
+(defmacro stop ()
+  "Within the body of `make-iterator', signal that the iterator has no
+values left to produce.
+
+It is an error for this macro to be used outside of `make-iterator'."
+  (error "This macro can only be used within the body of `make-iterator'."))
+
 (defmacro make-iterator ((&key type) &body body)
   "Create an iterator.
 
@@ -231,6 +246,8 @@ a new iterator in a given family."
   (values))
 
 (defun lookahead-iterator-wrapper (iter)
+  "Produce a `lookahead-iterator' that emits the same values as
+`iter'."
   (make-iterator (:type 'lookahead-iterator)
     (multiple-value-bind (value more) (next iter)
       (unless more
