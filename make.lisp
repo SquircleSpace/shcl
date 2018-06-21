@@ -12,9 +12,9 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl/bootstrap
+(defpackage :shcl/make
   (:use :common-lisp))
-(in-package :shcl/bootstrap)
+(in-package :shcl/make)
 
 (declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0)))
 
