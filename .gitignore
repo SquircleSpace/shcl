@@ -3,5 +3,5 @@
 *.fasl
 *~
 /libshcl-support.so
-dependencies
-options
+/dependencies
+/options
