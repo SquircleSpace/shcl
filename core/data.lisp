@@ -58,6 +58,7 @@ appropriate type."
     `(progn
        ,@access-wrapper
        (defun ,name (,object)
+         "Auto-generated slot accessor."
          (,access-macro ,object))
        (define-setf-expander ,name (,object &environment ,env)
          (multiple-value-bind (,vars ,vals ,set-vars ,setter ,getter) (get-setf-expansion ,object ,env)
