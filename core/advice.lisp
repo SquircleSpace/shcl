@@ -188,6 +188,12 @@ with `define-advice'."
     (error "Unable to find matching advice.")))
 
 (defun list-advice (function &optional qualifier)
+  "List existing advice installed on the given advisable function.
+
+Returns a list of advice descriptions.  Each advice description is a
+list consisting of
+- when the advice should run (e.g. :before), and
+- the name provided for the advice."
   (when (symbolp function)
     (setf function (symbol-function function)))
   (check-type function advisable-generic-function)
