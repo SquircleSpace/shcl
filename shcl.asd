@@ -35,6 +35,7 @@
   :licence "Apache License, Version 2.0"
   :depends-on ("shcl/shell/main"
                (:feature :shcl-debug "shcl/core/debug")
+               (:feature :shcl-debug "shcl/shell/debug")
                (:feature :shcl-debug "shcl/test/main"))
   :entry-point "shcl/shell/main::main"
   :output-files (program-op (o c) (values (list (make-pathname :name "shcl" :type nil :defaults *load-truename*)) t)))

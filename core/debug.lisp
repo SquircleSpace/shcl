@@ -15,7 +15,6 @@
 (defpackage :shcl/core/debug
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/utility :shcl/core/iterator)
-  (:import-from :shcl/core/command #:define-builtin)
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export
@@ -162,41 +161,22 @@ See `symbol-documentation-types'.")
          (return-from documented-p t))))
   nil)
 
-(defun %undocumented-symbols-in-package (package syms)
-  "Store all the undocumented symbols from `package' in the adjustable
-array `syms'."
-  (do-external-symbols (sym package)
-    (unless (documented-p sym)
-      (vector-push-extend sym syms))))
-
 (defun undocumented-symbols-in-package (package)
-  "Return an array containing the undocumented symbols in `package'."
-  (let ((syms (make-extensible-vector)))
-    (%undocumented-symbols-in-package package syms)
-    syms))
+  "Return a set containing the undocumented symbols in `package'."
+  (let ((result (fset:empty-set)))
+    (do-external-symbols (sym package)
+      (unless (documented-p sym)
+        (fset:adjoinf result sym)))
+    result))
 
 (defun undocumented-symbols (&key (package-predicate 'documented-shcl-package-p))
   "Returns an array of all shcl symbols that are undocumented."
   (let* ((all-packages (list-iterator (list-all-packages)))
          (shcl-packages (filter-iterator all-packages package-predicate))
-         (syms (make-extensible-vector)))
+         (syms (fset:empty-set)))
     (do-iterator (package shcl-packages)
-      (%undocumented-symbols-in-package package syms))
+      (fset:unionf syms (undocumented-symbols-in-package package)))
     syms))
-
-(define-builtin -shcl-undocumented-symbols (&option (package "-p"))
-  (let (syms)
-    (cond
-      ((zerop (length package))
-       (setf syms (undocumented-symbols)))
-      (t
-       (setf syms (make-extensible-vector))
-       (loop :for package-name :across package :do
-          (%undocumented-symbols-in-package (find-package package-name) syms))))
-    (loop :for sym :across syms :do
-       (format t "~A:~A~%" (package-name (symbol-package sym))
-               (symbol-name sym)))
-    0))
 
 (defclass verbose-echo-stream (fundamental-character-output-stream)
   ((output-stream
