@@ -18,7 +18,8 @@
   (:import-from :alexandria)
   (:import-from :closer-mop)
   (:import-from :shcl/core/shell-lambda
-                #:command-error #:shell-lambda #:handle-command-errors)
+                #:command-error #:shell-lambda #:handle-command-errors
+                #:wrap-errors)
   (:import-from :shcl/core/fd-table
                 #:with-fd-streams #:with-private-fds #:linearize-fd-bindings
                 #:fd-wrapper-value)
@@ -90,7 +91,15 @@ You do not need to specialize this function, but it is recommended."))
 `fallback' is the command that should"
   (make-instance 'command-namespace :fallback fallback))
 
-(define-data binary ()
+(define-data command ()
+  ()
+  (:documentation
+   "A base class for objects representing shell commands.
+
+This base class is merely provided as a convenience so you can do
+things like specialize methods."))
+
+(define-data binary (command)
   ()
   (:documentation
    "An object representing a shell command backed by a file on disk."))
@@ -113,7 +122,10 @@ You do not need to specialize this function, but it is recommended."))
      (format s "The given command name (~S) will produce confusing
 results.  Users normally expect that commands containing a slash will
 invoke a binary instead of a builtin."
-             (confusing-command-name-name c)))))
+             (confusing-command-name-name c))))
+  (:documentation
+   "A condition signaled when a command name is sure to confuse
+people."))
 
 (define-condition redefining-command (warning)
   ((old-command
@@ -135,9 +147,24 @@ invoke a binary instead of a builtin."
   (:report
    (lambda (c s)
      (format s "Replacing existing command with name ~S"
-             (redefining-command-name c)))))
+             (redefining-command-name c))))
+  (:documentation
+   "A warning representing the fact that a shell command has been
+replaced."))
 
 (defun install-command (name command &optional (priority (command-priority command)))
+  "Install a command into the current command namespace.
+
+`name' is a string.  When the first element of a command invocation
+matches the provided name, this command will be invoked.
+
+`command' is an object representing the command.  When it is time to
+invoke the command, `invoke-command' will be called and the provided
+command object will be passed in.
+
+`priority' is a number.  In the event that two commands have the same
+`name', SHCL will invoke the command with the numerically smaller
+priority."
   (when (find #\/ name)
     (warn 'confusing-command-name :name name))
   (let* ((table (command-namespace-table *command-namespace*))
@@ -151,6 +178,9 @@ invoke a binary instead of a builtin."
       (values))))
 
 (defun lookup-command (name)
+  "Find the object that will handle invocation of the named command.
+
+See `install-command'."
   (multiple-value-bind (value found) (fset:lookup (command-namespace-table *command-namespace*) name)
     (if (and found (not (fset:empty? value)))
         (nth-value 1 (fset:at-rank value 0))
@@ -185,11 +215,18 @@ invoke a binary instead of a builtin."
                     :stop-signal (when (wifstopped status)
                                    (wstopsig status)))))
 
-(define-data special-builtin ()
+(define-data special-builtin (command)
   ((handler
     :initarg :handler
     :initform (required)
-    :updater special-builtin-handler)))
+    :updater special-builtin-handler))
+  (:documentation
+   "This type represents builtins that behave differently from other
+commands.
+
+Most commands run in a subshell environment or a different process
+entirely.  Special builtins do not.  There are other differences,
+too."))
 
 (defmethod documentation ((command special-builtin) (doc-type (eql t)))
   (documentation (special-builtin-handler command) doc-type))
@@ -214,11 +251,17 @@ invoke a binary instead of a builtin."
 (defun register-special-builtin (name handler)
   (install-command name (make-instance 'special-builtin :handler handler)))
 
-(define-data builtin ()
+(define-data builtin (command)
   ((handler
     :initarg :handler
     :initform (required)
-    :updater builtin-handler)))
+    :updater builtin-handler))
+  (:documentation
+   "Instances of this class represent normal, non-special builtin
+commands.
+
+See `special-builtin'.  Builtins are like normal commands except they
+are implemented in the shell itself."))
 
 (defmethod documentation ((command builtin) (doc-type (eql t)))
   (documentation (builtin-handler command) doc-type))
@@ -295,6 +338,10 @@ then the builtin name is the downcased symbol name."
 (define-special-builtin exec (&rest args)
   (declare (ignore args))
   (error 'not-implemented :feature "exec"))
+
+(defgeneric exit-condition-exit-info (exit-condition)
+  (:documentation
+   "Retrieve the `exit-info' caried by an `exit-condition'."))
 
 (define-condition exit-condition (serious-condition)
   ((exit-info
