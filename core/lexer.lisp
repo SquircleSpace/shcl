@@ -196,7 +196,8 @@
   (check-type string string)
   `(progn
      (define-literal-token ,name ,string ,superclasses ,slots ,@options)
-     (fset:adjoinf *operators* ,string ',name)))
+     (fset:adjoinf *operators* ,string ',name)
+     ',name))
 
 (define-operator and-if "&&")
 (define-operator or-if "||")
