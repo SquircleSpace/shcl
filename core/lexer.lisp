@@ -242,7 +242,8 @@
   (check-type string string)
   `(progn
      (define-literal-token ,name ,string ,superclasses ,slots ,@options)
-     (fset:adjoinf *reserved-words* ,string ',name)))
+     (fset:adjoinf *reserved-words* ,string ',name)
+     ',name))
 
 (define-reserved-word if-word "if")
 (define-reserved-word then "then")
