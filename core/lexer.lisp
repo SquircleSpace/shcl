@@ -54,11 +54,19 @@
 
 (optimization-settings)
 
+(defgeneric token-value (token)
+  (:documentation
+   "Returns the string that was used to build this token.
+
+This function should only be used for debugging purposes."))
+
 (defclass token ()
   ((value :type (or null string)
           :initform nil
           :accessor token-value
-          :initarg :value)))
+          :initarg :value))
+  (:documentation
+   "A class representing a token in the POSIX shell language."))
 (defmethod print-object ((token token) stream)
   (format stream "#<~A ~W>" (class-name (class-of token)) (token-value token)))
 (defmethod make-load-form ((token token) &optional environment)
@@ -66,23 +74,33 @@
     (make-load-form-saving-slots token :slot-names slots :environment environment)))
 
 (defclass eof (token)
-  ((value :initform "<EOF>")))
+  ((value :initform nil))
+  (:documentation
+   "A token representing end of file."))
 (defmethod print-object ((eof eof) stream)
-  (format stream "#<EOF>"))
-(define-once-global +eof+ (make-instance 'eof))
-
-(defun plusify (symbol)
-  (intern (concatenate 'string "+" (symbol-name symbol) "+")))
+  (format stream "#<~W>" (class-name (class-of eof))))
+(define-once-global +eof+ (make-instance 'eof)
+  (:documentation
+   "An instance of the `eof' token."))
 
 (defclass a-word (token)
-  ())
+  ()
+  (:documentation
+   "A base class for tokens that aren't \"special\" in the shell language.
+
+These tokens represent file paths, quoted strings, command names, and
+similar tokens.  Its a grab-bag of miscellaneous token types."))
 
 (defclass simple-word (a-word)
   ((text
     :initarg :text
     :accessor simple-word-text
     :initform (required)
-    :type string)))
+    :type string))
+  (:documentation
+   "A class for plain-old sequences of characters.
+
+There's nothing special going on here."))
 (defmethod print-object ((simple-word simple-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of simple-word)) (simple-word-text simple-word)))
 
@@ -90,9 +108,24 @@
   ((parts :type vector
           :initform (required)
           :accessor compound-word-parts
-          :initarg :parts)))
+          :initarg :parts))
+  (:documentation
+   "A token class that consists of several tokens combined into a
+single aggregate token."))
 (defmethod print-object ((compound-word compound-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of compound-word)) (compound-word-parts compound-word)))
+
+(defgeneric assignment-word-name (assignment-word)
+  (:documentation
+   "Retrieve the name portion of the assignment.
+
+The name portion is the part that comes before the #\= character."))
+
+(defgeneric assignment-word-value-word (assignment-word)
+  (:documentation
+   "Retrieve the value portion of the assignment.
+
+The value portion is the part tat comes after the #\= character."))
 
 (defclass assignment-word (a-word)
   ((name
@@ -104,7 +137,12 @@
     :type a-word
     :initarg :value-word
     :initform (required)
-    :accessor assignment-word-value-word)))
+    :accessor assignment-word-value-word))
+  (:documentation
+   "A class to represent words that look like variable assignments.
+
+Whether or not this token actually represents a variable assignment
+won't be known until after parsing happens."))
 (defmethod print-object ((word assignment-word) stream)
   (format stream "#<~A ~S = ~S>" (class-name (class-of word)) (assignment-word-name word) (assignment-word-value-word word)))
 
@@ -169,7 +207,10 @@
   ((string
     :type string
     :allocation :class
-    :accessor literal-token-string)))
+    :accessor literal-token-string))
+  (:documentation
+   "This class is a base class for tokens that represent very specific
+character sequences."))
 (defmethod print-object ((literal-token literal-token) stream)
   (if *print-literals-by-name*
       (format stream "#<~A>" (class-name (class-of literal-token)))
@@ -181,6 +222,9 @@
        ((value :initform ,string)
         (string :initform ,string)
         ,@slots)
+       ,@(unless (getf options :documentation)
+           `((:documentation
+              ,(format nil "A token class representing the ~W character sequence." string))))
        ,@options)))
 
 (define-literal-token newline (string #\linefeed))
@@ -189,7 +233,13 @@
 (defparameter *operators* (fset:empty-map))
 
 (defclass operator (literal-token)
-  ())
+  ()
+  (:documentation
+   "A token class for operators.
+
+Operators are treated specially when tokenizing, but they aren't any
+different from other literal tokens after tokenization is complete.
+All the same, this class exists to help group them all together."))
 
 (defmacro define-operator (name string &optional (superclasses '(operator)) slots &body options)
   (check-type name symbol)
@@ -350,6 +400,13 @@ EOF results in the `unexpected-eof' error being signaled."
   (declare (ignore stream))
   (error 'not-implemented :feature "Backquote (it sucks and you should use $())"))
 
+(defgeneric command-word-tokens (command-word)
+  (:documentation
+   "Retrieve the tokens contained within a command word.
+
+Command words are tokens that contain entire shell commands.  This
+retrieves the token sequence for the inner command."))
+
 (defclass command-word (a-word)
   ((tokens
     :initarg :tokens
@@ -358,7 +415,13 @@ EOF results in the `unexpected-eof' error being signaled."
     :accessor command-word-tokens)
    (evaluate-fn
     :initform nil
-    :accessor command-word-evaluate-fn)))
+    :accessor command-word-evaluate-fn))
+  (:documentation
+   "A class to represent uses of command substitution.
+
+During the expansion phase, this token will expand to be the output of
+some other command.  See `command-word-tokens' and
+`command-word-evaluate-fn'."))
 (defmethod print-object ((command-word command-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
 
