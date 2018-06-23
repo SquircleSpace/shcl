@@ -14,7 +14,8 @@
 
 (defpackage :shcl/test/lexer
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/lexer
-        :shcl/core/shell-readtable :shcl/test/foundation))
+        :shcl/core/shell-readtable :shcl/test/foundation)
+  (:import-from :shcl/core/data #:define-data))
 (in-package :shcl/test/lexer)
 
 (optimization-settings)
@@ -60,7 +61,7 @@
   (ok (lexes-to-token-types (format nil "first~%second") 'simple-word 'newline 'simple-word))
   (ok (lexes-to-token-types (format nil "part\\~%part") 'simple-word)))
 
-(defclass form-token (token)
+(define-data form-token (token)
   ((form
    :initarg :form
    :reader form-token-form)))

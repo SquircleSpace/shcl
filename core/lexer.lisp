@@ -16,6 +16,7 @@
   (:use
    :common-lisp :shcl/core/utility :shcl/core/shell-readtable
    :shcl/core/iterator)
+  (:import-from :shcl/core/data #:define-data)
   (:import-from :fset)
   (:import-from :closer-mop)
   (:export
@@ -60,10 +61,10 @@
 
 This function should only be used for debugging purposes."))
 
-(defclass token ()
+(define-data token ()
   ((value :type (or null string)
           :initform nil
-          :accessor token-value
+          :updater token-value
           :initarg :value))
   (:documentation
    "A class representing a token in the POSIX shell language."))
@@ -73,7 +74,7 @@ This function should only be used for debugging purposes."))
   (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of token)))))
     (make-load-form-saving-slots token :slot-names slots :environment environment)))
 
-(defclass eof (token)
+(define-data eof (token)
   ((value :initform nil))
   (:documentation
    "A token representing end of file."))
@@ -83,7 +84,7 @@ This function should only be used for debugging purposes."))
   (:documentation
    "An instance of the `eof' token."))
 
-(defclass a-word (token)
+(define-data a-word (token)
   ()
   (:documentation
    "A base class for tokens that aren't \"special\" in the shell language.
@@ -91,10 +92,10 @@ This function should only be used for debugging purposes."))
 These tokens represent file paths, quoted strings, command names, and
 similar tokens.  Its a grab-bag of miscellaneous token types."))
 
-(defclass simple-word (a-word)
+(define-data simple-word (a-word)
   ((text
     :initarg :text
-    :accessor simple-word-text
+    :updater simple-word-text
     :initform (required)
     :type string))
   (:documentation
@@ -104,10 +105,10 @@ There's nothing special going on here."))
 (defmethod print-object ((simple-word simple-word) stream)
   (format stream "#<~A ~S>" (class-name (class-of simple-word)) (simple-word-text simple-word)))
 
-(defclass compound-word (a-word)
+(define-data compound-word (a-word)
   ((parts :type vector
           :initform (required)
-          :accessor compound-word-parts
+          :updater compound-word-parts
           :initarg :parts))
   (:documentation
    "A token class that consists of several tokens combined into a
@@ -127,17 +128,17 @@ The name portion is the part that comes before the #\= character."))
 
 The value portion is the part tat comes after the #\= character."))
 
-(defclass assignment-word (a-word)
+(define-data assignment-word (a-word)
   ((name
     :type name
     :initform (required)
-    :accessor assignment-word-name
+    :updater assignment-word-name
     :initarg :name)
    (value-word
     :type a-word
     :initarg :value-word
     :initform (required)
-    :accessor assignment-word-value-word))
+    :updater assignment-word-value-word))
   (:documentation
    "A class to represent words that look like variable assignments.
 
@@ -166,14 +167,14 @@ won't be known until after parsing happens."))
                            (make-instance 'compound-word :parts new-parts :value nil))))
       (make-instance 'assignment-word :name name :value-word final-value :value raw))))
 
-(defclass name (simple-word)
+(define-data name (simple-word)
   ())
 
-(defclass io-number (token)
+(define-data io-number (token)
   ((fd
     :type integer
     :initform (required)
-    :accessor io-number-fd
+    :updater io-number-fd
     :initarg :fd)))
 (defmethod print-object ((io-number io-number) stream)
   (format stream "#<~A ~S>" (class-name (class-of io-number)) (io-number-fd io-number)))
@@ -203,11 +204,11 @@ won't be known until after parsing happens."))
         position))))
 
 (defparameter *print-literals-by-name* t)
-(defclass literal-token (token)
+(define-data literal-token (token)
   ((string
     :type string
     :allocation :class
-    :accessor literal-token-string))
+    :reader literal-token-string))
   (:documentation
    "This class is a base class for tokens that represent very specific
 character sequences."))
@@ -218,7 +219,7 @@ character sequences."))
 
 (defmacro define-literal-token (name string &optional (superclasses '(literal-token)) slots &body options)
   `(progn
-     (defclass ,name ,superclasses
+     (define-data ,name ,superclasses
        ((value :initform ,string)
         (string :initform ,string)
         ,@slots)
@@ -232,7 +233,7 @@ character sequences."))
 
 (defparameter *operators* (fset:empty-map))
 
-(defclass operator (literal-token)
+(define-data operator (literal-token)
   ()
   (:documentation
    "A token class for operators.
@@ -284,7 +285,7 @@ All the same, this class exists to help group them all together."))
 
 (defparameter *reserved-words* (fset:empty-map))
 
-(defclass reserved-word (a-word literal-token)
+(define-data reserved-word (a-word literal-token)
   ())
 
 (defmacro define-reserved-word (name string &optional (superclasses '(reserved-word)) slots &body options)
@@ -325,12 +326,12 @@ All the same, this class exists to help group them all together."))
 (defun eof-error (&rest rest)
   (apply 'error 'eof-error rest))
 
-(defclass single-quote (a-word)
+(define-data single-quote (a-word)
   ((contents
     :initarg :contents
     :initform (required)
     :type string
-    :accessor single-quote-contents)))
+    :updater single-quote-contents)))
 (defmethod print-object ((single-quote single-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of single-quote)) (single-quote-contents single-quote)))
 
@@ -355,16 +356,16 @@ All the same, this class exists to help group them all together."))
     (make-instance 'single-quote :contents contents
                    :value (get-output-stream-string all-chars-stream))))
 
-(defclass escaped-character (single-quote)
+(define-data escaped-character (single-quote)
   ())
 
 (defun make-escaped-character (char)
   (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\\ char)))
 
-(defclass double-quote (a-word)
+(define-data double-quote (compound-word)
   ((parts :type vector
           :initform (required)
-          :accessor double-quote-parts
+          :updater double-quote-parts
           :initarg :parts)))
 (defmethod print-object ((double-quote double-quote) stream)
   (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
@@ -407,15 +408,15 @@ EOF results in the `unexpected-eof' error being signaled."
 Command words are tokens that contain entire shell commands.  This
 retrieves the token sequence for the inner command."))
 
-(defclass command-word (a-word)
+(define-data command-word (a-word)
   ((tokens
     :initarg :tokens
     :initform (required)
     :type vector
-    :accessor command-word-tokens)
+    :updater command-word-tokens)
    (evaluate-fn
     :initform nil
-    :accessor command-word-evaluate-fn))
+    :updater command-word-evaluate-fn))
   (:documentation
    "A class to represent uses of command substitution.
 
@@ -494,7 +495,7 @@ some other command.  See `command-word-tokens' and
         (t
          nil)))))
 
-(defclass variable-expansion-word (a-word)
+(define-data variable-expansion-word (a-word)
   ((variable
     :initarg :variable
     :initform (required)
@@ -504,7 +505,7 @@ some other command.  See `command-word-tokens' and
   (print-unreadable-object (word stream :type t)
     (format stream "~S" (variable-expansion-word-variable word))))
 
-(defclass variable-expansion-length-word (a-word)
+(define-data variable-expansion-length-word (a-word)
   ((variable
     :initarg :variable
     :initform (required)
@@ -640,7 +641,7 @@ some other command.  See `command-word-tokens' and
                               :include-null-p include-null-p)))
     part))
 
-(defclass conditional-replacement-policy (token)
+(define-data conditional-replacement-policy (token)
   ((original-token
     :initarg :original-token
     :reader conditional-replacement-policy-original-token
@@ -661,16 +662,16 @@ some other command.  See `command-word-tokens' and
     (format stream "~S ~S" (conditional-replacement-policy-original-token policy)
             (conditional-replacement-policy-replacement-token policy))))
 
-(defclass default-value-policy (conditional-replacement-policy)
+(define-data default-value-policy (conditional-replacement-policy)
   ())
 
-(defclass assign-default-value-policy (conditional-replacement-policy)
+(define-data assign-default-value-policy (conditional-replacement-policy)
   ())
 
-(defclass error-policy (conditional-replacement-policy)
+(define-data error-policy (conditional-replacement-policy)
   ())
 
-(defclass alternate-value-policy (conditional-replacement-policy)
+(define-data alternate-value-policy (conditional-replacement-policy)
   ())
 
 (defun handle-use-default-policy (stream initiation-sequence context)

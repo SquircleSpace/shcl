@@ -18,9 +18,9 @@
    :shcl/core/expand
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/shell-readtable)
+  (:import-from :shcl/core/data #:define-data)
   (:import-from :shcl/core/command #:define-special-builtin)
-  (:import-from :shcl/core/evaluate #:evaluation-form-iterator)
-  (:import-from :shcl/core/baking #:bake-form)
+  (:import-from :shcl/core/evaluate #:evaluation-form-iterator #:translate #:expansion-preparation-form)
   (:import-from :shcl/core/posix)
   (:import-from :bordeaux-threads)
   (:import-from :babel)
@@ -32,13 +32,14 @@
    #:*splice-table*))
 (in-package :shcl/core/lisp-interpolation)
 
-(defclass lisp-form (a-word)
+(define-data lisp-form (a-word)
   ((form
     :initarg :form
     :initform (required)
     :documentation
     "The form this token represents")
    (function
+    :updater lisp-form-function
     :documentation
     "This function evaluates the form."))
   (:documentation
@@ -51,15 +52,19 @@ This token always expands to one word."))
 (defmethod print-object ((token lisp-form) stream)
   (format stream "#<~A ~A>" (class-name (class-of token)) (slot-value token 'form)))
 
-(defmethod bake-form ((lisp-form lisp-form))
-  `(setf (slot-value ,lisp-form 'function)
-         (lambda ()
-           (fset:seq
-            (make-string-fragment
-             (format nil "~A" ,(slot-value lisp-form 'form))
-             :quoted t)))))
+(defmethod expansion-preparation-form ((lisp-form lisp-form))
+  (with-slots (form) lisp-form
+    (let ((value (gensym "VALUE")))
+      `(let ((,value ,lisp-form))
+         (setf (lisp-form-function ,value)
+               (lambda ()
+                 (fset:seq
+                  (make-string-fragment
+                   (format nil "~A" ,form)
+                   :quoted t))))
+         ,value))))
 
-(defclass lisp-splice-form (lisp-form)
+(define-data lisp-splice-form (lisp-form)
   ()
   (:documentation
    "A token representing a lisp form which evaulates to a sequence.
@@ -67,19 +72,23 @@ This token always expands to one word."))
 During expansion, this token traverses the sequence returned by the
 lisp form and turns each element into a separate word."))
 
-(defmethod bake-form ((lisp-form lisp-splice-form))
-  (let ((seq (gensym "SEQ"))
-        (result (gensym "RESULT"))
-        (thing (gensym "THING")))
-    `(setf (slot-value ,lisp-form 'function)
-           (lambda ()
-             (let ((,seq ,(slot-value lisp-form 'form))
-                   (,result (fset:empty-seq)))
-               (do-iterator (,thing (iterator ,seq))
-                 (fset:push-last ,result (make-string-fragment (format nil "~A" ,thing) :quoted t))
-                 (fset:push-last ,result (word-boundary)))
-               (setf ,result (fset:less-last ,result))
-               ,result)))))
+(defmethod expansion-preparation-form ((lisp-form lisp-splice-form))
+  (with-slots (form) lisp-form
+    (let ((value (gensym "VALUE"))
+          (seq (gensym "SEQ"))
+          (result (gensym "RESULT"))
+          (thing (gensym "THING")))
+      `(let ((,value ,lisp-form))
+         (setf (lisp-form-function ,value)
+               (lambda ()
+                 (let ((,seq ,form)
+                       (,result (fset:empty-seq)))
+                   (do-iterator (,thing (iterator ,seq))
+                     (fset:push-last ,result (make-string-fragment (format nil "~A" ,thing) :quoted t))
+                     (fset:push-last ,result (word-boundary)))
+                   (setf ,result (fset:less-last ,result))
+                   ,result)))
+         ,value))))
 
 (defmethod expand ((token lisp-form))
   (funcall (slot-value token 'function)))
@@ -323,11 +332,14 @@ string.
 "
   `(%capture ,streams ,encoding (lambda () ,@shell-command)))
 
-(defmethod bake-form ((command-word command-word))
-  `(setf (command-word-evaluate-fn ,command-word)
-         (lambda ()
-           (capture (:streams '(:stdout))
-             (parse-token-sequence ,(coerce (command-word-tokens command-word) 'list))))))
+(defmethod expansion-preparation-form ((command-word command-word))
+  (let ((token-sym (gensym "TOKEN")))
+    `(let ((,token-sym ,command-word))
+       (setf (command-word-evaluate-fn ,token-sym)
+             (lambda ()
+               (capture (:streams '(:stdout))
+                 (parse-token-sequence ,(coerce (command-word-tokens command-word) 'list)))))
+       ,token-sym)))
 
 (defmethod expand ((command-word command-word))
   (let* ((fn (or (command-word-evaluate-fn command-word)

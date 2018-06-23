@@ -22,33 +22,61 @@
   (:import-from :shcl/core/shell-form
    #:shell-pipeline #:shell-not #:& #:shell-not #:with-subshell #:shell-if
    #:shell-while #:shell-for #:shell-run #:shell-and #:shell-or)
-  (:import-from :shcl/core/baking #:bake-form)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
-  (:export #:evaluation-form #:evaluation-form-iterator #:translate))
+  (:export #:evaluation-form-iterator #:translate #:expansion-preparation-form))
 (in-package :shcl/core/evaluate)
 
 (optimization-settings)
 
 (defgeneric translate (thing)
   (:documentation
-   "Translate a shell syntax tree object into its corresponding lisp form.
+   "Translate a shell syntax tree object into its corresponding lisp form."))
 
-See `evaluation-form'."))
+(defgeneric expansion-preparation-form (token)
+  (:documentation
+   "Returns a form should be evaluated and used instead of `token'
+when expansion takes place.
 
-(defun evaluation-form (thing)
-  "Translate a shell syntax tree object into a lisp form.
+The returned form will be evaluated in the same lexical scope where
+the token appeared."))
 
-The evaluation form for a syntax tree is comprised of two parts:
-1. the bake forms (see `shcl/core/baking:bake-form'), and
-2. the shell forms (see `translate').
+(defmethod expansion-preparation-form (token)
+  token)
 
-This function simply combines the bake forms and the shell forms with
-`progn'.  If you want to evaluate a shell syntax tree, this function
-produces the Common Lisp form you're looking for."
-  (let ((bake-form (bake-form thing))
-        (translation (translate thing)))
-    (progn-concatenate bake-form translation)))
+(defmethod expansion-preparation-form ((token compound-word))
+  (let* ((value (gensym "VALUE"))
+         (parts (coerce (compound-word-parts token) 'list))
+         (new-parts-forms (mapcar 'expansion-preparation-form parts)))
+    (cond
+      ((equal new-parts-forms parts)
+       token)
+      (t
+       `(let ((,value ,token))
+          (setf (compound-word-parts ,value)
+                (vector ,@new-parts-forms))
+          ,value)))))
+
+(defmethod expansion-preparation-form ((token assignment-word))
+  (let* ((value (gensym "VALUE"))
+         (old-name (assignment-word-name token))
+         (old-value (assignment-word-value-word token))
+         (new-name-form (expansion-preparation-form old-name))
+         (new-value-form (expansion-preparation-form old-value))
+         (new-name-p (eq new-name-form old-name))
+         (new-value-p (eq new-value-form old-value)))
+    (cond
+      ((and (not new-name-p)
+            (not new-value-p))
+       token)
+
+      (t
+       `(let ((,value ,token))
+          ,@(unless new-name-p
+              `((setf (assignment-word-name ,value) ,new-name-form)))
+          ,@(unless new-value-p
+              `((setf (assignment-word-value-word ,value) ,new-value-form)))
+          ,value)))))
 
 (defun evaluation-form-iterator (command-iterator)
   "Given an iterator that produces shell syntax trees, return an
@@ -57,7 +85,15 @@ command.
 
 This just maps `evaluation-form' onto every value produced by the
 given iterator."
-  (map-iterator command-iterator 'evaluation-form))
+  (map-iterator command-iterator 'translate))
+
+(defun expansion-form-for-tokens (tokens &key expand-aliases expand-pathname split-fields)
+  (let ((prepared (mapcar 'expansion-preparation-form tokens)))
+    `(with-fd-streams ()
+       (expansion-for-words (list ,@prepared)
+                            :expand-aliases ,(not (not expand-aliases))
+                            :expand-pathname ,(not (not expand-pathname))
+                            :split-fields ,(not (not split-fields))))))
 
 (defparameter *umask*
   (logior s-irusr s-iwusr s-irgrp s-iroth)
@@ -189,7 +225,7 @@ for the given redirect."))
     (labels
         ((filename-expansion-form ()
            (let ((expansion (gensym "EXPANSION")))
-             `(let ((,expansion (expansion-for-words (fset:seq ,filename) :split-fields nil :expand-pathname t)))
+             `(let ((,expansion ,(expansion-form-for-tokens (list filename) :expand-pathname t :split-fields nil)))
                 (unless (equal 1 (fset:size ,expansion))
                   (error 'not-implemented :feature "file name expanding to multiple words"))
                 (fset:first ,expansion))))
@@ -303,7 +339,8 @@ for the given redirect."))
               (wordlist-words wordlist))
              (t
               #()))))
-      `(shell-for (,name (expansion-for-words ,words :expand-pathname t))
+      `(shell-for (,name ,(expansion-form-for-tokens (coerce words 'list)
+                                                     :expand-pathname t))
          ,@(bodyify (translate body))))))
 
 (defmethod translate ((sy else-part))
@@ -399,20 +436,21 @@ and io redirects."
 
       (values (nreverse assignments) (nreverse arguments) (nreverse redirects)))))
 
-(defun expand-1 (words &rest args &key &allow-other-keys)
-  (multiple-value-bind (result-words result-exit-infos)
-      (apply 'expansion-for-words words :split-fields nil args)
-    (values (fset:first result-words)
-            (fset:last result-exit-infos))))
-
 (defun translate-assignment (assignment)
-  `(,(simple-word-text (assignment-word-name assignment))
-     (expand-1 '(,(assignment-word-value-word assignment)))))
+  (let ((result-words (gensym "RESULT-WORDS"))
+        (result-exit-infos (gensym "RESULT-EXIT-INFOS")))
+    `(,(simple-word-text (assignment-word-name assignment))
+       (multiple-value-bind (,result-words ,result-exit-infos)
+           ,(expansion-form-for-tokens (list (assignment-word-value-word assignment))
+                                       :expand-pathname t
+                                       :split-fields nil)
+         (values (fset:first ,result-words)
+                 (fset:last ,result-exit-infos))))))
 
 (defmethod translate ((sy simple-command))
   (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
     (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
-      (let ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
-            (assignments (mapcar 'translate-assignment raw-assignments))
-            (arguments `(fset:convert 'list (with-fd-streams () (expansion-for-words ',raw-arguments :expand-aliases t :expand-pathname t)))))
+      (let* ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
+             (assignments (mapcar 'translate-assignment raw-assignments))
+             (arguments `(fset:convert 'list ,(expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname t))))
         `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects)))))
