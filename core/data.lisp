@@ -78,7 +78,8 @@ appropriate type."
 (defun clone-slots (slots old new)
   "For each given slot name, store `old''s value in `new'."
   (dolist (slot slots)
-    (setf (slot-value new slot) (slot-value old slot)))
+    (when (slot-boundp old slot)
+      (setf (slot-value new slot) (slot-value old slot))))
   new)
 
 (defgeneric clone (object)
@@ -124,7 +125,7 @@ must not inherit from `data'."))
 (defmethod clone ((object data))
   (clone-slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of object)))
                object
-               (make-instance (class-of object))))
+               (allocate-instance (class-of object))))
 
 (defmethod fset:compare ((first data) (second data))
   (labels
