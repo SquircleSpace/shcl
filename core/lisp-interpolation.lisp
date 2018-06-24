@@ -50,7 +50,8 @@ lexical environment where the token was used.
 
 This token always expands to one word."))
 (defmethod print-object ((token lisp-form) stream)
-  (format stream "#<~A ~A>" (class-name (class-of token)) (slot-value token 'form)))
+  (print-unreadable-object (token stream :type t)
+    (format stream "~W" (slot-value token 'form))))
 
 (defmethod expansion-preparation-form ((lisp-form lisp-form))
   (with-slots (form) lisp-form
