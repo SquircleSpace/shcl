@@ -298,6 +298,8 @@
   (call-next-method))
 
 (defun command-iterator (token-iterator)
+  "Given a `lookahead-iterator' that produces tokens, return an
+iterator that produces shell syntax tree objects."
   (let ((iter (syntax-iterator #'parse-shell-grammar token-iterator)))
     (make-iterator ()
       (do-iterator (value iter)
