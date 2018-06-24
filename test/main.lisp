@@ -29,8 +29,7 @@
   (:import-from :shcl/core/command)
   (:import-from :shcl/core/shell-environment #:with-subshell)
   (:import-from :prove)
-  (:import-from :fset)
-  (:export #:run-all-tests))
+  (:import-from :fset))
 (in-package :shcl/test/main)
 
 (shcl/core/command:define-builtin -shcl-run-tests (&option package)
