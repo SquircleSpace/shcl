@@ -69,7 +69,8 @@ This function should only be used for debugging purposes."))
   (:documentation
    "A class representing a token in the POSIX shell language."))
 (defmethod print-object ((token token) stream)
-  (format stream "#<~A ~W>" (class-name (class-of token)) (token-value token)))
+  (print-unreadable-object (token stream :type t)
+    (format stream "~W" (token-value token))))
 (defmethod make-load-form ((token token) &optional environment)
   (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of token)))))
     (make-load-form-saving-slots token :slot-names slots :environment environment)))
@@ -79,7 +80,7 @@ This function should only be used for debugging purposes."))
   (:documentation
    "A token representing end of file."))
 (defmethod print-object ((eof eof) stream)
-  (format stream "#<~W>" (class-name (class-of eof))))
+  (print-unreadable-object (eof stream :type t)))
 (define-once-global +eof+ (make-instance 'eof)
   (:documentation
    "An instance of the `eof' token."))
@@ -103,7 +104,8 @@ similar tokens.  Its a grab-bag of miscellaneous token types."))
 
 There's nothing special going on here."))
 (defmethod print-object ((simple-word simple-word) stream)
-  (format stream "#<~A ~S>" (class-name (class-of simple-word)) (simple-word-text simple-word)))
+  (print-unreadable-object (simple-word stream :type t)
+    (format stream "~W" (simple-word-text simple-word))))
 
 (define-data compound-word (a-word)
   ((parts :type vector
@@ -114,7 +116,8 @@ There's nothing special going on here."))
    "A token class that consists of several tokens combined into a
 single aggregate token."))
 (defmethod print-object ((compound-word compound-word) stream)
-  (format stream "#<~A ~S>" (class-name (class-of compound-word)) (compound-word-parts compound-word)))
+  (print-unreadable-object (compound-word stream :type t)
+    (format stream "~W" (compound-word-parts compound-word))))
 
 (defgeneric assignment-word-name (assignment-word)
   (:documentation
@@ -145,7 +148,8 @@ The value portion is the part tat comes after the #\= character."))
 Whether or not this token actually represents a variable assignment
 won't be known until after parsing happens."))
 (defmethod print-object ((word assignment-word) stream)
-  (format stream "#<~A ~S = ~S>" (class-name (class-of word)) (assignment-word-name word) (assignment-word-value-word word)))
+  (print-unreadable-object (word stream :type t)
+    (format stream "~W = ~W" (assignment-word-name word) (assignment-word-value-word word))))
 
 (defun make-assignment-word-from-parts (parts raw)
   (let* ((first-part (aref parts 0))
@@ -177,7 +181,8 @@ won't be known until after parsing happens."))
     :updater io-number-fd
     :initarg :fd)))
 (defmethod print-object ((io-number io-number) stream)
-  (format stream "#<~A ~S>" (class-name (class-of io-number)) (io-number-fd io-number)))
+  (print-unreadable-object (io-number stream :type t)
+    (format stream "~W" (io-number-fd io-number))))
 
 (defun name-p (word)
   (labels ((first-okay (char)
@@ -203,7 +208,6 @@ won't be known until after parsing happens."))
       (when (name-p name)
         position))))
 
-(defparameter *print-literals-by-name* t)
 (define-data literal-token (token)
   ((string
     :type string
@@ -213,9 +217,7 @@ won't be known until after parsing happens."))
    "This class is a base class for tokens that represent very specific
 character sequences."))
 (defmethod print-object ((literal-token literal-token) stream)
-  (if *print-literals-by-name*
-      (format stream "#<~A>" (class-name (class-of literal-token)))
-      (format stream "#<LITERAL-TOKEN ~W>" (token-value literal-token))))
+  (print-unreadable-object (literal-token stream :type t)))
 
 (defmacro define-literal-token (name string &optional (superclasses '(literal-token)) slots &body options)
   `(progn
@@ -333,7 +335,8 @@ All the same, this class exists to help group them all together."))
     :type string
     :updater single-quote-contents)))
 (defmethod print-object ((single-quote single-quote) stream)
-  (format stream "#<~A ~S>" (class-name (class-of single-quote)) (single-quote-contents single-quote)))
+  (print-unreadable-object (single-quote stream :type t)
+    (format stream "~W" (single-quote-contents single-quote))))
 
 (defun read-single-quote (stream)
   (let* ((all-chars-stream (make-string-output-stream))
@@ -368,7 +371,8 @@ All the same, this class exists to help group them all together."))
           :updater double-quote-parts
           :initarg :parts)))
 (defmethod print-object ((double-quote double-quote) stream)
-  (format stream "#<~A ~S>" (class-name (class-of double-quote)) (double-quote-parts double-quote)))
+  (print-unreadable-object (double-quote stream :type t)
+    (format stream "~W" (double-quote-parts double-quote))))
 
 (define-condition unexpected-eof (error)
   ())
@@ -424,7 +428,8 @@ During the expansion phase, this token will expand to be the output of
 some other command.  See `command-word-tokens' and
 `command-word-evaluate-fn'."))
 (defmethod print-object ((command-word command-word) stream)
-  (format stream "#<~A ~S>" (class-name (class-of command-word)) (command-word-tokens command-word)))
+  (print-unreadable-object (command-word stream :type t)
+    (format stream "~W" (command-word-tokens command-word))))
 
 (defun read-dollar-paren (context)
   ;; We need to parse a full command.  The best way to do that is with
@@ -800,7 +805,7 @@ some other command.  See `command-word-tokens' and
     :initform (required)
     :reader lexer-context-readtable)))
 (defmethod print-object ((lc lexer-context) stream)
-  (format stream "#<~A>" (class-name (class-of lc))))
+  (print-unreadable-object (lc stream :type t :identity t)))
 
 (defmethod shared-initialize :around ((instance lexer-context) slots &rest args &key &allow-other-keys)
   (declare (ignore args))
@@ -821,7 +826,8 @@ some other command.  See `command-word-tokens' and
     :initform (make-extensible-vector))))
 (defmethod print-object ((lc shell-lexer-context) stream)
   (with-slots (pending-word parts) lc
-    (format stream "#<~A parts ~A pending-word ~A>" (class-name (class-of lc)) parts pending-word)))
+    (print-unreadable-object (lc stream :type t :identity t)
+      (format stream " parts ~W pending-word ~W>" parts pending-word))))
 
 (defun shell-lexer-context-add-pending-word (context)
   (with-slots (pending-word parts) context
