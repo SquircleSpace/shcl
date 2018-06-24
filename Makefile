@@ -56,5 +56,5 @@ shcl: shcl.asd make.lisp ${LIBSHCL_SUPPORT} ${BUILD_CONFIG}
 	SHCL_DEBUG="${SHCL_DEBUG}" ${LISP} --eval '(require :asdf)' --load make.lisp
 
 .PHONY: test
-test: test/*.lisp ${SHCL_DEPENDS} ${BUILD_CONFIG}
-	${LISP} --eval '(require :asdf)' --load test.lisp
+test: shcl
+	@if [ "${SHCL_DEBUG}" = 1 ]; then echo -shcl-run-tests | ./shcl; else echo Cannot run tests with SHCL_DEBUG off; exit 1; fi
