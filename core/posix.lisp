@@ -53,11 +53,6 @@ signaled."))
 
 Use `syscall-errno' to access the error code."))
 
-(defun pass (value)
-  "Returns t."
-  (declare (ignore value))
-  t)
-
 (defun not-negative-p (number)
   "Returns non-nil if `number' is non-negative."
   (not (minusp number)))
@@ -65,49 +60,6 @@ Use `syscall-errno' to access the error code."))
 (defun not-negative-1-p (number)
   "Returns non-nil iff `number' is not -1."
   (not (equal -1 number)))
-
-(defmacro define-c-wrapper ((lisp-name c-name) (return-type &optional (error-checker ''pass)) &body arg-descriptions)
-  "Define a CFFI binding and wrapper function (or macro) which checks
-for errors."
-  (let ((lisp-impl-name (intern (concatenate 'string "%" (symbol-name lisp-name))))
-        (result (gensym "RESULT")))
-    (labels
-        ((defun-based ()
-           (let ((args (mapcar 'first arg-descriptions)))
-             `(defun ,lisp-name (,@args)
-                ,(format nil "This function is a wrapper around the ~A C function.
-
-It will signal a `syscall-error' if the following predicate returns nil.
-~S" c-name error-checker)
-                (let ((,result (,lisp-impl-name ,@args)))
-                  (unless (funcall ,error-checker ,result)
-                    (error 'syscall-error :function ',lisp-name))
-                  ,result))))
-         (macro-argify (thing)
-           (if (typep thing 'cons)
-               (list (first thing))
-               (list '&rest '#:rest)))
-         (macro-based ()
-           (let* ((whole (gensym "WHOLE"))
-                  (args (apply 'concatenate 'list (mapcar #'macro-argify arg-descriptions))))
-             `(defmacro ,lisp-name (&whole ,whole ,@args)
-                ,(format nil "This macro is a wrapper around the ~A C function.
-
-It will signal a `syscall-error' if the following predicate returns nil.
-~S" c-name error-checker)
-                (declare (ignore ,@(remove '&rest args)))
-                `(let ((,',result (,',lisp-impl-name ,@(cdr ,whole))))
-                   (unless (funcall ,',error-checker ,',result)
-                     (error 'syscall-error :function ',',lisp-name))
-                   ,',result))))
-         (wrapper ()
-           (if (find '&rest arg-descriptions)
-               (macro-based)
-               (defun-based))))
-      `(progn
-         (defcfun (,lisp-impl-name ,c-name) ,return-type
-           ,@arg-descriptions)
-         ,(wrapper)))))
 
 (defun environment-iterator ()
   "Returns an iterator that emits the bindings in the current process
