@@ -29,6 +29,11 @@
 
 (optimization-settings)
 
+(defgeneric syscall-errno (syscall-error)
+  (:documentation
+   "Return the errno that was set when the given condition was
+signaled."))
+
 (define-condition syscall-error (error)
   ((errno
     :initform errno
@@ -42,7 +47,11 @@
              (format s "Encountered an error (~A) in ~A.  ~A"
                      (syscall-errno c)
                      (syscall-error-function c)
-                     (strerror (syscall-errno c))))))
+                     (strerror (syscall-errno c)))))
+  (:documentation
+   "A condition to represent an error in a POSIX C function.
+
+Use `syscall-errno' to access the error code."))
 
 (defun pass (value)
   "Returns t."
@@ -82,6 +91,10 @@ It will signal a `syscall-error' if the following predicate returns nil.
            (let* ((whole (gensym "WHOLE"))
                   (args (apply 'concatenate 'list (mapcar #'macro-argify arg-descriptions))))
              `(defmacro ,lisp-name (&whole ,whole ,@args)
+                ,(format nil "This macro is a wrapper around the ~A C function.
+
+It will signal a `syscall-error' if the following predicate returns nil.
+~S" c-name error-checker)
                 (declare (ignore ,@(remove '&rest args)))
                 `(let ((,',result (,',lisp-impl-name ,@(cdr ,whole))))
                    (unless (funcall ,',error-checker ,',result)
