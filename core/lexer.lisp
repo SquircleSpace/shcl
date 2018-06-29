@@ -43,12 +43,12 @@
    #:while #:until #:for #:lbrace #:rbrace #:bang #:in
 
    ;; Functions
-   #:tokenize #:token-iterator #:tokens-in-string #:tokens-in-stream
-   #:next-token #:token-iterator-symbolic-readtable
+   #:tokens-in-string #:tokens-in-stream #:token-iterator #:next-token
+   #:token-iterator-symbolic-readtable
 
    ;; Extensible reading
    #:lexer-context-mark-end-of-token #:shell-lexer-context-add-part
-   #:shell-lexer-context-delimit #:shell-lexer-context
+   #:shell-lexer-context-delimit #:shell-lexer-context #:lexer-context
    #:lexer-context-shell-extensible-read #:lexer-context-readtable
    #:lexer-context-stream #:+standard-shell-readtable+))
 (in-package :shcl/core/lexer)
@@ -172,14 +172,19 @@ won't be known until after parsing happens."))
       (make-instance 'assignment-word :name name :value-word final-value :value raw))))
 
 (define-data name (simple-word)
-  ())
+  ()
+  (:documentation
+   "A class to represent words that look like shell variable names."))
 
 (define-data io-number (token)
   ((fd
     :type integer
     :initform (required)
     :updater io-number-fd
-    :initarg :fd)))
+    :initarg :fd))
+  (:documentation
+   "A class to represent file descriptor identifiers for redirect
+operations."))
 (defmethod print-object ((io-number io-number) stream)
   (print-unreadable-object (io-number stream :type t)
     (format stream "~W" (io-number-fd io-number))))
@@ -207,6 +212,10 @@ won't be known until after parsing happens."))
     (let ((name (make-array position :element-type 'character :displaced-to word)))
       (when (name-p name)
         position))))
+
+(defgeneric literal-token-string (token)
+  (:documentation
+   "Return the string that this literal token always represents."))
 
 (define-data literal-token (token)
   ((string
@@ -288,7 +297,13 @@ All the same, this class exists to help group them all together."))
 (defparameter *reserved-words* (fset:empty-map))
 
 (define-data reserved-word (a-word literal-token)
-  ())
+  ()
+  (:documentation
+   "A class to represent uses of words that POSIX treats specially.
+
+Reserved words are only reserved in some contexts.  For example,
+\"if\" can either be used to start a conditional or it could represent
+two letters that should be passed to a command."))
 
 (defmacro define-reserved-word (name string &optional (superclasses '(reserved-word)) slots &body options)
   (check-type name symbol)
@@ -333,7 +348,9 @@ All the same, this class exists to help group them all together."))
     :initarg :contents
     :initform (required)
     :type string
-    :updater single-quote-contents)))
+    :updater single-quote-contents))
+  (:documentation
+   "A class to represent characters that are quoted with #\'."))
 (defmethod print-object ((single-quote single-quote) stream)
   (print-unreadable-object (single-quote stream :type t)
     (format stream "~W" (single-quote-contents single-quote))))
@@ -360,7 +377,9 @@ All the same, this class exists to help group them all together."))
                    :value (get-output-stream-string all-chars-stream))))
 
 (define-data escaped-character (single-quote)
-  ())
+  ()
+  (:documentation
+   "A class to represent characters that are quoted with #\\."))
 
 (defun make-escaped-character (char)
   (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\\ char)))
@@ -369,7 +388,9 @@ All the same, this class exists to help group them all together."))
   ((parts :type vector
           :initform (required)
           :updater double-quote-parts
-          :initarg :parts)))
+          :initarg :parts))
+  (:documentation
+   "A class to represent tokens that are quoted using #\"."))
 (defmethod print-object ((double-quote double-quote) stream)
   (print-unreadable-object (double-quote stream :type t)
     (format stream "~W" (double-quote-parts double-quote))))
@@ -500,22 +521,35 @@ some other command.  See `command-word-tokens' and
         (t
          nil)))))
 
+(defgeneric variable-expansion-word-variable (token)
+  (:documentation
+   "Return the variable name that the given token describes access to."))
+
 (define-data variable-expansion-word (a-word)
   ((variable
     :initarg :variable
     :initform (required)
     :reader variable-expansion-word-variable
-    :type string)))
+    :type string))
+  (:documentation
+   "A class to represent tokens where a shell variable is being accessed."))
 (defmethod print-object ((word variable-expansion-word) stream)
   (print-unreadable-object (word stream :type t)
     (format stream "~S" (variable-expansion-word-variable word))))
+
+(defgeneric variable-expansion-length-word-variable (token)
+  (:documentation
+   "Return the variable name that the given token describes access to."))
 
 (define-data variable-expansion-length-word (a-word)
   ((variable
     :initarg :variable
     :initform (required)
     :reader variable-expansion-length-word-variable
-    :type string)))
+    :type string))
+  (:documentation
+   "A class to represent tokens where the length of a shell variable
+is being accessed."))
 (defmethod print-object ((word variable-expansion-length-word) stream)
   (print-unreadable-object (word stream :type t)
     (format stream "~S" (variable-expansion-length-word-variable word))))
@@ -525,7 +559,10 @@ some other command.  See `command-word-tokens' and
     :initarg :base-token
     :initform (required)
     :accessor dollar-curly-lexer-context-base-token
-    :type token)))
+    :type token))
+  (:documentation
+   "A class to represent the state of the lexer while reading a
+variable substitution."))
 
 (defun handle-dollar-curly (stream initiation-sequence context)
   (declare (ignore initiation-sequence))
@@ -751,9 +788,19 @@ some other command.  See `command-word-tokens' and
       (use-table x +substitution-table+)
       (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)
       (with-dispatch-character x #(variable-expansion-policy) :use-table +variable-expansion-policy+)
-      (with-dispatch-character x #(variable-expansion-word) :use-table +variable-expansion-word+)))
+      (with-dispatch-character x #(variable-expansion-word) :use-table +variable-expansion-word+))
+  (:documentation
+   "The readtable for run-of-the-mill shell syntax.
+
+This readtable only describes part of the behavior for shell syntax.
+The rest is handled by `next-token'."))
 
 (defun token-iterator-symbolic-readtable (stream readtable-sym)
+    "Given a stream and a symbol whose value is a readtable, return an
+iterator that produces the tokens found in the stream.
+
+The value of `readtable-sym' will be re-read every time a new token is
+needed."
   (make-iterator ()
     (let ((token (next-token stream :readtable (symbol-value readtable-sym))))
       (when (typep token 'eof)
@@ -761,28 +808,33 @@ some other command.  See `command-word-tokens' and
       (emit token))))
 
 (defun token-iterator (stream &key (readtable +standard-shell-readtable+))
+  "Given a stream and a readtable, return an iterator that produces
+the tokens found in the stream."
   (make-iterator ()
     (let ((token (next-token stream :readtable readtable)))
       (when (typep token 'eof)
         (stop))
       (emit token))))
 
-(defgeneric tokenize (source))
-
-(defmethod tokenize ((stream stream))
-  (tokens-in-stream stream))
-
-(defmethod tokenize ((string string))
-  (tokens-in-string string))
-
 (defun tokens-in-string (string &key (readtable +standard-shell-readtable+))
+  "Return a vector containing the tokens present in the given string.
+
+See `next-token'."
   (tokens-in-stream (make-string-input-stream string) :readtable readtable))
 
 (defun tokens-in-stream (stream &key (readtable +standard-shell-readtable+))
-  (let ((result (make-extensible-vector)))
-    (do-iterator (value (token-iterator stream :readtable readtable))
-      (vector-push-extend value result))
-    result))
+  "Return a vector containing the tokens present in the given stream.
+
+See `next-token'."
+  (iterator-values (token-iterator stream :readtable readtable)))
+
+(defgeneric lexer-context-stream (context)
+  (:documentation
+   "Return the input stream associated with the given lexer context."))
+
+(defgeneric lexer-context-readtable (context)
+  (:documentation
+   "Return the readtable that is being used for the given lexer context."))
 
 (defclass lexer-context ()
   ((all-chars-stream
@@ -803,7 +855,9 @@ some other command.  See `command-word-tokens' and
     :type dispatch-table
     :initarg :readtable
     :initform (required)
-    :reader lexer-context-readtable)))
+    :reader lexer-context-readtable))
+  (:documentation
+   "A class to contain the state for a generic lexer."))
 (defmethod print-object ((lc lexer-context) stream)
   (print-unreadable-object (lc stream :type t :identity t)))
 
@@ -823,28 +877,49 @@ some other command.  See `command-word-tokens' and
     :initform nil)
    (parts
     :type array
-    :initform (make-extensible-vector))))
+    :initform (make-extensible-vector)))
+  (:documentation
+   "A class that contains the state of the lexer for the POSIX shell
+language.
+
+This class is used by `next-token' when it tries to read a token from
+a stream.  See `next-token'.
+
+When it is time to delimit a token, this class automatically picks a
+token class based on the content it has been provided using
+`shell-lexer-context-add-part'."))
 (defmethod print-object ((lc shell-lexer-context) stream)
   (with-slots (pending-word parts) lc
     (print-unreadable-object (lc stream :type t :identity t)
       (format stream " parts ~W pending-word ~W>" parts pending-word))))
 
 (defun shell-lexer-context-add-pending-word (context)
+  "Ensure that the `pending-word' slot of the lexer context is ready
+for use."
   (with-slots (pending-word parts) context
     (when pending-word
       (return-from shell-lexer-context-add-pending-word))
     (setf pending-word (make-extensible-vector :element-type 'character))))
 
 (defun lexer-context-next-char (context)
+  "Peek at the next character that the lexer needs to handle."
   (with-slots (stream) context
     (peek-char nil stream nil :eof)))
 
 (defun shell-lexer-context-no-content-p (context)
+  "Returns non-nil iff the lexer context hasn't read any real content
+yet.
+
+The lexer context may have consumed some characters, but if this
+returns non-nil then it hasn't yet consumed characters that would be
+part of a token."
   (with-slots (parts pending-word) context
     (and (equal 0 (length parts))
          (equal 0 (length pending-word)))))
 
 (defun shell-lexer-context-assignment-p (context)
+  "Returns non-nil if the current token content looks like it might be
+a variable assignment expression."
   (with-slots (parts pending-word) context
     (if (equal 0 (length parts))
         (assignment-word-p pending-word)
@@ -852,26 +927,45 @@ some other command.  See `command-word-tokens' and
              (assignment-word-p (simple-word-text (aref parts 0)))))))
 
 (defun lexer-context-consume-character (context)
+  "Read and consume a character from the lexer context's input
+stream."
   (with-slots (stream) context
     (read-char stream nil :eof)))
 
 (defun shell-lexer-context-add-chars (context chars)
+  "Add the given characters to the lexer context's pending word."
   (shell-lexer-context-add-pending-word context)
   (with-slots (pending-word) context
     (loop :for char :across chars :do
        (vector-push-extend char pending-word))))
 
 (defun shell-lexer-context-extend-word (context)
+  "Consume the next character and add it to the pending word."
   (shell-lexer-context-add-chars context (string (lexer-context-next-char context)))
   (lexer-context-consume-character context))
 
 (defun shell-lexer-context-word-boundary (context)
+  "Take the context's current pending word and add it to the vector of
+token parts."
   (with-slots (parts pending-word) context
     (when pending-word
       (vector-push-extend (make-instance 'simple-word :text pending-word) parts)
       (setf pending-word nil))))
 
 (defun shell-lexer-context-add-part (context part)
+  "Add content to the end of the token that the lexer context is building.
+
+If `part' is a string, then the characters are given to the lexer
+context to deal with as it pleases.  When it is time to delimit a
+token, adjacent characters will be combined into a single token.
+Depending on the character sequence, the class of that token may
+varry.  For example, if you provide the string content \"FOO=bar\",
+then the token class may be `assignment-word'.
+
+If `part' is any other type, it is assumed to be a token.  Tokens will
+not be combined with each other or adjacent string content.
+
+See `shell-lexer-context-delimit'."
   (when (stringp part)
     (return-from shell-lexer-context-add-part
       (shell-lexer-context-add-chars context part)))
@@ -894,11 +988,24 @@ some other command.  See `command-word-tokens' and
        nil))))
 
 (defun lexer-context-mark-end-of-token (context)
+  "Cause the given lexer context to stop processing new input.
+
+After this function returns, the given lexer context will not read any
+new characters from its input stream.  Attempts to do so will produce
+`:eof'."
   (with-slots (stream end-marked) context
     (setf stream (make-string-input-stream ""))
     (setf end-marked t)))
 
 (defun shell-lexer-context-delimit (context &key (if-empty :error))
+  "Produce a token containing all the parts previously provided.
+
+This function should be called at most once on a given context object.
+If the lexer context has no content, then the `if-empty' parameter
+controls the behavior of this function.  `if-empty' can be either
+`:error' or `nil'.
+
+See `shell-lexer-context-add-part'."
   (unless (or (eq if-empty :error) (eq if-empty nil))
     (error "if-empty arg must be :error or nil"))
 
@@ -941,9 +1048,18 @@ some other command.  See `command-word-tokens' and
              (error "All cases should be covered above"))))))
 
 (defun lexer-context-shell-extensible-read (context &key readtable)
-  (with-slots (stream (context-readtable readtable)) context
+  "Allow the given readtable to act on the given lexer context.
+
+This uses `shell-extensible-read' to read input from the given lexer
+context.  The value produced by `shell-extensible-read' is discarded.
+Thus, if you wish to impact the token being lexed, you must modify
+`context' inside the handler functions associated with the readtable.
+
+If `readtable' is nil, then this function will use the readtable
+produced by `lexer-context-readtable'."
+  (with-slots (stream) context
     (unless readtable
-      (setf readtable context-readtable))
+      (setf readtable (lexer-context-readtable context)))
     (let* ((no-match-value '#:no-match-value)
            (result (shell-extensible-read stream context readtable :no-match-value no-match-value)))
       (not (eq result no-match-value)))))
@@ -952,6 +1068,35 @@ some other command.  See `command-word-tokens' and
   (lexer-context-shell-extensible-read context))
 
 (defun next-token (stream &key (readtable +standard-shell-readtable+))
+  "Read the next shell token from the given stream.
+
+The `readtable' gives you a way to influence the tokens that this
+function produces.  Many of the rules specified in the POSIX standard
+are encoded in the default readtable.
+
+The following behaviors are handled by this function specially.  You
+cannot override these behaviors using `readtable'.
+- Handling of EOF
+- Handling of operators (e.g. redirect operators like >)
+- Handling of whitespace
+- Handling of comments
+- Handling of all non-special characters
+
+The remaining lexer behaviors specified by POSIX are simply rules in
+the standard shell readtable.  So, for example, quotes are handled by
+the readtable.  See the `:shcl/core/shell-readtable' package for more
+information about readtables.  See also `+standard-shell-readtable'.
+The context object passed to readtable handlers is an instance of
+`shell-lexer-context'.
+
+Note that SHCL's lexer deviates from the POSIX standard.  For example,
+POSIX says that the lexer should produce tokens that includes the
+quote characters.  POSIX says that quote characters should remain in
+the token until much further along in the process of evaluating a
+command.  SHCL discards quote characters immediately and instead
+returns a token whose type attests to the fact that the characters
+were quoted.  A similar thing happens for command substitution,
+variable expansion, etc."
   (let* ((context (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
     (labels ((next-char () (lexer-context-next-char context)))
 

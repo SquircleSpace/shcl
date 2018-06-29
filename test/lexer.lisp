@@ -21,7 +21,7 @@
 (optimization-settings)
 
 (defun lexes-to-token-types (string &rest tokens)
-  (let ((real-tokens (tokenize string)))
+  (let ((real-tokens (tokens-in-string string)))
     (unless (equal (length real-tokens) (length tokens))
       (return-from lexes-to-token-types nil))
     (loop :for token :across real-tokens
