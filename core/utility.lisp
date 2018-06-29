@@ -170,14 +170,27 @@ initialized at most once.  Redefining the variable with
   (defparameter *log-levels* (make-hash-table))
 
   (defstruct log-component)
-  (defstruct log-level))
+  (defstruct log-level
+    "A struct to represent everything that is known about a log
+level."
+    documentation))
+
+(defmethod documentation ((log-level-name symbol) (doc-type (eql 'log-level)))
+  (let ((log-level-struct (gethash log-level-name *log-levels*)))
+    (when log-level-struct
+      (log-level-documentation log-level-struct))))
 
 (defmacro define-log-level (name &body options)
   (check-type name symbol)
-  (when options
-    (error "No options are valid for `define-log-level'"))
-  `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (setf (gethash ',name *log-levels*) (make-log-level))))
+  (let ((documentation (when (stringp (car options))
+                         (pop options))))
+    (when options
+      (error "No options are valid for `define-log-level'"))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       (setf (gethash ',name *log-levels*)
+             (make-log-level
+              ,@(when documentation
+                  `(:documentation ,documentation)))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun ensure-log-component (name)
@@ -187,9 +200,12 @@ initialized at most once.  Redefining the variable with
         (setf (gethash name *log-components*) entry))
       entry)))
 
-(define-log-level error)
-(define-log-level warning)
-(define-log-level status)
+(define-log-level error
+  "A log level to represent errors.")
+(define-log-level warning
+  "A log level to represent warnings.")
+(define-log-level status
+  "A log level for standard logging.")
 
 (defstruct log-line
   level
