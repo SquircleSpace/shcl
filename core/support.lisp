@@ -18,7 +18,7 @@
    #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig
    #:string-table #:fd-actions #:make-fd-actions #:fd-actions-add-close
    #:fd-actions-add-dup2 #:shcl-spawn #:s-isreg #:s-isdir #:s-ischr #:s-isblk
-   #:s-isfifo #:s-islnk #:s-issock))
+   #:s-isfifo #:s-islnk #:s-issock #:define-c-wrapper))
 (in-package :shcl/core/support)
 
 (optimization-settings)
@@ -30,53 +30,106 @@
 
 (use-foreign-library shcl-support)
 
-(defcfun (wifexited "wifexited" :library shcl-support) (:boolean :int)
+(defun pass (value)
+  "Returns t."
+  (declare (ignore value))
+  t)
+
+(defmacro define-c-wrapper ((lisp-name c-name &key library) (return-type &optional (error-checker ''pass))
+                            &body arg-descriptions)
+  "Define a CFFI binding and wrapper function (or macro) which checks
+for errors."
+  (let ((lisp-impl-name (intern (concatenate 'string "%" (symbol-name lisp-name))))
+        (result (gensym "RESULT")))
+    (labels
+        ((defun-based ()
+           (let ((args (mapcar 'first arg-descriptions)))
+             `(defun ,lisp-name (,@args)
+                ,(format nil "This function is a wrapper around the ~A C function.
+
+It will signal a `syscall-error' if the following predicate returns nil.
+~S" c-name error-checker)
+                (let ((,result (,lisp-impl-name ,@args)))
+                  (unless (funcall ,error-checker ,result)
+                    (error 'syscall-error :function ',lisp-name))
+                  ,result))))
+         (macro-argify (thing)
+           (if (typep thing 'cons)
+               (list (first thing))
+               (list '&rest '#:rest)))
+         (macro-based ()
+           (let* ((whole (gensym "WHOLE"))
+                  (args (apply 'concatenate 'list (mapcar #'macro-argify arg-descriptions))))
+             `(defmacro ,lisp-name (&whole ,whole ,@args)
+                ,(format nil "This macro is a wrapper around the ~A C function.
+
+It will signal a `syscall-error' if the following predicate returns nil.
+~S" c-name error-checker)
+                (declare (ignore ,@(remove '&rest args)))
+                `(let ((,',result (,',lisp-impl-name ,@(cdr ,whole))))
+                   (unless (funcall ,',error-checker ,',result)
+                     (error 'syscall-error :function ',',lisp-name))
+                   ,',result))))
+         (wrapper ()
+           (if (find '&rest arg-descriptions)
+               (macro-based)
+               (defun-based))))
+      `(progn
+         (defcfun (,lisp-impl-name ,c-name ,@(when library
+                                               `(:library ,library)))
+             ,return-type
+           ,@arg-descriptions)
+         ,(wrapper)))))
+
+(define-c-wrapper (wifexited "wifexited" :library shcl-support) ((:boolean :int))
   (status :int))
 
-(defcfun (wifstopped "wifstopped" :library shcl-support) (:boolean :int)
+(define-c-wrapper (wifstopped "wifstopped" :library shcl-support) ((:boolean :int))
   (status :int))
 
-(defcfun (wifsignaled "wifsignaled" :library shcl-support) (:boolean :int)
+(define-c-wrapper (wifsignaled "wifsignaled" :library shcl-support) ((:boolean :int))
   (status :int))
 
-(defcfun (wexitstatus "wexitstatus" :library shcl-support) :int
+(define-c-wrapper (wexitstatus "wexitstatus" :library shcl-support) (:int)
   (status :int))
 
-(defcfun (wtermsig "wtermsig" :library shcl-support) :int
+(define-c-wrapper (wtermsig "wtermsig" :library shcl-support) (:int)
   (status :int))
 
-(defcfun (wstopsig "wstopsig" :library shcl-support) :int
+(define-c-wrapper (wstopsig "wstopsig" :library shcl-support) (:int)
   (status :int))
 
-(defcfun (s-isreg "s_isreg") (:boolean :int)
+(define-c-wrapper (s-isreg "s_isreg" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(defcfun (s-isdir "s_isdir") (:boolean :int)
+(define-c-wrapper (s-isdir "s_isdir" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(defcfun (s-ischr "s_ischr") (:boolean :int)
+(define-c-wrapper (s-ischr "s_ischr" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(defcfun (s-isblk "s_isblk") (:boolean :int)
+(define-c-wrapper (s-isblk "s_isblk" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(defcfun (s-isfifo "s_isfifo") (:boolean :int)
+(define-c-wrapper (s-isfifo "s_isfifo" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(defcfun (s-islnk "s_islnk") (:boolean :int)
+(define-c-wrapper (s-islnk "s_islnk" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(defcfun (s-issock "s_issock") (:boolean :int)
+(define-c-wrapper (s-issock "s_issock" :library shcl-support) ((:boolean :int))
   (mode mode-t))
 
-(define-foreign-type string-table-type ()
+(define-foreign-type string-table ()
   ((size
     :initarg :size
     :initform nil))
   (:actual-type :pointer)
-  (:simple-parser string-table))
+  (:simple-parser string-table)
+  (:documentation
+   "A CFFI foreign type to represent an array of strings."))
 
-(defmethod translate-to-foreign ((sequence fset:seq) (type string-table-type))
+(defmethod translate-to-foreign ((sequence fset:seq) (type string-table))
   (with-slots (size) type
     (let ((seq-size (fset:size sequence))
           table
@@ -100,40 +153,46 @@
                 (free-translated-object table type side-table)
                 (foreign-free table))))))))
 
-(defmethod translate-to-foreign ((sequence list) (type string-table-type))
+(defmethod translate-to-foreign ((sequence list) (type string-table))
   (translate-to-foreign (fset:convert 'fset:seq sequence) type))
 
-(defmethod translate-to-foreign ((sequence vector) (type string-table-type))
+(defmethod translate-to-foreign ((sequence vector) (type string-table))
   (translate-to-foreign (fset:convert 'fset:seq sequence) type))
 
-(defmethod free-translated-object (translated (type string-table-type) param)
+(defmethod free-translated-object (translated (type string-table) param)
   (loop :for index :below (length param) :do
      (unless (null-pointer-p (mem-aref translated '(:pointer :char) index))
        (free-converted-object (mem-aref translated '(:pointer :char) index) :string (aref param index))))
   (foreign-free translated))
 
-(defcfun (%%make-fd-actions "make_shcl_fd_actions") :pointer)
-(defcfun (%%destroy-fd-actions "destroy_shcl_fd_actions") :void
+(define-c-wrapper (%%make-fd-actions "make_shcl_fd_actions") (:pointer))
+(define-c-wrapper (%%destroy-fd-actions "destroy_shcl_fd_actions") (:void)
   (actions :pointer))
-(defcfun (%%fd-actions-add-close "shcl_fd_actions_add_close") :void
+(define-c-wrapper (%%fd-actions-add-close "shcl_fd_actions_add_close") (:void)
   (actions :pointer)
   (fd :int))
-(defcfun (%%fd-actions-add-dup2 "shcl_fd_actions_add_dup2") :void
+(define-c-wrapper (%%fd-actions-add-dup2 "shcl_fd_actions_add_dup2") (:void)
   (actions :pointer)
   (fd1 :int)
   (fd2 :int))
 
 (defstruct (fd-actions
              (:constructor %make-fd-actions))
+  "A struct representing a sequence of actions to perform on file
+descriptors."
   (actions (make-extensible-vector)))
 
 (defun make-fd-actions ()
+  "Create an empty instance of the `fd-actions' struct type."
   (%make-fd-actions))
 
 (defstruct fd-action-close
   fd)
 
 (defun fd-actions-add-close (actions fd)
+  "Add a close action to the given `fd-actions'.
+
+`fd' is the file descriptor to close."
   (vector-push-extend (make-fd-action-close :fd fd) (fd-actions-actions actions)))
 
 (defstruct fd-action-dup2
@@ -141,6 +200,9 @@
   fd2)
 
 (defun fd-actions-add-dup2 (actions fd1 fd2)
+  "Add a dup2 action to the given `fd-actions'.
+
+`fd1' is the first argument to dup2.  `fd2' is the second argument."
   (vector-push-extend (make-fd-action-dup2 :fd1 fd1 :fd2 fd2) (fd-actions-actions actions)))
 
 (define-foreign-type fd-actions-type ()
@@ -162,7 +224,10 @@
   (declare (ignore param type))
   (%%destroy-fd-actions translated))
 
-(defcfun (%shcl-spawn "shcl_spawn" :library shcl-support) :int
+(defun non-zero-p (int)
+  (not (zerop int)))
+
+(define-c-wrapper (%shcl-spawn "shcl_spawn" :library shcl-support) (:int 'non-zero-p)
   (pid (:pointer pid-t))
   (path :string)
   (search :int)
@@ -172,8 +237,24 @@
   (envp string-table))
 
 (defun shcl-spawn (path search-p working-directory-fd fd-actions argv envp)
+  "Spawn a new process.
+
+`path' is the path to the binary to run.  If `search-p' is non-nil,
+then the value of the PATH environment variable in `envp' will be used
+to search for the binary.
+
+`working-directory-fd' is an integer representing the file descriptor
+for the desired working directory of the child process.
+
+`fd-actions' is an instance of the `fd-actions' struct type.  All the
+actions contained within the struct will be executed in order.
+
+`argv' is a sequence of strings that represent the arguments the
+program should receive.  Note that you are responsible for including
+the program name as the first element in the sequence.
+
+`envp' is a sequence of strings describing the desired process
+environment.  Each string should be of the form \"VAR=VALUE\"."
   (with-foreign-object (pid 'pid-t)
-    (let ((result (%shcl-spawn pid path (if search-p 1 0) working-directory-fd fd-actions argv envp)))
-      (when (zerop result)
-        (error "spawn failed"))
-      (mem-ref pid 'pid-t))))
+    (%shcl-spawn pid path (if search-p 1 0) working-directory-fd fd-actions argv envp)
+    (mem-ref pid 'pid-t)))
