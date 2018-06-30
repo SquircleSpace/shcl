@@ -16,7 +16,7 @@
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
    :shcl/core/utility :shcl/core/evaluate
-   :shcl/core/lisp-interpolation :shcl/core/shell-readtable
+   :shcl/core/lisp-interpolation :shcl/core/dispatch-table
    :shcl/core/iterator)
   (:import-from :shcl/core/command #:define-builtin)
   (:import-from :shcl/core/shell-lambda

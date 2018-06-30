@@ -12,14 +12,14 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl/core/shell-readtable
+(defpackage :shcl/core/dispatch-table
   (:use :common-lisp :shcl/core/utility :shcl/core/data)
   (:import-from :fset)
   (:export
    #:dispatch-table-read #:with-dispatch-character #:with-default-handler
    #:with-handler #:use-table #:subtable #:*empty-dispatch-table*
    #:dispatch-table))
-(in-package :shcl/core/shell-readtable)
+(in-package :shcl/core/dispatch-table)
 
 (optimization-settings)
 

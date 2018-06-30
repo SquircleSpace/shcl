@@ -17,7 +17,7 @@
    :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
    :shcl/core/expand
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
-   :shcl/core/shell-readtable)
+   :shcl/core/dispatch-table)
   (:import-from :shcl/core/data #:define-data)
   (:import-from :shcl/core/command #:define-special-builtin)
   (:import-from :shcl/core/evaluate #:evaluation-form-iterator #:translate #:expansion-preparation-form)

@@ -14,7 +14,7 @@
 
 (defpackage :shcl/core/lexer
   (:use
-   :common-lisp :shcl/core/utility :shcl/core/shell-readtable
+   :common-lisp :shcl/core/utility :shcl/core/dispatch-table
    :shcl/core/iterator)
   (:import-from :shcl/core/data #:define-data)
   (:import-from :fset)
@@ -1084,7 +1084,7 @@ cannot override these behaviors using `readtable'.
 
 The remaining lexer behaviors specified by POSIX are simply rules in
 the standard shell readtable.  So, for example, quotes are handled by
-the readtable.  See the `:shcl/core/shell-readtable' package for more
+the readtable.  See the `:shcl/core/dispatch-table' package for more
 information about readtables.  See also `+standard-shell-readtable'.
 The context object passed to readtable handlers is an instance of
 `shell-lexer-context'.
