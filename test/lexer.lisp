@@ -14,7 +14,7 @@
 
 (defpackage :shcl/test/lexer
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/lexer
-        :shcl/core/shell-readtable :shcl/test/foundation)
+        :shcl/core/dispatch-table :shcl/test/foundation)
   (:import-from :shcl/core/data #:define-data))
 (in-package :shcl/test/lexer)
 
