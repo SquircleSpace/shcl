@@ -587,7 +587,7 @@ variable substitution."))
                                          :stream wrapped-stream
                                          :readtable (lexer-context-readtable context)
                                          :base-token base-token))
-           (read-value (shell-extensible-read stream inner-context readtable)))
+           (read-value (dispatch-table-read stream inner-context readtable)))
       (shell-lexer-context-add-part context read-value)
       t)))
 
@@ -1050,8 +1050,8 @@ See `shell-lexer-context-add-part'."
 (defun lexer-context-shell-extensible-read (context &key readtable)
   "Allow the given readtable to act on the given lexer context.
 
-This uses `shell-extensible-read' to read input from the given lexer
-context.  The value produced by `shell-extensible-read' is discarded.
+This uses `dispatch-table-read' to read input from the given lexer
+context.  The value produced by `dispatch-table-read' is discarded.
 Thus, if you wish to impact the token being lexed, you must modify
 `context' inside the handler functions associated with the readtable.
 
@@ -1061,7 +1061,7 @@ produced by `lexer-context-readtable'."
     (unless readtable
       (setf readtable (lexer-context-readtable context)))
     (let* ((no-match-value '#:no-match-value)
-           (result (shell-extensible-read stream context readtable :no-match-value no-match-value)))
+           (result (dispatch-table-read stream context readtable :no-match-value no-match-value)))
       (not (eq result no-match-value)))))
 
 (defun handle-extensible-syntax (context)

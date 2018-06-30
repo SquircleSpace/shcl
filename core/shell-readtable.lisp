@@ -16,7 +16,7 @@
   (:use :common-lisp :shcl/core/utility :shcl/core/data)
   (:import-from :fset)
   (:export
-   #:shell-extensible-read #:with-dispatch-character #:with-default-handler
+   #:dispatch-table-read #:with-dispatch-character #:with-default-handler
    #:with-handler #:use-table #:subtable #:*empty-shell-readtable*
    #:dispatch-table))
 (in-package :shcl/core/shell-readtable)
@@ -390,11 +390,11 @@ For information about the `on-conflict' and `handler' arguments, see
   "Produce a table that contains the union of the given tables"
   (%use-table dispatch-table other-dispatch-table (make-extensible-vector)))
 
-(defun %shell-extensible-read (stream dispatch-table initiation-sequence fallback context)
+(defun %dispatch-table-read (stream dispatch-table initiation-sequence fallback context)
   (let ((next-char (peek-char nil stream nil :eof)))
     (multiple-value-bind (value found) (table-handler dispatch-table next-char)
       (when (not found)
-        (return-from %shell-extensible-read (funcall (or value fallback) stream initiation-sequence context)))
+        (return-from %dispatch-table-read (funcall (or value fallback) stream initiation-sequence context)))
 
       (vector-push-extend (read-char stream nil :eof) initiation-sequence)
 
@@ -402,21 +402,21 @@ For information about the `on-conflict' and `handler' arguments, see
              (typecase value
                (dispatch-table
                 (let ((inner-fallback (table-default value)))
-                  (%shell-extensible-read stream
-                                          value
-                                          initiation-sequence
-                                          (or inner-fallback
-                                              (lambda (s i c)
-                                                (declare (ignore s c))
-                                                (error "Unhandled dispatch character sequence ~A" i)))
-                                          context)))
+                  (%dispatch-table-read stream
+                                        value
+                                        initiation-sequence
+                                        (or inner-fallback
+                                            (lambda (s i c)
+                                              (declare (ignore s c))
+                                              (error "Unhandled dispatch character sequence ~A" i)))
+                                        context)))
 
                (t
                 (funcall value stream initiation-sequence context)))))
 
         result))))
 
-(defun shell-extensible-read (stream context dispatch-table &key no-match-value)
+(defun dispatch-table-read (stream context dispatch-table &key no-match-value)
   "Attempt to read something from `stream' using a `dispatch-table'.
 
 `stream' is the input stream to read a value from.
@@ -427,6 +427,8 @@ argument.
 
 `dispatch-table' is the table to use while reading.
 
+The return value of this function is the return value produced by
+whatever handler in `dispatch-table' ends up running.
 `no-match-value' is the value that will be returned if the
 `dispatch-table' had no handler for the next character in `stream'.
 If this value is returned then no characters in `stream' were
@@ -436,5 +438,5 @@ consumed."
          (declare (ignore s c))
          (assert (equal 0 (length initiation-sequence)) nil
                  "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
-         (return-from shell-extensible-read no-match-value)))
-    (%shell-extensible-read stream dispatch-table (make-extensible-vector) #'fallback context)))
+         (return-from dispatch-table-read no-match-value)))
+    (%dispatch-table-read stream dispatch-table (make-extensible-vector) #'fallback context)))
