@@ -16,9 +16,9 @@
   (:use :common-lisp :shcl/core/utility :shcl/core/data)
   (:import-from :fset)
   (:export
-   #:shell-extensible-read #:build-shell-readtable #:define-shell-readtable
-   #:with-dispatch-character #:with-default-handler #:with-handler #:use-table
-   #:subtable #:*empty-shell-readtable* #:dispatch-table))
+   #:shell-extensible-read #:with-dispatch-character #:with-default-handler
+   #:with-handler #:use-table #:subtable #:*empty-shell-readtable*
+   #:dispatch-table))
 (in-package :shcl/core/shell-readtable)
 
 (optimization-settings)
@@ -26,8 +26,41 @@
 (define-data dispatch-table ()
   ((%characters
     :type fset:map
-    :initform (fset:with-default (fset:empty-map) nil)
-    :updater dispatch-table-characters)))
+    :initform (fset:empty-map)
+    :updater dispatch-table-characters))
+  (:documentation
+   "A class representing a super-powered readtable.
+
+A normal Common Lisp readtable supports binding a handler to either a
+character (e.g. #\') or to a two-character sequence (e.g. \"#'\").
+There isn't an easy way to bind a handler to a three character
+sequence.  You cannot tell the readtable to treat a two-character
+sequence like it treats a dispatch character.  Put another way, you
+cannot nest dispatch characters.
+
+A `dispatch-table' is like a Common Lisp readtable.  Unlike lisp
+readtables, `dispatch-table' supports nesting.  For example, you can
+designate \"#\" as a dispatch sequence.  Then, much like a lisp
+readtable, you can define handlers for two character sequences
+starting with #\#.  You can also designate some of those two character
+sequences as dispatch sequences.  For example, you could designate
+\"#a\" as a dispatch sequence.  Again, you would be able to define
+handlers for all the three character sequences starting with \"#a\".
+You can keep nesting dispatch characters as deep as you wish.
+
+`dispatch-table' also supports defining a default handler for a
+dispatch sequence.  This default handler will be used when there isn't
+a specific handler set for the character that follows a dispatch
+sequence.
+
+Note that `dispatch-table' does not treat numeral characters
+specially.  In a normal lisp readtable, number characters that follow
+a dispatch character are bundled up and passed to the handler
+function.  `dispatch-table' does not do that.
+
+Use `with-dispatch-character', `with-default-handler', `with-handler',
+and `use-table' to create dispatch tables that have handlers installed
+in them."))
 
 (defmethod make-load-form ((table dispatch-table) &optional env)
   (declare (ignore env))
@@ -43,14 +76,15 @@
   (print-unreadable-object (table stream)
     (format stream "~A" (dispatch-table-characters table))))
 
-(defparameter *empty-shell-readtable* (make-instance 'dispatch-table))
+(defparameter *empty-shell-readtable* (make-instance 'dispatch-table)
+  "A `dispatch-table' devoid of handlers.")
 
-(defun table-handler (readtable character)
+(defun table-handler (dispatch-table character)
   "Look up the handler for the given character."
-  (fset:lookup (dispatch-table-characters readtable) character))
+  (fset:lookup (dispatch-table-characters dispatch-table) character))
 
-(define-setf-expander table-handler (readtable character &environment env)
-  (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion readtable env)
+(define-setf-expander table-handler (dispatch-table character &environment env)
+  (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion dispatch-table env)
     (let ((set-var (GENSYM "SET-VAR"))
           (char (gensym "CHAR")))
       (values
@@ -63,12 +97,12 @@
             ,set-var)
        `(table-handler ,get-form ,char)))))
 
-(defun table-default (readtable)
+(defun table-default (dispatch-table)
   "Look up the default handler"
-  (fset:lookup (dispatch-table-characters readtable) '#:anything))
+  (fset:lookup (dispatch-table-characters dispatch-table) '#:anything))
 
-(define-setf-expander table-default (readtable &environment env)
-  (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion readtable env)
+(define-setf-expander table-default (dispatch-table &environment env)
+  (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion dispatch-table env)
     (let ((set-var (gensym "SET-VAR")))
       (values
        vars
@@ -99,23 +133,23 @@
     :initarg :character-sequence))
   (:report (lambda (c s) (format s "~W is not a dispatch character" (character-not-dispatch-sequence c)))))
 
-(defun %map-subtable (readtable unhandled-characters handled-characters fn)
+(defun %map-subtable (dispatch-table unhandled-characters handled-characters fn)
   (unless unhandled-characters
-    (let ((result (funcall fn readtable)))
+    (let ((result (funcall fn dispatch-table)))
       (check-type result dispatch-table)
       (return-from %map-subtable result)))
 
   (destructuring-bind (char &rest rest) unhandled-characters
     (push char handled-characters)
-    (multiple-value-bind (entry found) (table-handler readtable char)
+    (multiple-value-bind (entry found) (table-handler dispatch-table char)
       (unless (and found (typep entry 'dispatch-table))
         (error 'character-not-dispatch :character-sequence (reverse handled-characters)))
-      (setf (table-handler readtable char)
+      (setf (table-handler dispatch-table char)
             (%map-subtable entry rest handled-characters fn))
-      readtable)))
+      dispatch-table)))
 
-(defun map-subtable (readtable character-sequence modifier)
-  "Return a copy of readtable that has been modified such that the
+(defun map-subtable (dispatch-table character-sequence modifier)
+  "Return a copy of `dispatch-table' that has been modified such that the
 subtable for the given character sequence has been replaced by the
 return value of the modifier function.
 
@@ -124,40 +158,41 @@ the character sequence."
   (setf character-sequence (if (typep character-sequence 'sequence)
                                (coerce character-sequence 'list)
                                (fset:convert 'list character-sequence)))
-  (%map-subtable readtable character-sequence nil modifier))
+  (%map-subtable dispatch-table character-sequence nil modifier))
 
-(defun %subtable (readtable unhandled-characters handled-characters)
+(defun %subtable (dispatch-table unhandled-characters handled-characters)
   (unless unhandled-characters
-    (return-from %subtable readtable))
+    (return-from %subtable dispatch-table))
 
   (destructuring-bind (char &rest rest) unhandled-characters
     (push char handled-characters)
-    (multiple-value-bind (entry found) (table-handler readtable char)
+    (multiple-value-bind (entry found) (table-handler dispatch-table char)
       (unless (and found (typep entry 'dispatch-table))
         (error 'character-not-dispatch :character-sequence (reverse handled-characters)))
       (%subtable entry rest handled-characters))))
 
-(defun subtable (readtable character-sequence)
-  "Retrieve the readtable for the given character sequence.
+(defun subtable (dispatch-table character-sequence)
+  "Retrieve the inner `dispatch-table' for the given character sequence.
 
-If you have nominated a character as a dispatch character, this
-function will return the readtable associated with that dispatch
-character.  This function signals an error if the given character
-sequence hasn't been designated as a dispatch character sequence.
+If you have nominated `character-sequence' as a dispatch sequence,
+this function will return the `dispatch-table' associated with that
+dispatch sequence.  This function signals an error if the given
+character sequence hasn't been designated as a dispatch character
+sequence.
 
-This is a `setf'-able place, but keep in mind that readtables are
-immutable.  So, this will only mutate the place where `readtable' is
-stored."
+This is a `setf'-able place, but keep in mind that `dispatch-table's
+are immutable.  So, this will only mutate the place where
+`dispatch-table' is stored."
   (etypecase character-sequence
     (list)
     (sequence
      (setf character-sequence (coerce character-sequence 'list)))
     (fset:seq
      (setf character-sequence (fset:convert 'list character-sequence))))
-  (%subtable readtable character-sequence nil))
+  (%subtable dispatch-table character-sequence nil))
 
-(define-setf-expander subtable (readtable character-sequence &environment env)
-  (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion readtable env)
+(define-setf-expander subtable (dispatch-table character-sequence &environment env)
+  (multiple-value-bind (vars vals set-vars set-form get-form) (get-setf-expansion dispatch-table env)
     (let ((set-var (gensym "SET-VAR"))
           (chars (gensym "CHARS")))
       (values
@@ -169,9 +204,9 @@ stored."
           ,set-var)
        `(subtable ,get-form ,chars)))))
 
-(defun with-default-handler (readtable character-sequence handler &key (on-conflict :error))
-  "Return a readtable where the given dispatch character sequence has
-its default handler changed to `handler'.
+(defun with-default-handler (dispatch-table character-sequence handler &key (on-conflict :error))
+  "Return a `dispatch-table' where the given dispatch character
+sequence has its default handler changed to `handler'.
 
 See `with-dispatch-character'.
 
@@ -203,10 +238,10 @@ is not `eq' to it.
              (t
               (error 'character-already-set :character-sequence character-sequence
                      :value default))))))
-    (map-subtable readtable character-sequence #'fn)))
+    (map-subtable dispatch-table character-sequence #'fn)))
 
-(defun with-dispatch-character (readtable character-sequence &key (on-conflict :error) use-table)
-  "Return a readtable where the given character sequence is a dispatch
+(defun with-dispatch-character (dispatch-table character-sequence &key (on-conflict :error) use-table)
+  "Return a `dispatch-table' where the given character sequence is a dispatch
 character sequence.
 
 This is approximately analogous to `make-dispatch-macro-character',
@@ -274,10 +309,10 @@ semantically equivalent.
                (t
                 (error 'character-already-set :character-sequence character-sequence
                        :value entry))))))
-      (map-subtable readtable dispatch-sequence #'fn))))
+      (map-subtable dispatch-table dispatch-sequence #'fn))))
 
-(defun with-handler (readtable character-sequence handler &key (on-conflict :error))
-  "Returns a readtable where the given character sequence has been
+(defun with-handler (dispatch-table character-sequence handler &key (on-conflict :error))
+  "Returns a `dispatch-table' where the given character sequence has been
 bound to the given handler.
 
 For information about the `on-conflict' and `handler' arguments, see
@@ -307,7 +342,7 @@ For information about the `on-conflict' and `handler' arguments, see
                 (error 'character-already-set :character-sequence character-sequence
                        :value entry))))))
       
-      (map-subtable readtable dispatch-sequence #'fn))))
+      (map-subtable dispatch-table dispatch-sequence #'fn))))
 
 (defun %use-table (base other key-stack)
   (let ((other-iter (fset:iterator (dispatch-table-characters other)))
@@ -351,29 +386,13 @@ For information about the `on-conflict' and `handler' arguments, see
        (error "Cannot merge default handlers at ~A" key-stack)))
     result))
 
-(defun use-table (readtable other-readtable)
+(defun use-table (dispatch-table other-dispatch-table)
   "Produce a table that contains the union of the given tables"
-  (%use-table readtable other-readtable (make-extensible-vector)))
+  (%use-table dispatch-table other-dispatch-table (make-extensible-vector)))
 
-(defmacro build-shell-readtable (&body body)
-  "Construct a table.
-
-The result of this macro is equivalent to
-(shcl/core/utility:-> #<empty-table> ,@body)"
-  `(-> *empty-shell-readtable* ,@body))
-
-(defmacro define-shell-readtable (name &body body)
-  "Define a table suitable for use at compile time."
-  (let (documentation)
-    (when (typep (first body) 'string)
-      (setf documentation (list (pop body))))
-    `(eval-when (:compile-toplevel :load-toplevel :execute)
-       (defparameter ,name (build-shell-readtable ,@body)
-         ,@documentation))))
-
-(defun %shell-extensible-read (stream readtable initiation-sequence fallback context)
+(defun %shell-extensible-read (stream dispatch-table initiation-sequence fallback context)
   (let ((next-char (peek-char nil stream nil :eof)))
-    (multiple-value-bind (value found) (table-handler readtable next-char)
+    (multiple-value-bind (value found) (table-handler dispatch-table next-char)
       (when (not found)
         (return-from %shell-extensible-read (funcall (or value fallback) stream initiation-sequence context)))
 
@@ -397,11 +416,25 @@ The result of this macro is equivalent to
 
         result))))
 
-(defun shell-extensible-read (stream context readtable &key no-match-value)
+(defun shell-extensible-read (stream context dispatch-table &key no-match-value)
+  "Attempt to read something from `stream' using a `dispatch-table'.
+
+`stream' is the input stream to read a value from.
+
+`context' is an arbitrary object that will be passed to the handlers.
+Typically, there will be some conventional value to pass for this
+argument.
+
+`dispatch-table' is the table to use while reading.
+
+`no-match-value' is the value that will be returned if the
+`dispatch-table' had no handler for the next character in `stream'.
+If this value is returned then no characters in `stream' were
+consumed."
   (labels
       ((fallback (s initiation-sequence c)
          (declare (ignore s c))
          (assert (equal 0 (length initiation-sequence)) nil
                  "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
          (return-from shell-extensible-read no-match-value)))
-    (%shell-extensible-read stream readtable (make-extensible-vector) #'fallback context)))
+    (%shell-extensible-read stream dispatch-table (make-extensible-vector) #'fallback context)))

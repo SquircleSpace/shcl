@@ -114,28 +114,32 @@ lisp form and turns each element into a separate word."))
     (read-line stream nil :eof))
   (lexer-context-mark-end-of-token context))
 
-(define-shell-readtable *splice-table-mixin*
-  (with-dispatch-character ",")
-  (with-default-handler "," 'read-lisp-form)
-  (with-handler ",@" 'read-lisp-splice-form))
+(defparameter *splice-table-mixin*
+  (as-> *empty-shell-readtable* x
+    (with-dispatch-character x ",")
+    (with-default-handler x "," 'read-lisp-form)
+    (with-handler x ",@" 'read-lisp-splice-form)))
 
-(define-shell-readtable *splice-table*
-  "A shell readtable which supports injecting lisp forms."
-  (use-table +standard-shell-readtable+)
-  (use-table *splice-table-mixin*))
+(defparameter *splice-table*
+  (as-> *empty-shell-readtable* x
+    (use-table x +standard-shell-readtable+)
+    (use-table x *splice-table-mixin*))
+  "A shell readtable which supports injecting lisp forms.")
 
-(define-shell-readtable *exit-reader-macro-table-mixin*
-  "A readtable which allows the shell reader macro to terminate."
-  (with-dispatch-character "#")
-  (with-default-handler "#" 'hash-default-handler)
-  (with-handler "#$" 'end-shell-parse))
+(defparameter *exit-reader-macro-table-mixin*
+  (as-> *empty-shell-readtable* x
+    (with-dispatch-character x "#")
+    (with-default-handler x "#" 'hash-default-handler)
+    (with-handler x "#$" 'end-shell-parse))
+  "A readtable which allows the shell reader macro to terminate.")
 
-(define-shell-readtable *interpolation-table*
+(defparameter *interpolation-table*
+  (as-> *empty-shell-readtable* x
+    (use-table x +standard-shell-readtable+)
+    (use-table x *splice-table-mixin*)
+    (use-table x *exit-reader-macro-table-mixin*))
   "A shell readtable which is suitable for use with the shell reader
-macro."
-  (use-table +standard-shell-readtable+)
-  (use-table *splice-table-mixin*)
-  (use-table *exit-reader-macro-table-mixin*))
+macro.")
 
 (defvar *proper-end-found* nil
   "This is used by `end-shell-parse' and `read-shell-command' to
