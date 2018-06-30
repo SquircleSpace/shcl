@@ -738,13 +738,13 @@ variable substitution."))
   (dollar-curly-lexer-context-base-token context))
 
 (define-once-global +quote-table+
-    (as-> *empty-shell-readtable* x
+    (as-> *empty-dispatch-table* x
       (with-handler x "'" 'handle-quote)
       (with-handler x "\\" 'handle-backslash)
       (with-handler x "\"" 'handle-double-quote)))
 
 (define-once-global +substitution-table+
-    (as-> *empty-shell-readtable* x
+    (as-> *empty-dispatch-table* x
       (with-dispatch-character x "$")
       (with-default-handler x "$" 'handle-dollar)
       (with-dispatch-character x "${")
@@ -755,7 +755,7 @@ variable substitution."))
       (with-handler x "`" 'handle-backtick)))
 
 (define-once-global +double-quote-readtable+
-    (as-> *empty-shell-readtable* x
+    (as-> *empty-dispatch-table* x
       (use-table x +substitution-table+)
       (with-default-handler x "" 'handle-add-next-char)
       (with-dispatch-character x "\\")
@@ -765,25 +765,25 @@ variable substitution."))
 
 (define-once-global +variable-expansion-policy+
     (let ((policies
-           (as-> *empty-shell-readtable* x
+           (as-> *empty-dispatch-table* x
              (with-handler x "-" 'handle-use-default-policy)
              (with-handler x "=" 'handle-assign-default-policy)
              (with-handler x "?" 'handle-error-policy)
              (with-handler x "+" 'handle-alternate-policy))))
-      (as-> *empty-shell-readtable* x
+      (as-> *empty-dispatch-table* x
         (with-dispatch-character x ":" :use-table policies)
         (use-table x policies)
         (with-handler x "}" 'end-variable-expansion-word))))
 
 (define-once-global +variable-expansion-word+
-    (as-> *empty-shell-readtable* x
+    (as-> *empty-dispatch-table* x
       (use-table x +quote-table+)
       (use-table x +substitution-table+)
       (with-default-handler x "" 'handle-add-next-char)
       (with-handler x "}" 'end-variable-expansion-word)))
 
 (define-once-global +standard-shell-readtable+
-    (as-> *empty-shell-readtable* x
+    (as-> *empty-dispatch-table* x
       (use-table x +quote-table+)
       (use-table x +substitution-table+)
       (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)

@@ -17,7 +17,7 @@
   (:import-from :fset)
   (:export
    #:dispatch-table-read #:with-dispatch-character #:with-default-handler
-   #:with-handler #:use-table #:subtable #:*empty-shell-readtable*
+   #:with-handler #:use-table #:subtable #:*empty-dispatch-table*
    #:dispatch-table))
 (in-package :shcl/core/shell-readtable)
 
@@ -76,7 +76,7 @@ in them."))
   (print-unreadable-object (table stream)
     (format stream "~A" (dispatch-table-characters table))))
 
-(defparameter *empty-shell-readtable* (make-instance 'dispatch-table)
+(defparameter *empty-dispatch-table* (make-instance 'dispatch-table)
   "A `dispatch-table' devoid of handlers.")
 
 (defun table-handler (dispatch-table character)
