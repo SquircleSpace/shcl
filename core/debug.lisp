@@ -140,7 +140,8 @@ of the named system."
   (fset:set
    (find-package :shcl/shell/prompt-types)
    (find-package :shcl/core/posix-types)
-   (find-package :shcl/core/shell-grammar)))
+   (find-package :shcl/core/shell-grammar)
+   (find-package :shcl/core/parser)))
 
 (defun documented-shcl-package-p (package)
   "Returns non-nil iff the provided package belongs to SHCL and should
