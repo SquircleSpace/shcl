@@ -24,6 +24,7 @@
   (:import-from :shcl/test/shell-lambda)
   (:import-from :shcl/test/fd-table)
   (:import-from :shcl/test/shell-form)
+  (:import-from :shcl/test/debug)
   (:import-from :shcl/test/foundation
                 #:run-test-set #:all-tests #:package-test-set #:symbol-test)
   (:import-from :shcl/core/command)
