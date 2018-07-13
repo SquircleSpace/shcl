@@ -36,274 +36,278 @@
 
 (optimization-settings)
 
-(define-parser shell-grammar
-  (:start-symbol start)
-  (:eof-symbol eof)
-  (:terminals
-   (token a-word simple-word assignment-word name newline io-number and-if
-          or-if dsemi dless dgreat lessand greatand lessgreat dlessdash
-          clobber if-word then else elif fi do-word done case-word esac while until
-          for lbrace rbrace bang in semi par pipe lparen rparen great less))
+(defmacro define-terminals (&body terminals)
+  (apply 'progn-concatenate
+         (loop :for terminal :in terminals :collect
+            (etypecase terminal
+              (symbol
+               `(define-terminal ,terminal))
+              (cons
+               `(define-terminal ,@terminal))))))
 
-  (start
-   eof
-   complete-command)
+(define-terminals
+  token a-word simple-word assignment-word name newline io-number and-if
+  or-if dsemi dless dgreat lessand greatand lessgreat dlessdash
+  clobber if-word then else elif fi do-word done case-word esac while until
+  for lbrace rbrace bang in semi par pipe lparen rparen great less)
 
-  (complete-command
-   (newline-list complete-command)
-   (newline-list)
-   (command-list command-end))
+(define-nonterminal start
+  parse-eof
+  parse-complete-command)
 
-  (command-end
-   eof
-   newline)
+(define-nonterminal complete-command
+  (newline-list complete-command)
+  (newline-list)
+  (command-list command-end))
 
-  (command-list
-   (and-or separator-op command-list-tail)
-   and-or)
+(define-nonterminal command-end
+  parse-eof
+  parse-newline)
 
-  (command-list-tail
-   (and-or separator-op command-list-tail)
-   and-or
-   ())
+(define-nonterminal command-list
+  (and-or separator-op command-list-tail)
+  parse-and-or)
 
-  (and-or
-   (pipeline and-or-tail))
+(define-nonterminal command-list-tail
+  (and-or separator-op command-list-tail)
+  parse-and-or
+  ())
 
-  (and-or-tail
-   (and-if linebreak pipeline and-or-tail)
-   (or-if linebreak pipeline and-or-tail)
-   ())
+(define-nonterminal and-or
+  (pipeline and-or-tail))
 
-  (pipeline
-   (bang pipe-sequence)
-   pipe-sequence)
+(define-nonterminal and-or-tail
+  (and-if linebreak pipeline and-or-tail)
+  (or-if linebreak pipeline and-or-tail)
+  ())
 
-  (pipe-sequence
-   (command pipe-sequence-tail))
+(define-nonterminal pipeline
+  (bang pipe-sequence)
+  parse-pipe-sequence)
 
-  (pipe-sequence-tail
-   (pipe linebreak command pipe-sequence-tail)
-   ())
+(define-nonterminal pipe-sequence
+  (command pipe-sequence-tail))
 
-  (command
-   (compound-command redirect-list)
-   compound-command
-   function-definition
-   simple-command)
+(define-nonterminal pipe-sequence-tail
+  (pipe linebreak command pipe-sequence-tail)
+  ())
 
-  (compound-command
-   brace-group
-   subshell
-   for-clause
-   case-clause
-   if-clause
-   while-clause
-   until-clause)
+(define-nonterminal command
+  (compound-command redirect-list)
+  parse-compound-command
+  parse-function-definition
+  parse-simple-command)
 
-  (subshell
-   (lparen compound-list rparen))
+(define-nonterminal compound-command
+  parse-brace-group
+  parse-subshell
+  parse-for-clause
+  parse-case-clause
+  parse-if-clause
+  parse-while-clause
+  parse-until-clause)
 
-  (compound-list
-   term
-   (newline-list term))
+(define-nonterminal subshell
+  (lparen compound-list rparen))
 
-  (term
-   (and-or separator term-tail)
-   and-or)
+(define-nonterminal compound-list
+  parse-term
+  (newline-list term))
 
-  (term-tail
-   (and-or separator term-tail)
-   and-or
-   ())
+(define-nonterminal term
+  (and-or separator term-tail)
+  parse-and-or)
 
-  (for-clause
-   (for name-nt linebreak (body do-group))
-   (for name-nt linebreak in-nt sequential-sep (body do-group))
-   (for name-nt linebreak in-nt wordlist sequential-sep (body do-group)))
+(define-nonterminal term-tail
+  (and-or separator term-tail)
+  parse-and-or
+  ())
 
-  (name-nt
-   (name)) ;; Apply rule 5 (need not be reflected in the grammar)
+(define-nonterminal for-clause
+  (for name-nt linebreak (body parse-do-group))
+  (for name-nt linebreak in-nt sequential-sep (body parse-do-group))
+  (for name-nt linebreak in-nt wordlist sequential-sep (body parse-do-group)))
 
-  (in-nt
-   (in)) ;; Apply rule 6 (need not be reflected in the grammar)
+(define-nonterminal name-nt
+  (name)) ;; Apply rule 5 (need not be reflected in the grammar)
 
-  (wordlist
-   (a-word wordlist-tail))
+(define-nonterminal in-nt
+  (in)) ;; Apply rule 6 (need not be reflected in the grammar)
 
-  (wordlist-tail
-   (a-word wordlist-tail)
-   ())
+(define-nonterminal wordlist
+  (a-word wordlist-tail))
 
-  (case-clause
-   (case-word a-word linebreak in-nt linebreak case-list esac)
-   (case-word a-word linebreak in-nt linebreak case-list-ns esac)
-   (case-word a-word linebreak in-nt linebreak esac))
+(define-nonterminal wordlist-tail
+  (a-word wordlist-tail)
+  ())
 
-  (case-list-ns
-   (case-list case-item-ns)
-   (case-item-ns))
+(define-nonterminal case-clause
+  (case-word a-word linebreak in-nt linebreak case-list esac)
+  (case-word a-word linebreak in-nt linebreak case-list-ns esac)
+  (case-word a-word linebreak in-nt linebreak esac))
 
-  (case-list
-   (case-item case-list-tail))
+(define-nonterminal case-list-ns
+  (case-list case-item-ns)
+  (case-item-ns))
 
-  (case-list-tail
-   (case-item case-list-tail)
-   ())
+(define-nonterminal case-list
+  (case-item case-list-tail))
 
-  (case-item-ns
-   (pattern rparen linebreak)
-   (pattern rparen compound-list linebreak)
-   (lparen pattern rparen linebreak)
-   (lparen pattern rparen compound-list linebreak))
+(define-nonterminal case-list-tail
+  (case-item case-list-tail)
+  ())
 
-  (case-item
-   (pattern rparen linebreak dsemi linebreak)
-   (pattern rparen compound-list dsemi linebreak)
-   (lparen pattern rparen linebreak dsemi linebreak)
-   (lparen pattern rparen compound-list dsemi linebreak))
+(define-nonterminal case-item-ns
+  (pattern rparen linebreak)
+  (pattern rparen compound-list linebreak)
+  (lparen pattern rparen linebreak)
+  (lparen pattern rparen compound-list linebreak))
 
-  (pattern
-   (a-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
+(define-nonterminal case-item
+  (pattern rparen linebreak dsemi linebreak)
+  (pattern rparen compound-list dsemi linebreak)
+  (lparen pattern rparen linebreak dsemi linebreak)
+  (lparen pattern rparen compound-list dsemi linebreak))
 
-  (pattern-tail
-   (pipe a-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
-   ())
+(define-nonterminal pattern
+  (a-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
 
-  (if-clause
-   (if-word (condition compound-list) then (body compound-list) fi)
-   (if-word (condition compound-list) then (body compound-list) else-part fi))
+(define-nonterminal pattern-tail
+  (pipe a-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
+  ())
 
-  (else-part
-   (elif (condition compound-list) then (body compound-list) else-part)
-   (elif (condition compound-list) then (body compound-list))
-   (else (body compound-list)))
+(define-nonterminal if-clause
+  (if-word (condition parse-compound-list) then (body parse-compound-list) fi)
+  (if-word (condition parse-compound-list) then (body parse-compound-list) else-part fi))
 
-  (while-clause
-   (while (condition compound-list) (body do-group)))
+(define-nonterminal else-part
+  (elif (condition parse-compound-list) then (body parse-compound-list) else-part)
+  (elif (condition parse-compound-list) then (body parse-compound-list))
+  (else (body parse-compound-list)))
 
-  (until-clause
-   (until (condition compound-list) (body do-group)))
+(define-nonterminal while-clause
+  (while (condition parse-compound-list) (body parse-do-group)))
 
-  (function-definition
-   (fname lparen rparen linebreak function-body))
+(define-nonterminal until-clause
+  (until (condition parse-compound-list) (body parse-do-group)))
 
-  (function-body
-   (compound-command redirect-list) ;; Apply rule 9 (need not be reflected in the grammar)
-   (compound-command)) ;; Apply rule 9 (need not be reflected in the grammar)
+(define-nonterminal function-definition
+  (fname lparen rparen linebreak function-body))
 
-  (fname
-   name) ;; Apply rule 8 (must be reflected in the grammar)
+(define-nonterminal function-body
+  (compound-command redirect-list) ;; Apply rule 9 (need not be reflected in the grammar)
+  (compound-command)) ;; Apply rule 9 (need not be reflected in the grammar)
 
-  (brace-group
-   (lbrace :strict compound-list rbrace))
+(define-nonterminal fname
+  parse-name) ;; Apply rule 8 (must be reflected in the grammar)
 
-  (do-group
-   (do-word compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
+(define-nonterminal brace-group
+  (lbrace compound-list rbrace))
 
-  (simple-command
-   (cmd-prefix cmd-word cmd-suffix)
-   (cmd-prefix cmd-word)
-   (cmd-prefix)
-   (cmd-name cmd-suffix)
-   (cmd-name))
+(define-nonterminal do-group
+  (do-word compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
-  (cmd-name
-   a-word) ;; Apply rule 7a (might need to be reflected in the grammar)
+(define-nonterminal simple-command
+  (cmd-prefix cmd-word cmd-suffix)
+  (cmd-prefix cmd-word)
+  (cmd-prefix)
+  (cmd-name cmd-suffix)
+  (cmd-name))
 
-  (cmd-word
-   a-word) ;; Apply rule 7b (might need to be reflected in the grammar)
+(define-nonterminal cmd-name
+  parse-a-word) ;; Apply rule 7a (might need to be reflected in the grammar)
 
-  (cmd-prefix
-   (io-redirect cmd-prefix-tail)
-   (assignment-word cmd-prefix-tail))
+(define-nonterminal cmd-word
+  parse-a-word) ;; Apply rule 7b (might need to be reflected in the grammar)
 
-  (cmd-prefix-tail
-   (io-redirect cmd-prefix-tail)
-   (assignment-word cmd-prefix-tail)
-   ())
+(define-nonterminal cmd-prefix
+  (io-redirect cmd-prefix-tail)
+  (assignment-word cmd-prefix-tail))
 
-  (cmd-suffix
-   (io-redirect cmd-suffix-tail)
-   (a-word cmd-suffix-tail))
+(define-nonterminal cmd-prefix-tail
+  (io-redirect cmd-prefix-tail)
+  (assignment-word cmd-prefix-tail)
+  ())
 
-  (cmd-suffix-tail
-   (io-redirect cmd-suffix-tail)
-   (a-word cmd-suffix-tail)
-   ())
+(define-nonterminal cmd-suffix
+  (io-redirect cmd-suffix-tail)
+  (a-word cmd-suffix-tail))
 
-  (redirect-list
-   (io-redirect redirect-list-tail))
+(define-nonterminal cmd-suffix-tail
+  (io-redirect cmd-suffix-tail)
+  (a-word cmd-suffix-tail)
+  ())
 
-  (redirect-list-tail
-   (io-redirect redirect-list-tail)
-   ())
+(define-nonterminal redirect-list
+  (io-redirect redirect-list-tail))
 
-  (io-redirect
-   io-file
-   (io-number (io-source io-file))
-   io-here
-   (io-number (io-source io-here)))
+(define-nonterminal redirect-list-tail
+  (io-redirect redirect-list-tail)
+  ())
 
-  (io-file
-   ((redirect less) filename)
-   ((redirect lessand) (fd-description simple-word))
-   ((redirect great) filename)
-   ((redirect greatand) (fd-description simple-word))
-   ((redirect dgreat) filename)
-   ((redirect lessgreat) filename)
-   ((redirect clobber) filename))
+(define-nonterminal io-redirect
+  parse-io-file
+  (io-number (io-source parse-io-file))
+  parse-io-here
+  (io-number (io-source parse-io-here)))
 
-  (filename
-   a-word) ;; Apply rule 2 (need not be reflected in grammar)
+(define-nonterminal io-file
+  ((redirect parse-less) filename)
+  ((redirect parse-lessand) (fd-description parse-simple-word))
+  ((redirect parse-great) filename)
+  ((redirect parse-greatand) (fd-description parse-simple-word))
+  ((redirect parse-dgreat) filename)
+  ((redirect parse-lessgreat) filename)
+  ((redirect parse-clobber) filename))
 
-  (io-here
-   (dless here-end)
-   (dlessdash here-end))
+(define-nonterminal filename
+  parse-a-word) ;; Apply rule 2 (need not be reflected in grammar)
 
-  (here-end
-   (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
+(define-nonterminal io-here
+  (dless here-end)
+  (dlessdash here-end))
 
-  (newline-list
-   (newline newline-list-tail))
+(define-nonterminal here-end
+  (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
 
-  (newline-list-tail
-   (newline newline-list-tail)
-   ())
+(define-nonterminal newline-list
+  (newline newline-list-tail))
 
-  (linebreak
-   (newline-list)
-   ())
+(define-nonterminal newline-list-tail
+  (newline newline-list-tail)
+  ())
 
-  (separator-op
-   par
-   semi)
+(define-nonterminal linebreak
+  (newline-list)
+  ())
 
-  (separator
-   (separator-op linebreak)
-   (newline-list))
+(define-nonterminal separator-op
+  parse-par
+  parse-semi)
 
-  (sequential-sep
-   (semi linebreak)
-   (newline-list)))
+(define-nonterminal separator
+  (separator-op linebreak)
+  (newline-list))
+
+(define-nonterminal sequential-sep
+  (semi linebreak)
+  (newline-list))
 
 (define-advice parse-cmd-name :around posix-rule (iter)
   (when (typep (peek-lookahead-iterator iter) 'reserved-word)
     (return-from parse-cmd-name
       (values
        nil
-       (make-internal-parse-error
-        :message "Reserved words aren't allowed here"
-        :expected-tokens '(a-word)))))
+       "No reserved words")))
   (call-next-method))
 
 (defun command-iterator (token-iterator)
   "Given a `lookahead-iterator' that produces tokens, return an
 iterator that produces shell syntax tree objects."
-  (let ((iter (syntax-iterator #'parse-shell-grammar token-iterator)))
+  (let ((iter (syntax-iterator #'parse-start token-iterator)))
     (make-iterator ()
       (do-iterator (value iter)
-        (when (eq value 'eof)
+        (when (eq value :eof)
           (stop))
         (emit value))
       (stop))))
