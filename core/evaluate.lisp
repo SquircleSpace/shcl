@@ -133,33 +133,28 @@ for the given redirect."))
 (defmethod translate ((sy complete-command))
   (with-slots (newline-list complete-command command-list) sy
     (cond
-      ((slot-boundp sy 'complete-command)
+      ((and (slot-boundp sy 'complete-command)
+            complete-command)
        (return-from translate (translate complete-command)))
       ((slot-boundp sy 'command-list)
        (return-from translate (translate command-list)))
       (t
        (return-from translate '(truthy-exit-info))))))
 
-(defun translate-command-list (sy)
-  (with-slots (and-or separator-op command-list-tail) sy
+(defmethod translate ((sy command-list))
+  (with-slots (and-or separator-op command-list) sy
     (let ((no-wait (typep separator-op 'par)))
 
-      (unless command-list-tail
+      (unless command-list
         (if no-wait
-            (return-from translate-command-list (translate-background-job and-or))
-            (return-from translate-command-list (translate and-or))))
+            (return-from translate (translate-background-job and-or))
+            (return-from translate (translate and-or))))
 
-      (return-from translate-command-list
-        (progn-concatenate
-         (if no-wait
-             (translate-background-job and-or)
-             (translate and-or))
-         (translate command-list-tail))))))
-
-(defmethod translate ((sy command-list))
-  (translate-command-list sy))
-(defmethod translate ((sy command-list-tail))
-  (translate-command-list sy))
+      (progn-concatenate
+       (if no-wait
+           (translate-background-job and-or)
+           (translate and-or))
+       (translate command-list)))))
 
 (defun translate-and-or (sy)
   (labels
@@ -272,9 +267,18 @@ for the given redirect."))
 
 (defmethod translate ((sy command))
   (with-slots (compound-command redirect-list) sy
-    `(fd-bind*
-         ,(translate-redirect-list-to-fd-bindings redirect-list)
-       ,@(bodyify (translate compound-command)))))
+    (cond
+      ((and (slot-boundp sy 'redirect-list)
+            redirect-list)
+       `(fd-bind*
+            ,(translate-redirect-list-to-fd-bindings redirect-list)
+          ,@(bodyify (translate compound-command))))
+      ((and (slot-boundp sy 'compound-command)
+            compound-command)
+       (translate compound-command))
+
+      (t
+       (error "Malformed COMMAND instance")))))
 
 (defmethod translate ((sy subshell))
   (with-slots (compound-list) sy
@@ -282,30 +286,26 @@ for the given redirect."))
       `(with-subshell
         ,@(bodyify (translate compound-list))))))
 
-(defmethod translate ((sy compound-list))
-  (with-slots (term) sy
-    (return-from translate (translate term))))
-
-(defun translate-term (sy)
-  (with-slots (and-or separator term-tail) sy
-    (unless (slot-boundp sy 'separator)
-      (return-from translate-term (translate and-or)))
-
-    (apply 'progn-concatenate
-           (loop :for node = sy :then (when (typep node '(or term term-tail))
-                                        (slot-value node 'term-tail))
-              :while node :collect
-              (typecase node
-                ((or term term-tail)
-                 (let ((translation (translate (slot-value node 'and-or))))
-                   (if (separator-par-p (slot-value node 'separator))
-                       `(& ,translation)
-                       translation)))
-                (t
-                 (translate node)))))))
-
 (defmethod translate ((sy term))
-  (return-from translate (translate-term sy)))
+  (with-slots (and-or separator) sy
+    (cond
+      ((or (not separator)
+           (not (slot-boundp separator 'separator-op))
+           (not (slot-value separator 'separator-op))
+           (typep (slot-value separator 'separator-op) 'semi))
+       (translate and-or))
+
+      ((and (slot-boundp separator 'separator-op)
+            (typep (slot-value separator 'separator-op) 'par))
+       (translate-background-job and-or))
+
+      (t
+       (error "Unrecognized separator ~A" separator)))))
+
+(defmethod translate ((sy compound-list))
+  (with-slots (term-sequence) sy
+    (return-from translate
+      (apply 'progn-concatenate (map 'list 'translate term-sequence)))))
 
 (defmethod translate ((sy while-clause))
   (with-slots (condition body) sy
@@ -317,28 +317,17 @@ for the given redirect."))
     `(shell-while (shell-not ,(translate condition))
        ,@(bodyify (translate body)))))
 
-(defun wordlist-words (wordlist)
-  (let ((result (make-extensible-vector)))
-    (labels
-        ((handle (x)
-           (with-slots (a-word wordlist-tail) x
-             (vector-push-extend a-word result)
-             (when wordlist-tail
-               (handle wordlist-tail)))))
-      (handle wordlist)
-      result)))
-
 (defmethod translate ((sy for-clause))
-  (with-slots (name-nt wordlist body) sy
+  (with-slots (name-nt for-clause-range body) sy
     (let ((name (simple-word-text (slot-value name-nt 'name)))
           (words
            (cond
-             ((not (slot-boundp sy 'in-nt))
+             ((or (not for-clause-range)
+                  (not (slot-boundp for-clause-range 'in-nt)))
               `#(,(make-instance 'double-quote :parts `#(,(make-instance 'variable-expansion-word :variable "@")))))
-             ((slot-boundp sy 'wordlist)
-              (wordlist-words wordlist))
+
              (t
-              #()))))
+              (slot-value for-clause-range 'words)))))
       `(shell-for (,name ,(expansion-form-for-tokens (coerce words 'list)
                                                      :expand-pathname t))
          ,@(bodyify (translate body))))))
@@ -346,11 +335,12 @@ for the given redirect."))
 (defmethod translate ((sy else-part))
   (with-slots (condition body else-part) sy
     (cond
-      ((slot-boundp sy 'else-part)
+      ((and (slot-boundp sy 'elif)
+            (not (typep else-part 'fi)))
        `(shell-if ,(translate condition)
             ,(translate body)
             ,(translate else-part)))
-      ((slot-boundp sy 'condition)
+      ((slot-boundp sy 'elif)
        `(shell-if ,(translate condition)
             ,(translate body)))
       (t
@@ -359,13 +349,13 @@ for the given redirect."))
 (defmethod translate ((sy if-clause))
   (with-slots (condition body else-part) sy
     (cond
-      ((slot-boundp sy 'else-part)
+      ((typep else-part 'fi)
        `(shell-if ,(translate condition)
-                  ,(translate body)
-            ,(translate else-part)))
+                  ,(translate body)))
       (t
        `(shell-if ,(translate condition)
-            ,(translate body))))))
+                  ,(translate body)
+                  ,(translate else-part))))))
 
 (defmethod translate ((sy brace-group))
   (with-slots (compound-list) sy
@@ -414,20 +404,24 @@ and io redirects."
         arguments
         redirects)
     (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
-      (when (slot-boundp sy 'cmd-prefix)
+      (when (and (slot-boundp sy 'cmd-prefix)
+                 cmd-prefix)
         (multiple-value-bind (prefix-assignments prefix-redirects) (cmd-prefix-parts cmd-prefix)
           (dolist (a prefix-assignments)
             (push a assignments))
           (dolist (r prefix-redirects)
             (push r redirects))))
 
-      (when (slot-boundp sy 'cmd-name)
+      (when (and (slot-boundp sy 'cmd-name)
+                 cmd-name)
         (push cmd-name arguments))
 
-      (when (slot-boundp sy 'cmd-word)
+      (when (and (slot-boundp sy 'cmd-word)
+                 cmd-word)
         (push cmd-word arguments))
 
-      (when (slot-boundp sy 'cmd-suffix)
+      (when (and (slot-boundp sy 'cmd-suffix)
+                 cmd-suffix)
         (multiple-value-bind (suffix-arguments suffix-redirects) (cmd-suffix-parts cmd-suffix)
           (dolist (a suffix-arguments)
             (push a arguments))
