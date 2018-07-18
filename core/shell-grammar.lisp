@@ -16,22 +16,25 @@
   (:use
    :common-lisp :shcl/core/parser :shcl/core/lexer :shcl/core/utility
    :shcl/core/iterator)
-  (:import-from :shcl/core/advice #:define-advice)
+  (:import-from :shcl/core/advice #:define-advice #:define-advisable)
   (:export
    #:command-iterator
    ;; nonterminals
-   #:complete-command #:command-list #:command-list-tail #:and-or #:and-or-tail
-   #:pipeline #:pipe-sequence #:pipe-sequence-tail #:command #:compound-command
-   #:subshell #:compound-list #:term #:term-tail #:for-clause #:name-nt #:in-nt
-   #:wordlist #:wordlist-tail #:case-clause #:case-list-ns #:case-list
-   #:case-list-tail #:case-item-ns #:case-item #:pattern #:pattern-tail
-   #:if-clause #:else-part #:while-clause #:until-clause #:function-definition
-   #:function-body #:fname #:brace-group #:do-group #:simple-command #:cmd-name
-   #:cmd-word #:cmd-prefix #:cmd-prefix-tail #:cmd-suffix #:cmd-suffix-tail
-   #:redirect-list #:redirect-list-tail #:io-redirect #:io-file #:filename
-   #:io-source #:io-here #:here-end #:newline-list #:newline-list-tail
-   #:linebreak #:separator-op #:separator #:command-separator #:sequential-sep
-   #:wordly-word #:redirect #:fd-description #:condition #:body))
+   #:complete-command #:command-list #:and-or #:and-or-tail :pipeline
+   #:pipe-sequence #:pipe-sequence-tail #:command
+   #:compound-command :subshell #:compound-list #:term
+   #:term-sequence #:for-clause #:for-clause-range #:name-nt
+   #:in-nt :words #:case-clause #:case-list-ns
+   #:case-list :case-list-tail #:case-item-ns #:case-item #:pattern
+   #:pattern-tail :if-clause #:else-part #:while-clause
+   #:until-clause #:function-definition :function-body #:fname
+   #:brace-group #:do-group #:simple-command #:cmd-name :cmd-word
+   #:cmd-prefix #:cmd-prefix-tail #:cmd-suffix
+   #:cmd-suffix-tail :redirect-list #:redirect-list-tail
+   #:io-redirect #:io-file #:filename :io-source #:io-here #:here-end
+   #:newline-list :linebreak #:separator-op #:separator
+   #:sequential-sep :redirect #:fd-description
+   #:condition #:body))
 (in-package :shcl/core/shell-grammar)
 
 (optimization-settings)
@@ -56,8 +59,7 @@
   parse-complete-command)
 
 (define-nonterminal complete-command
-  (newline-list complete-command)
-  (newline-list)
+  (newline-list &optional complete-command)
   (command-list command-end))
 
 (define-nonterminal command-end
@@ -65,13 +67,7 @@
   parse-newline)
 
 (define-nonterminal command-list
-  (and-or separator-op command-list-tail)
-  parse-and-or)
-
-(define-nonterminal command-list-tail
-  (and-or separator-op command-list-tail)
-  parse-and-or
-  ())
+  (and-or &optional separator-op command-list))
 
 (define-nonterminal and-or
   (pipeline and-or-tail))
@@ -93,8 +89,7 @@
   ())
 
 (define-nonterminal command
-  (compound-command redirect-list)
-  parse-compound-command
+  (compound-command &optional redirect-list)
   parse-function-definition
   parse-simple-command)
 
@@ -111,35 +106,49 @@
   (lparen compound-list rparen))
 
 (define-nonterminal compound-list
-  parse-term
-  (newline-list term))
+  (linebreak term-sequence))
 
-(define-nonterminal term
-  (and-or separator term-tail)
-  parse-and-or)
+(define-nonterminal-class term ()
+    (and-or
+     separator))
 
-(define-nonterminal term-tail
-  (and-or separator term-tail)
-  parse-and-or
-  ())
+(define-advisable parse-term-sequence (iter)
+  (let ((continue-p t))
+    (parser-repeat iter
+      (cond
+        (continue-p
+         (parse-instance 'term
+           'and-or (parse-and-or iter)
+           'separator (parser-handler-case iter
+                          (parse-separator iter)
+                        (t ()
+                           (setf continue-p nil)
+                           (parser-value nil)))))
+        (t
+         (parser-error "term-sequence is over"))))))
 
 (define-nonterminal for-clause
-  (for name-nt linebreak (body parse-do-group))
-  (for name-nt linebreak in-nt sequential-sep (body parse-do-group))
-  (for name-nt linebreak in-nt wordlist sequential-sep (body parse-do-group)))
+  (for name-nt linebreak for-clause-range (body parse-do-group)))
+
+(define-nonterminal-class for-clause-range ()
+    (in-nt
+     words
+     sequential-sep))
+
+(define-advisable parse-for-clause-range (iter)
+  (parser-choice iter
+    (parse-instance 'for-clause-range
+      'in-nt (parse-in-nt iter)
+      'words (parser-repeat iter
+               (parse-a-word iter))
+      'sequential-sep (parse-sequential-sep iter))
+    (parser-value nil)))
 
 (define-nonterminal name-nt
   (name)) ;; Apply rule 5 (need not be reflected in the grammar)
 
 (define-nonterminal in-nt
   (in)) ;; Apply rule 6 (need not be reflected in the grammar)
-
-(define-nonterminal wordlist
-  (a-word wordlist-tail))
-
-(define-nonterminal wordlist-tail
-  (a-word wordlist-tail)
-  ())
 
 (define-nonterminal case-clause
   (case-word a-word linebreak in-nt linebreak case-list esac)
@@ -177,13 +186,12 @@
   ())
 
 (define-nonterminal if-clause
-  (if-word (condition parse-compound-list) then (body parse-compound-list) fi)
-  (if-word (condition parse-compound-list) then (body parse-compound-list) else-part fi))
+  (if-word (condition parse-compound-list) then (body parse-compound-list) else-part))
 
 (define-nonterminal else-part
   (elif (condition parse-compound-list) then (body parse-compound-list) else-part)
-  (elif (condition parse-compound-list) then (body parse-compound-list))
-  (else (body parse-compound-list)))
+  (else (body parse-compound-list) fi)
+  parse-fi)
 
 (define-nonterminal while-clause
   (while (condition parse-compound-list) (body parse-do-group)))
@@ -192,14 +200,31 @@
   (until (condition parse-compound-list) (body parse-do-group)))
 
 (define-nonterminal function-definition
-  (fname lparen rparen linebreak function-body))
+  (fname linebreak function-body))
 
 (define-nonterminal function-body
   (compound-command redirect-list) ;; Apply rule 9 (need not be reflected in the grammar)
   (compound-command)) ;; Apply rule 9 (need not be reflected in the grammar)
 
-(define-nonterminal fname
-  parse-name) ;; Apply rule 8 (must be reflected in the grammar)
+(define-nonterminal-class fname ()
+    (name
+     lparen
+     rparen))
+
+(define-advisable parse-fname (iter)
+  (parser-let
+      ((name-lparen
+        (parser-try iter
+          (parser-let
+              ((name (parse-name iter))
+               (lparen (parse-lparen iter)))
+            (parser-value (cons name lparen)))))
+       (rparen (parse-rparen iter)))
+    (parser-value
+     (make-instance 'fname
+                    'name (car name-lparen)
+                    'lparen (cdr name-lparen)
+                    'rparen rparen))))
 
 (define-nonterminal brace-group
   (lbrace compound-list rbrace))
@@ -208,11 +233,8 @@
   (do-word compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
 (define-nonterminal simple-command
-  (cmd-prefix cmd-word cmd-suffix)
-  (cmd-prefix cmd-word)
-  (cmd-prefix)
-  (cmd-name cmd-suffix)
-  (cmd-name))
+  (cmd-prefix &optional cmd-word cmd-suffix)
+  (cmd-name &optional cmd-suffix))
 
 (define-nonterminal cmd-name
   parse-a-word) ;; Apply rule 7a (might need to be reflected in the grammar)
@@ -245,11 +267,19 @@
   (io-redirect redirect-list-tail)
   ())
 
-(define-nonterminal io-redirect
-  parse-io-file
-  (io-number (io-source parse-io-file))
-  parse-io-here
-  (io-number (io-source parse-io-here)))
+(define-nonterminal-class io-redirect ()
+    (io-number
+     io-source))
+
+(define-advisable parse-io-redirect (iter)
+  (parser-choice iter
+    (parse-io-file iter)
+    (parse-io-here iter)
+    (parse-instance 'io-redirect
+      'io-number (parse-io-number iter)
+      'io-source (parser-choice iter
+                   (parse-io-file iter)
+                   (parse-io-here iter)))))
 
 (define-nonterminal io-file
   ((redirect parse-less) filename)
@@ -271,11 +301,7 @@
   (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
 
 (define-nonterminal newline-list
-  (newline newline-list-tail))
-
-(define-nonterminal newline-list-tail
-  (newline newline-list-tail)
-  ())
+  (newline &optional newline-list))
 
 (define-nonterminal linebreak
   (newline-list)

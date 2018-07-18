@@ -29,7 +29,7 @@
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
   (:import-from :shcl/shell/lisp-repl)
-  (:import-from :shcl/core/parser #:abort-parse)
+  (:import-from :shcl/core/parser #:parse-failure)
   (:import-from :shcl/shell/prompt
    #:with-history #:history-enter #:history-set-size #:make-editline-stream
    #:interpret-prompt-string)
@@ -226,7 +226,7 @@ example, that...
           (when startup-file
             (load startup-file))
           (handler-bind
-              ((abort-parse
+              ((parse-failure
                 (lambda (e)
                   (when-let ((restart (find-restart 'ignore)))
                     (format *error-output* "Parse error: ~A~%" e)

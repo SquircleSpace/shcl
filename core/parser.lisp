@@ -23,11 +23,11 @@
    ;; Foundations of parsing
    #:parser-error #:parser-value #:parser-let* #:parser-let #:parser-lookahead
    #:parser-try #:parser-choice #:parse-eof #:parse-object-of-type
-   #:parser-handler-case
+   #:parser-handler-case #:parser-repeat
 
    ;; Convenience and high-level parsing tools
    #:syntax-iterator #:define-terminal #:define-nonterminal #:syntax-tree
-   #:parse-failure))
+   #:define-nonterminal-class #:parse-failure #:parse-instance))
 (in-package :shcl/core/parser)
 
 (optimization-settings)
@@ -40,8 +40,7 @@
     (make-load-form-saving-slots sy :slot-names slots :environment environment)))
 
 (defmethod print-object ((st syntax-tree) stream)
-  (print-unreadable-object (st stream :type t :identity nil)
-    (format stream "~A" (slot-value st 'raw-matches))))
+  (print-unreadable-object (st stream :type t :identity nil)))
 
 (define-condition parse-failure (error)
   ((message
@@ -179,7 +178,7 @@
         (position (gensym "POSITION")))
     (labels
         ((transform-clause (clause)
-           (destructuring-bind (type (&optional var nil var-p) &rest forms) clause
+           (destructuring-bind (type (&optional (var nil var-p)) &rest forms) clause
              (if var-p
                  `(,type
                    (let ((,var ,err))
@@ -199,6 +198,23 @@
                  (parser-error ,err))))
              (t
               (parser-error ,err))))))))
+
+(defmacro parser-repeat (iter &body body)
+  (let ((original-iter (gensym "ORIGINAL-ITER"))
+        (result (gensym "RESULT"))
+        (value (gensym "VALUE"))
+        (err (gensym "ERR")))
+    `(let ((,original-iter ,iter)
+           (,result (make-extensible-vector)))
+       (loop
+          (multiple-value-bind (,value ,err)
+              (parser-handler-case ,original-iter
+                  (progn ,@body)
+                (t ()
+                   (return (parser-value ,result))))
+            (when ,err
+              (return (parser-error ,err)))
+            (vector-push-extend ,value ,result))))))
 
 (defun parse-eof (iter)
   (parser-try iter
@@ -227,7 +243,7 @@
        (parser-try ,iter
          (parse-object-of-type ,iter ',type)))))
 
-(defmacro parse-instance (class &rest initargs)
+(defmacro parse-instance (class &body initargs)
   (let ((parse-instance-block (gensym "PARSE-INSTANCE-BLOCK"))
         (value (gensym "VALUE"))
         (err (gensym "ERR"))
@@ -245,6 +261,20 @@
     `(block ,parse-instance-block
        (parser-value
         (make-instance ,class ,@(coerce args 'list))))))
+
+(defmacro define-nonterminal-class (class-name direct-superclasses slots &body options)
+  `(defclass ,class-name (,@direct-superclasses syntax-tree)
+     ,(mapcar
+       (lambda (slot)
+         (when (symbolp slot)
+           (setf slot (list slot)))
+         (destructuring-bind (name &rest args) slot
+           `(,name :initarg ,name ,@args)))
+       slots)
+     ,@options
+     ,@(unless (assoc :documentation options)
+         `((:documentation
+            "A class representing a nonterminal production in a grammar")))))
 
 (defmacro define-nonterminal (name &body productions)
   (let ((iter (gensym "ITER"))
@@ -286,19 +316,41 @@
            (add-option `(,production ,iter)))
 
           (t
-           (let ((initargs
-                  (loop :while production
-                     :for slot-description = (pop production) :nconc
-                     (multiple-value-bind (slot-name parser-function)
-                         (slot-parts slot-description)
-                       `(',slot-name (,parser-function ,iter))))))
-             (add-option `(parse-instance ',class-name ,@initargs))))))
+           (let* (optional-break-sym
+                  (initargs
+                   (loop :while production :for slot-description = (pop production) :nconc
+                      (case slot-description
+                        (&optional
+                         (when optional-break-sym
+                           (error "&optional may only be used once"))
+                         (setf optional-break-sym (gensym "OPTIONAL-BREAK"))
+                         nil)
+
+                        (otherwise
+                         (multiple-value-bind (slot-name parser-function)
+                             (slot-parts slot-description)
+                           (cond
+                             (optional-break-sym
+                              `(',slot-name (if ,optional-break-sym
+                                                (parser-value nil)
+                                                (parser-choice ,iter
+                                                  (,parser-function ,iter)
+                                                  (progn
+                                                    (setf ,optional-break-sym t)
+                                                    (parser-value nil))))))
+                             (t
+                              `(',slot-name (,parser-function ,iter))))))))))
+
+             (add-option
+              (if optional-break-sym
+                  `(let (,optional-break-sym)
+                     (parse-instance ',class-name ,@initargs))
+                  `(parse-instance ',class-name ,@initargs)))))))
 
       (unless (zerop (hash-table-count slots))
         (add-result-form
-         `(defclass ,class-name (syntax-tree)
-            ,(loop :for key :being :the :hash-keys :of slots :collect
-                `(,key :initarg ,key)))))
+         `(define-nonterminal-class ,class-name ()
+              ,(hash-table-keys slots))))
 
       (add-result-form
        `(define-advisable ,function-name (,iter)
