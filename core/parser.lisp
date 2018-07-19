@@ -23,7 +23,7 @@
    ;; Foundations of parsing
    #:parser-error #:parser-value #:parser-let* #:parser-let #:parser-lookahead
    #:parser-try #:parser-choice #:parse-eof #:parse-object-of-type
-   #:parser-handler-case #:parser-repeat
+   #:parser-handler-case #:parser-repeat #:parser-bind
 
    ;; Convenience and high-level parsing tools
    #:syntax-iterator #:define-terminal #:define-nonterminal #:syntax-tree
@@ -64,9 +64,35 @@
   (defun parser-part-name (thing)
     (symbol-nconc-intern nil "PARSE-" thing)))
 
+(defconstant +parser-secret-token+ '+parser-secret-token+)
+
+(defmacro parser-bind ((value error-value) parser-form &body body)
+  "Evaluate `parser-form' and bind the results.
+
+The exact structure of a parser result is unspecified.  This macro is
+the only supported way to extract parse results.
+
+If `error-value' is bound to a non-nil value then `parser-form'
+returned a parse failure.  Otherwise `value' is bound to the parsed
+value.
+
+To produce parse results this macro can consume you must use
+`parser-value' or `parser-error'."
+  (let ((value-internal (gensym "VALUE-INTERNAL"))
+        (error-value-internal (gensym "ERROR-VALUE-INTERNAL"))
+        (secret-token (gensym "SECRET-TOKEN")))
+    `(multiple-value-bind
+           (,value-internal ,error-value-internal ,secret-token)
+         ,parser-form
+       (unless (eq ,secret-token +parser-secret-token+)
+         (error "`parser-form' did not return valid parser values"))
+       (let ((,value ,value-internal)
+             (,error-value ,error-value-internal))
+         ,@body))))
+
 (defun syntax-iterator (parser-function token-iterator)
   (make-iterator ()
-    (multiple-value-bind (value error) (funcall parser-function token-iterator)
+    (parser-bind (value error) (funcall parser-function token-iterator)
       (when error
         (error 'parse-failure :message (format nil "~S" error)))
       (unless value
@@ -74,12 +100,22 @@
       (emit value))))
 
 (defun parser-error (error)
+  "Returns values that ndicate that parsing has failed.
+
+Note that this function may return multiple values.  The contents of
+these values is unspecified.  You must use `parser-bind' to extract
+meaning from the values."
   (when (null error)
     (error "Parser errors must not be nil"))
-  (values nil error))
+  (values nil error +parser-secret-token+))
 
 (defun parser-value (value)
-  (values value nil))
+  "Returns values that ndicate that parsing has succeeded.
+
+Note that this function may return multiple values.  The contents of
+these values is unspecified.  You must use `parser-bind' to extract
+meaning from the values."
+  (values value nil +parser-secret-token+))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun let-bindings-transformer (block-name)
@@ -87,7 +123,7 @@
           (value (gensym "VALUE")))
       (lambda (binding)
         (destructuring-bind (variable form) binding
-          `(,variable (multiple-value-bind (,value ,err) ,form
+          `(,variable (parser-bind (,value ,err) ,form
                         (when ,err
                           (return-from ,block-name
                             (parser-error ,err)))
@@ -112,7 +148,7 @@
         (err (gensym "ERR")))
     `(let* ((,original-iter ,iter)
             (,fork (fork-lookahead-iterator ,original-iter)))
-       (multiple-value-bind (,value ,err) (progn ,@body)
+       (parser-bind (,value ,err) (progn ,@body)
          (cond
            (,err
             (parser-error ,err))
@@ -128,7 +164,7 @@
         (err (gensym "ERR")))
     `(let* ((,original-iter ,iter)
             (,fork (fork-lookahead-iterator ,original-iter)))
-       (multiple-value-bind (,value ,err) (progn ,@body)
+       (parser-bind (,value ,err) (progn ,@body)
          (cond
            (,err
             (move-lookahead-to ,original-iter ,fork)
@@ -146,7 +182,7 @@
         (value (gensym "VALUE")))
     (labels
         ((option-handler (option)
-           `(multiple-value-bind (,value ,err) ,option
+           `(parser-bind (,value ,err) ,option
 
               (unless ,err
                 ;; Happy day!
@@ -187,7 +223,7 @@
                    ,@forms)))))
       `(let* ((,original-iter ,iter)
               (,position (lookahead-iterator-position-token ,original-iter)))
-         (multiple-value-bind (,value ,err) ,parser-form
+         (parser-bind (,value ,err) ,parser-form
            (cond
              ((not ,err)
               (parser-value ,value))
@@ -207,7 +243,7 @@
     `(let ((,original-iter ,iter)
            (,result (make-extensible-vector)))
        (loop
-          (multiple-value-bind (,value ,err)
+          (parser-bind (,value ,err)
               (parser-handler-case ,original-iter
                   (progn ,@body)
                 (t ()
@@ -252,7 +288,7 @@
        (destructuring-bind (initarg initform &rest rest) initargs
          (setf initargs rest)
          (vector-push-extend initarg args)
-         (vector-push-extend `(multiple-value-bind (,value ,err) ,initform
+         (vector-push-extend `(parser-bind (,value ,err) ,initform
                                 (when ,err
                                   (return-from ,parse-instance-block
                                     (parser-error ,err)))

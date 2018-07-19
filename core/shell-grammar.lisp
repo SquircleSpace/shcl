@@ -322,9 +322,7 @@
 (define-advice parse-cmd-name :around posix-rule (iter)
   (when (typep (peek-lookahead-iterator iter) 'reserved-word)
     (return-from parse-cmd-name
-      (values
-       nil
-       "No reserved words")))
+      (parser-error "No reserved words")))
   (call-next-method))
 
 (defun command-iterator (token-iterator)
