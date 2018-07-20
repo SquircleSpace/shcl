@@ -117,13 +117,16 @@
     (parser-repeat iter
       (cond
         (continue-p
-         (parse-instance 'term
-           'and-or (parse-and-or iter)
-           'separator (parser-handler-case iter
-                          (parse-separator iter)
-                        (t ()
-                           (setf continue-p nil)
-                           (parser-value nil)))))
+         (parser-block
+           (parser-value
+            (make-instance 'term
+                           'and-or (parse (parse-and-or iter))
+                           'separator (parse
+                                       (parser-handler-case iter
+                                           (parse-separator iter)
+                                         (t ()
+                                            (setf continue-p nil)
+                                            (parser-value nil))))))))
         (t
          (parser-error "term-sequence is over"))))))
 
@@ -137,11 +140,13 @@
 
 (define-advisable parse-for-clause-range (iter)
   (parser-choice iter
-    (parse-instance 'for-clause-range
-      'in-nt (parse-in-nt iter)
-      'words (parser-repeat iter
-               (parse-a-word iter))
-      'sequential-sep (parse-sequential-sep iter))
+    (parser-block
+      (parser-value
+       (make-instance 'for-clause-range
+                      'in-nt (parse (parse-in-nt iter))
+                      'words (parser-repeat iter
+                               (parse-a-word iter))
+                      'sequential-sep (parse-sequential-sep iter))))
     (parser-value nil)))
 
 (define-nonterminal name-nt
@@ -275,11 +280,14 @@
   (parser-choice iter
     (parse-io-file iter)
     (parse-io-here iter)
-    (parse-instance 'io-redirect
-      'io-number (parse-io-number iter)
-      'io-source (parser-choice iter
-                   (parse-io-file iter)
-                   (parse-io-here iter)))))
+    (parser-block
+      (parser-value
+       (make-instance 'io-redirect
+                      'io-number (parse (parse-io-number iter))
+                      'io-source (parse
+                                  (parser-choice iter
+                                    (parse-io-file iter)
+                                    (parse-io-here iter))))))))
 
 (define-nonterminal io-file
   ((redirect parse-less) filename)
