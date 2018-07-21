@@ -59,6 +59,23 @@
           (fail (format nil "Strings match ~A" args))
           1))))
 
+(define-builtin -shcl-assert-stdin-equal (&required str)
+  "Exit 0 iff stdin is equal to the provided string.
+
+A single newline character is removed from the end of stdin.  If the
+stdin content does not end in a newline character then this command
+indicates test failure."
+  (check-type str string)
+  (let ((stdin-str (make-extensible-vector :element-type 'character)))
+    (loop :for char = (read-char *standard-input* nil :eof)
+       :until (eq char :eof) :do
+       (vector-push-extend char stdin-str))
+    (unless (equal #\newline (vector-pop stdin-str))
+      (return-from -shcl-assert-stdin-equal 1))
+    (if (string= str stdin-str)
+        0
+        1)))
+
 (defun run (s &optional description)
   (ok (exit-info-true-p
        (evaluate-shell-string s))
@@ -180,11 +197,11 @@ done)"
    (shell "! false")))
 
 (define-test while
-    (let ((count 0))
-      (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
-          (format nil "1~%2~%3~%")
-          :test #'equal
-          "Basic while loop test")))
+  (let ((count 0))
+    (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
+        (format nil "1~%2~%3~%")
+        :test #'equal
+        "Basic while loop test")))
 
 (define-test empty
   (exit-ok
@@ -196,3 +213,34 @@ done)"
   (exit-ok
    (shell (format nil " ~C ~C " #\newline #\tab))
    "Miscellaneous whitespace is truthy"))
+
+;; We might normally just use wc, but the output of wc can work
+;; differely on some operating systems.
+(define-builtin -shcl-char-count ()
+  (let ((count 0))
+    (loop :for char = (read-char *standard-input* nil :eof)
+       :until (eq char :eof) :do
+       (incf count))
+    (format t "~A~%" count)
+    0))
+
+(define-test pipeline
+  (exit-ok
+   (shell "false | false | true")
+   "Last exit code wins")
+
+  (exit-fail
+   (shell "true | true | false")
+   "Last exit code wins")
+
+  (exit-ok
+   (shell "echo foob | -shcl-assert-stdin-equal foob")
+   "One-stage pipeline works")
+
+  (exit-ok
+   (shell "echo foob | -shcl-char-count | -shcl-assert-stdin-equal 5")
+   "Two-stage pipeline works")
+
+  (exit-ok
+   (shell "{ echo foo >&2; } 2>&1 | -shcl-assert-stdin-equal foo")
+   "Nested redirects work"))
