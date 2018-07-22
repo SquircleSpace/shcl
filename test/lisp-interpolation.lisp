@@ -193,6 +193,13 @@ done)"
   (exit-ok
    (shell "! false")))
 
+(define-test until
+  (let ((count 0))
+    (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "until ! [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
+        (format nil "1~%2~%3~%")
+        :test #'equal
+        "Basic until loop test")))
+
 (define-test while
   (let ((count 0))
     (is (capture (:streams '(:stdout)) (evaluate-constant-shell-string "while [ ,count -ne 3 ]; do echo ,(incf count) ; done" :readtable *splice-table*))
