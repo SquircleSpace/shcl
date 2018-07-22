@@ -15,6 +15,7 @@
 (defpackage :shcl/test/lisp-interpolation
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/lisp-interpolation
         :shcl/core/exit-info :shcl/core/command :shcl/test/foundation)
+  (:import-from :shcl/core/shell-environment #:extend-shell-environment)
   (:shadow #:run))
 (in-package :shcl/test/lisp-interpolation)
 
@@ -240,3 +241,49 @@ done)"
   (exit-ok
    (shell "{ echo foo >&2; } 2>&1 | -shcl-assert-stdin-equal foo")
    "Nested redirects work"))
+
+(defvar *value* 1)
+(defvar *raw-value* nil)
+(defvar *reclaim-stack* nil)
+
+(extend-shell-environment
+ 'subshell-test
+ (lambda ()
+   (* 2 *value*))
+ (lambda (raw continue)
+   (let ((*raw-value* raw)
+         (*value* (/ raw 2)))
+     (funcall continue)))
+ (lambda (raw)
+   (when *reclaim-stack*
+     (push raw *reclaim-stack*))))
+
+(define-test subshell
+  (exit-ok
+   (shell "false; ( true )")
+   "Subshell exit codes are preserved")
+
+  (exit-fail
+   (shell "true; ( false )")
+   "Subshell exit codes are preserved")
+
+  (exit-ok
+   (shell "FOO=456; ( FOO=123; -shcl-assert-equal 123 $FOO ) && -shcl-assert-equal 456 $FOO")
+   "Subshells isolate variable values")
+
+  (let ((*value* 3)
+        (*reclaim-stack* (list t))
+        *raw-value*)
+    (exit-ok
+     (shell ": ,(setf shcl/test/lisp-interpolation::*value* 2);
+             ( -shcl-assert-equal ,shcl/test/lisp-interpolation::*value* 2 \\
+               && -shcl-assert-equal ,shcl/test/lisp-interpolation::*raw-value* 4 \\
+               && : ,(setf shcl/test/lisp-interpolation::*value* 4) ) &&
+             -shcl-assert-equal ,shcl/test/lisp-interpolation::*value* 2")
+     "Subshells preserve the shell environment")
+
+    (is *reclaim-stack* (list 4 t)
+        "Reclaimer runs")
+
+    (is *value* 2
+        "Shell commands can change the current shell environment")))
