@@ -42,10 +42,8 @@
   (let ((set (fset:convert 'fset:set args)))
     (if (equal 1 (fset:size set))
         (progn
-          (pass "Strings matched")
           0)
         (progn
-          (fail (format nil "Strings didn't match ~A" set))
           1))))
 
 (define-builtin -shcl-assert-unequal (&rest args)
@@ -53,10 +51,8 @@
   (let ((set (fset:convert 'fset:set args)))
     (if (equal (length args) (fset:size set))
         (progn
-          (pass "Strings didn't match")
           0)
         (progn
-          (fail (format nil "Strings match ~A" args))
           1))))
 
 (define-builtin -shcl-assert-stdin-equal (&required str)
