@@ -171,4 +171,3 @@ problems!
 - Job control
 - Prompt customization
 - More unit tests
-- Some sort of CI
