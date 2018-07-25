@@ -66,6 +66,9 @@
    :initarg :form
    :reader form-token-form)))
 
+(define-data s-token (token)
+  ())
+
 (defun make-form (value)
   (make-instance 'form-token :form value))
 
@@ -84,7 +87,7 @@
          (default-s-reader (s i c)
            (declare (ignore s i))
            (setf s-reader-ran t)
-           (shell-lexer-context-add-part c 's))
+           (shell-lexer-context-add-part c (make-instance 's-token)))
          (hash-reader (s i c)
            (declare (ignore s i c))
            (setf hash-hit t))
@@ -125,8 +128,7 @@
       ;; Dispatch char fallback (normal case)
       (setf readtable (with-dispatch-character readtable "s"))
       (setf readtable (with-default-handler readtable "s" #'default-s-reader))
-      (is
-       's
+      (is-type
        (r)
-       :test #'equal)
+       's-token)
       (ok s-reader-ran))))

@@ -1035,7 +1035,10 @@ See `shell-lexer-context-add-part'."
              (make-assignment-word-from-parts parts (get-output-stream-string all-chars-stream)))
 
             ((equal 1 part-count)
-             (aref parts 0))
+             (let ((part (aref parts 0)))
+               (unless (token-value part)
+                 (setf (token-value part) (get-output-stream-string all-chars-stream)))
+               part))
 
             ((< 1 part-count)
              (make-instance 'compound-word :parts parts :value (get-output-stream-string all-chars-stream)))
