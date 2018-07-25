@@ -128,7 +128,7 @@
                                             (setf continue-p nil)
                                             (parser-value nil))))))))
         (t
-         (parser-error "term-sequence is over"))))))
+         (parser-error (make-instance 'unconditional-failure)))))))
 
 (define-nonterminal for-clause
   (for name-nt linebreak for-clause-range (body parse-do-group)))
@@ -241,8 +241,11 @@
   (cmd-prefix &optional cmd-word cmd-suffix)
   (cmd-name &optional cmd-suffix))
 
-(define-nonterminal cmd-name
-  parse-a-word) ;; Apply rule 7a (might need to be reflected in the grammar)
+;; Apply rule 7a
+(deftype cmd-name ()
+  "A type representing command names"
+  `(and a-word (not reserved-word)))
+(define-terminal cmd-name)
 
 (define-nonterminal cmd-word
   parse-a-word) ;; Apply rule 7b (might need to be reflected in the grammar)
@@ -326,12 +329,6 @@
 (define-nonterminal sequential-sep
   (semi linebreak)
   (newline-list))
-
-(define-advice parse-cmd-name :around posix-rule (iter)
-  (when (typep (peek-lookahead-iterator iter) 'reserved-word)
-    (return-from parse-cmd-name
-      (parser-error "No reserved words")))
-  (call-next-method))
 
 (defun command-iterator (token-iterator)
   "Given a `lookahead-iterator' that produces tokens, return an

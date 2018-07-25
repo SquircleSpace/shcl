@@ -26,9 +26,14 @@
    #:parser-handler-case #:parser-repeat #:parser-bind #:parser-block
    #:private-parser-block #:parse
 
+   ;; Error types
+   #:expected-eof #:expected-eof-got #:unexpected-eof
+   #:unexpected-eof-expected-type #:type-mismatch #:type-mismatch-expected-type
+   #:type-mismatch-got #:choice #:choice-errors #:unconditional-failure
+
    ;; Convenience and high-level parsing tools
    #:syntax-iterator #:define-terminal #:define-nonterminal #:syntax-tree
-   #:define-nonterminal-class #:parse-failure))
+   #:define-nonterminal-class #:parse-failure #:parse-failure-error-object))
 (in-package :shcl/core/parser)
 
 (optimization-settings)
@@ -47,23 +52,138 @@ See `define-nonterminal'."))
 (defmethod print-object ((st syntax-tree) stream)
   (print-unreadable-object (st stream :type t :identity nil)))
 
+(defgeneric print-error (err stream))
+
+(defmethod print-error (err stream)
+  (if err
+      (format stream "Unknown error (~W)" err)
+      (format stream "Unknown error")))
+
+(defclass parser-error ()
+  ()
+  (:documentation
+   "A base class that built-in parse error classes derive from.
+
+This class doesn't do anything."))
+
+(defgeneric expected-eof-got (expected-eof)
+  (:documentation
+   "Returns the object that was produced when end-of-file was
+expected."))
+
+(defclass expected-eof (parser-error)
+  ((got
+    :initarg :got
+    :reader expected-eof-got
+    :initform (required)))
+  (:documentation
+   "A class representing the fact that end-of-file was expected but
+the token stream wasn't empty.
+
+`expected-eof-got' extracts the token that was produced."))
+
+(defmethod print-error ((err expected-eof) stream)
+  (format stream "Expected end of file, but instead found ~W" (token-value (expected-eof-got err))))
+
+(defgeneric unexpected-eof-expected-type (unexpected-eof)
+  (:documentation
+   "Returns the type of token that was expected when end-of-file was
+encountered."))
+
+(defclass unexpected-eof (parser-error)
+  ((expected-type
+    :initarg :expected-type
+    :reader unexpected-eof-expected-type
+    :initform (required)))
+  (:documentation
+   "A class representing the fact that more tokens were expected but
+the token stream indicated end-of-file.
+
+`unexpected-eof-expected-type' returns the type that was expected."))
+
+(defmethod print-error ((err unexpected-eof) stream)
+  (format stream "Unexpected end of file, expected token of type ~W" (unexpected-eof-expected-type err)))
+
+(defgeneric type-mismatch-expected-type (type-mismatch)
+  (:documentation
+   "Returns the type that was expected when the parse error occurred."))
+
+(defgeneric type-mismatch-got (type-mismatch)
+  (:documentation
+   "Returns the token that was produced when the parse error occurred."))
+
+(defclass type-mismatch (parser-error)
+  ((expected-type
+    :initarg :expected-type
+    :reader type-mismatch-expected-type
+    :initform (required))
+   (got
+    :initarg :got
+    :reader type-mismatch-got
+    :initform (required)))
+  (:documentation
+   "A class representing the fact that the next token was not of the
+correct type.
+
+Use `type-mismatch-expected-type' and `type-mismatch-got' to see what
+was expected and what was received."))
+
+(defmethod print-error ((err type-mismatch) stream)
+  (format stream "Unexpected token, expected token of type ~W but got ~S"
+          (type-mismatch-expected-type err)
+          (or (token-value (type-mismatch-got err))
+              (type-mismatch-got err))))
+
+(defgeneric choice-errors (choice)
+  (:documentation
+   "Returns a vector of the errors produced by each of the potential
+parses."))
+
+(defclass choice (parser-error)
+  ((errors
+    :initarg :errors
+    :reader choice-errors
+    :type vector
+    :initform (required)))
+  (:documentation
+   "A class representing the fact that a series of potential parses
+all failed.
+
+Use `choice-errors' to access the errors produced by the potential
+parses."))
+
+(defmethod print-error ((err choice) stream)
+  (when (zerop (length (choice-errors err)))
+    (return-from print-error
+      (format stream "No choice but to fail the parse")))
+  (format stream "Tried multiple parses that all failed")
+  (loop :for error :across (choice-errors err) :do
+     (progn
+       (format stream "~%")
+       (print-error error stream))))
+
+(defclass unconditional-failure (parser-error)
+  ()
+  (:documentation
+   "A class representing the fact that the parse could not have
+possibly succeeded.
+
+This error type is completely opaque and provides no useful
+information about why the parse failed.  So, use it sparingly!"))
+
+(defgeneric parse-failure-error-object (parse-failure)
+  (:documentation
+   "Aquire the parse error object that the parser produced.
+
+See `parse-failure'."))
+
 (define-condition parse-failure (error)
-  ((message
-    :initarg :message
-    :type string
-    :initform "<No reason>"
-    :accessor parse-failure-message)
-   (expected
-    :initarg :expected-tokens
-    :type list
+  ((error-object
+    :initarg :error-object
     :initform nil
-    :accessor parse-failure-expected-tokens))
+    :reader parse-failure-error-object))
   (:report (lambda (c s)
-             (format s "Parse failure: ~A"
-                     (parse-failure-message c))
-             (let ((expected (parse-failure-expected-tokens c)))
-               (when expected
-                 (format s ", expected tokens ~A" expected)))))
+             (print-error (parse-failure-error-object c) s)))
   (:documentation
    "An error condition to represent parse failure.
 
@@ -77,28 +197,28 @@ parser logic and everything else."))
 
 (defconstant +parser-secret-token+ '+parser-secret-token+)
 
-(defmacro parser-bind ((value error-value) parser-form &body body)
+(defmacro parser-bind ((value error-p) parser-form &body body)
   "Evaluate `parser-form' and bind the results.
 
 The exact structure of a parser result is unspecified.  This macro is
 the only supported way to extract parse results.
 
-If `error-value' is bound to a non-nil value then `parser-form'
-returned a parse failure.  Otherwise `value' is bound to the parsed
-value.
+If `error-p' is non-nil value then `parser-form' returned a parse
+failure.  Whatever value the parser produced (either an error or
+succesful parse value) is stored in `value'.
 
 To produce parse results this macro can consume you must use
 `parser-value' or `parser-error'."
   (let ((value-internal (gensym "VALUE-INTERNAL"))
-        (error-value-internal (gensym "ERROR-VALUE-INTERNAL"))
+        (error-p-internal (gensym "ERROR-P-INTERNAL"))
         (secret-token (gensym "SECRET-TOKEN")))
     `(multiple-value-bind
-           (,value-internal ,error-value-internal ,secret-token)
+           (,value-internal ,error-p-internal ,secret-token)
          ,parser-form
        (unless (eq ,secret-token +parser-secret-token+)
          (error "`parser-form' did not return valid parser values~%~S" ',parser-form))
        (let ((,value ,value-internal)
-             (,error-value ,error-value-internal))
+             (,error-p ,error-p-internal))
          ,@body))))
 
 (defun syntax-iterator (parser-function token-iterator)
@@ -111,9 +231,9 @@ output.
 If a parse error occurs this function signals a `parse-failure'
 error."
   (make-iterator ()
-    (parser-bind (value error) (funcall parser-function token-iterator)
-      (when error
-        (error 'parse-failure :message (format nil "~S" error)))
+    (parser-bind (value error-p) (funcall parser-function token-iterator)
+      (when error-p
+        (error 'parse-failure :error-object value))
       (unless value
         (stop))
       (emit value))))
@@ -124,9 +244,7 @@ error."
 Note that this function may return multiple values.  The contents of
 these values is unspecified.  You must use `parser-bind' to extract
 meaning from the values."
-  (when (null error)
-    (error "Parser errors must not be nil"))
-  (values nil error +parser-secret-token+))
+  (values error t +parser-secret-token+))
 
 (defun parser-value (value)
   "Returns values that ndicate that parsing has succeeded.
@@ -153,7 +271,7 @@ interfere with forms the user provides."
               `(parser-bind (,',value ,',err) ,,thing
                  (when ,',err
                    (return-from ,',parser-block
-                     (parser-error ,',err)))
+                     (parser-error ,',value)))
                  ,',value)))
          ,@body))))
 
@@ -237,7 +355,7 @@ manipulated as described earlier."
        (parser-bind (,value ,err) (progn ,@body)
          (cond
            (,err
-            (parser-error ,err))
+            (parser-error ,value))
 
            (t
             (move-lookahead-to ,original-iter ,fork)
@@ -261,7 +379,7 @@ position it had prior to this form being evaluated."
          (cond
            (,err
             (move-lookahead-to ,original-iter ,fork)
-            (parser-error ,err))
+            (parser-error ,value))
 
            (t
             (parser-value ,value)))))))
@@ -297,19 +415,26 @@ This is effectively the parser equivalent of `or'."
                           ,position)
                 ;; Sad day :(
                 (return-from ,choice-block
-                  (parser-error ,err)))
+                  (parser-error ,value)))
 
-              (push ,err ,errors)
+              (vector-push-extend ,value ,errors)
               ;; Live to parse another day
               )))
-      (if options
-          `(block ,choice-block
-             (let* ((,original-iter ,iter)
-                    (,position (lookahead-iterator-position-token ,original-iter))
-                    ,errors)
-               ,@(mapcar #'option-handler options)
-               (parser-error (list* :choices ,errors))))
-          '(parser-error "No choices")))))
+
+      (cond
+        ((null options)
+         '(parser-error (make-instance 'unconditional-failure)))
+
+        ((null (cdr options))
+         (car options))
+
+        (t
+         `(block ,choice-block
+            (let* ((,original-iter ,iter)
+                   (,position (lookahead-iterator-position-token ,original-iter))
+                   (,errors (make-extensible-vector)))
+              ,@(mapcar #'option-handler options)
+              (parser-error (make-instance 'choice :errors ,errors)))))))))
 
 (defmacro parser-handler-case (iter parser-form &body clauses)
   "Evaluate a parser form and handle any parse errors it returns.
@@ -333,7 +458,7 @@ The clauses in `clauses' are evaluated just like in `handler-case'."
            (destructuring-bind (type (&optional (var nil var-p)) &rest forms) clause
              (if var-p
                  `(,type
-                   (let ((,var ,err))
+                   (let ((,var ,value))
                      ,@forms))
                  `(,type
                    ,@forms)))))
@@ -344,12 +469,12 @@ The clauses in `clauses' are evaluated just like in `handler-case'."
              ((not ,err)
               (parser-value ,value))
              ((eq ,position (lookahead-iterator-position-token ,original-iter))
-              (typecase ,err
+              (typecase ,value
                 ,@(mapcar #'transform-clause clauses)
                 (t
-                 (parser-error ,err))))
+                 (parser-error ,value))))
              (t
-              (parser-error ,err))))))))
+              (parser-error ,value))))))))
 
 (defmacro parser-repeat (iter &body body)
   "Parse a sequence.
@@ -374,7 +499,7 @@ parse with the same error."
                 (t ()
                    (return (parser-value ,result))))
             (when ,err
-              (return (parser-error ,err)))
+              (return (parser-error ,value)))
             (vector-push-extend ,value ,result))))))
 
 (defun parse-eof (iter)
@@ -384,9 +509,8 @@ This parser function never consumes input.  If the iterator has
 reached the end of its values, this parser produces the value `:eof'."
   (parser-try iter
     (multiple-value-bind (value valid) (next iter)
-      (declare (ignore value))
       (if valid
-          (parser-error "EOF expected")
+          (parser-error (make-instance 'expected-eof :got value))
           (parser-value :eof)))))
 
 (defun parse-object-of-type (iter type)
@@ -395,10 +519,10 @@ reached the end of its values, this parser produces the value `:eof'."
   (multiple-value-bind (value valid) (next iter)
     (cond
       ((not valid)
-       (parser-error (format nil "Unexpected EOF, wanted ~A" type)))
+       (parser-error (make-instance 'unexpected-eof :expected-type type)))
 
       ((not (typep value type))
-       (parser-error (format nil "Type mismatch, expected ~A got ~A" type (class-name (class-of value)))))
+       (parser-error (make-instance 'type-mismatch :expected-type type :got value)))
 
       (t
        (parser-value value)))))
@@ -510,6 +634,7 @@ will use the first production to match.
    `parser-choice'."
   (let ((iter (gensym "ITER"))
         (parse (gensym "PARSE"))
+        ;; (err (gensym "ERR"))
         (slots (make-hash-table))
         (options (make-extensible-vector))
         (result-forms (make-extensible-vector))
@@ -590,7 +715,6 @@ will use the first production to match.
        `(define-advisable ,function-name (,iter)
           ,(format nil "This parser function tries to produce instance of the ~W class" class-name)
           (parser-choice ,iter
-            ,@(coerce options 'list)
-            (parser-error ,(format nil "No matches for ~A" function-name))))))
+            ,@(coerce options 'list)))))
 
     (apply 'progn-concatenate (coerce result-forms 'list))))
