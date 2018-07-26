@@ -476,7 +476,7 @@ The clauses in `clauses' are evaluated just like in `handler-case'."
              (t
               (parser-error ,value))))))))
 
-(defmacro parser-repeat (iter &body body)
+(defmacro parser-repeat ((min max iter) &body body)
   "Parse a sequence.
 
 `iter' is evaluated and the result is saved.  This macro then
@@ -486,21 +486,37 @@ to parse and the position of `iter' is unchanged then this macro
 parses succesfuly and returns the result vector.  If `body' fails to
 parse and the position of `iter' has changed then this macro fails to
 parse with the same error."
-  (let ((original-iter (gensym "ORIGINAL-ITER"))
+  (let ((min-val (gensym "MIN-VAL"))
+        (max-val (gensym "MAX-VAL"))
+        (original-iter (gensym "ORIGINAL-ITER"))
         (result (gensym "RESULT"))
         (value (gensym "VALUE"))
-        (err (gensym "ERR")))
-    `(let ((,original-iter ,iter)
-           (,result (make-extensible-vector)))
-       (loop
-          (parser-bind (,value ,err)
-              (parser-handler-case ,original-iter
-                  (progn ,@body)
-                (t ()
-                   (return (parser-value ,result))))
-            (when ,err
-              (return (parser-error ,value)))
-            (vector-push-extend ,value ,result))))))
+        (err (gensym "ERR"))
+        (parser-repeat (gensym "PARSER-REPEAT")))
+    `(block ,parser-repeat
+       (let ((,min-val ,min)
+             (,max-val ,max)
+             (,original-iter ,iter)
+             (,result (make-extensible-vector)))
+         (check-type ,min-val (integer 0))
+         (check-type ,max-val (or null (integer 0)))
+         (loop
+            :while (or (not ,max-val)
+                       (< (length ,result) ,max-val))
+            :do
+            (parser-bind (,value ,err)
+                (parser-handler-case ,original-iter
+                    (progn ,@body)
+                  (t (,err)
+                     (return-from ,parser-repeat
+                       (if (>= (length ,result) ,min-val)
+                           (parser-value ,result)
+                           (parser-error ,err)))))
+              (when ,err
+                (return-from ,parser-repeat
+                  (parser-error ,value)))
+              (vector-push-extend ,value ,result)))
+         ,result))))
 
 (defun parse-eof (iter)
   "Parse successfully iff the given iterator produces no values.
