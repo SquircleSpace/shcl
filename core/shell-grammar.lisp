@@ -114,7 +114,7 @@
 
 (define-advisable parse-term-sequence (iter)
   (let ((continue-p t))
-    (parser-repeat iter
+    (parser-repeat (1 nil iter)
       (cond
         (continue-p
          (parser-block
@@ -144,7 +144,7 @@
       (parser-value
        (make-instance 'for-clause-range
                       'in-nt (parse (parse-in-nt iter))
-                      'words (parser-repeat iter
+                      'words (parser-repeat (0 nil iter)
                                (parse-a-word iter))
                       'sequential-sep (parse-sequential-sep iter))))
     (parser-value nil)))
