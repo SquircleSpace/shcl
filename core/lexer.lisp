@@ -928,9 +928,25 @@ a variable assignment expression."
 
 (defun lexer-context-consume-character (context)
   "Read and consume a character from the lexer context's input
-stream."
+stream.
+
+Whether you use the returned character or not, the character returned
+by this function is remembered and included in the `token-value' of
+the token being built."
   (with-slots (stream) context
     (read-char stream nil :eof)))
+
+(defun lexer-context-discard-character (context)
+  "Read and discard a character from the lexer context's input
+stream.
+
+Unlike `lexer-context-consume-character', the character read by this
+function is forgotten.  It is as though the user never provided it at
+all."
+  ;; By reading from the raw-stream directly, we prevent this
+  ;; character from being captured in the token's value.
+  (with-slots (raw-stream) context
+    (read-char raw-stream nil :eof)))
 
 (defun shell-lexer-context-add-chars (context chars)
   "Add the given characters to the lexer context's pending word."
@@ -1170,7 +1186,7 @@ variable expansion, etc."
                ((whitespace-p (next-char))
                 (unless (shell-lexer-context-no-content-p context)
                   (delimit))
-                (lexer-context-consume-character context)
+                (lexer-context-discard-character context)
                 (again))
 
                ;; If the previous character was part of a word, the
