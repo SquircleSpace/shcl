@@ -30,7 +30,8 @@
    ;; Error types
    #:expected-eof #:expected-eof-got #:unexpected-eof
    #:unexpected-eof-expected-type #:type-mismatch #:type-mismatch-expected-type
-   #:type-mismatch-got #:choice #:choice-errors #:unconditional-failure
+   #:type-mismatch-got #:choice #:choice-errors #:choice-errors-iterator
+   #:unconditional-failure
 
    ;; Convenience and high-level parsing tools
    #:syntax-iterator #:define-terminal #:define-nonterminal #:syntax-tree
@@ -153,15 +154,40 @@ all failed.
 Use `choice-errors' to access the errors produced by the potential
 parses."))
 
+(defun choice-errors-iterator (choice &key recursive-p)
+  "Return an iterator that traverses the errors contained in a
+`choice' instance.
+
+If `recursive-p' is non-nil, then the iterator will recursively
+traverse any `choice' objects it encounters.  In that case, the
+iterator will not emit any `choice' objects.  If `recursive-p' is nil
+then `choice' objects will be emitted just like every other error
+object."
+  (unless recursive-p
+    (return-from choice-errors-iterator
+      (vector-iterator (choice-errors choice))))
+
+  (let ((stack (make-extensible-vector)))
+    (vector-push-extend (vector-iterator (choice-errors choice)) stack)
+    (make-iterator ()
+      (loop :while (not (zerop (length stack))) :do
+         (block again
+           (do-iterator (err (aref stack (1- (length stack))))
+             (when (typep err 'choice)
+               (vector-push-extend (choice-errors-iterator err :recursive-p recursive-p) stack)
+               (return-from again))
+             (emit err))
+           (vector-pop stack)))
+      (stop))))
+
 (defmethod print-error ((err choice) stream)
   (when (zerop (length (choice-errors err)))
     (return-from print-error
       (format stream "No choice but to fail the parse")))
   (format stream "Tried multiple parses that all failed")
-  (loop :for error :across (choice-errors err) :do
-     (progn
-       (format stream "~%")
-       (print-error error stream))))
+  (do-iterator (error (choice-errors-iterator err :recursive-p t))
+    (format stream "~%")
+    (print-error error stream)))
 
 (define-data unconditional-failure (parser-error)
   ()
