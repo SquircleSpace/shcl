@@ -20,7 +20,8 @@
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
-   #:filter-iterator #:iterator-values #:lookahead-iterator-wrapper
+   #:filter-iterator #:concatenate-iterators #:concatenate-iterators*
+   #:iterator-values #:lookahead-iterator-wrapper
    #:lookahead-iterator-position-token))
 (in-package :shcl/core/iterator)
 
@@ -152,6 +153,35 @@ will return
            (stop))
          (when (funcall function value)
            (emit value))))))
+
+(defun concatenate-iterators (iterable)
+  "Concatenate a collection of iterators.
+
+`iterable' is anything that can be iterated using the `iterator'
+generic function.
+
+This function returns an iterator that traverses the iterators in
+`iterable' and emits the values that each iterator produces.  This
+function is essentially a generic version of
+`concatenate-iterators*'."
+  (let ((iter-iter (iterator iterable))
+        current-iter)
+    (make-iterator ()
+      (when current-iter
+        (do-iterator (value current-iter)
+          (emit value)))
+      (do-iterator (inner-iter iter-iter)
+        (setf current-iter inner-iter)
+        (do-iterator (value current-iter)
+          (emit value)))
+      (stop))))
+
+(defun concatenate-iterators* (&rest iterators)
+  "Concatenate some iterators.
+
+This function returns an iterator that traverses the provided
+iterators and emits their values."
+  (concatenate-iterators iterators))
 
 (defun iterator-values (iter)
   "Extract all remaining values from the given iterator and return
