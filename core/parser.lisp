@@ -40,7 +40,7 @@
 
 (optimization-settings)
 
-(defclass syntax-tree ()
+(define-data syntax-tree ()
   ()
   (:documentation
    "A base class that nonterminals derive from.
@@ -601,7 +601,7 @@ not move the iterator."
 (defmacro define-nonterminal-class (class-name direct-superclasses slots &body options)
   "Define a class just like `define-nonterminal' would have.
 
-This is a wrapper around `defclass' that `define-nonterminal' uses.
+This is a wrapper around `define-data' that `define-nonterminal' uses.
 You should generally only use this macro when your parsing needs are
 too complex for `define-nonterminal' to handle.  You don't need to use
 this macro to define a nonterminal class.
@@ -612,7 +612,7 @@ This macro does 3 things.
    itself.
 2. It ensures the class inherits directly from `syntax-tree'.
 3. It provides trivial documentation if none is provided explicitly."
-  `(defclass ,class-name (,@direct-superclasses syntax-tree)
+  `(define-data ,class-name (,@direct-superclasses syntax-tree)
      ,(mapcar
        (lambda (slot)
          (when (symbolp slot)
