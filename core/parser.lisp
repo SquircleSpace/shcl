@@ -17,6 +17,7 @@
    :common-lisp :alexandria :shcl/core/lexer :shcl/core/utility
    :shcl/core/iterator)
   (:import-from :shcl/core/advice #:define-advisable)
+  (:import-from :shcl/core/data #:define-data)
   (:import-from :closer-mop)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:export
@@ -59,7 +60,7 @@ See `define-nonterminal'."))
       (format stream "Unknown error (~W)" err)
       (format stream "Unknown error")))
 
-(defclass parser-error ()
+(define-data parser-error ()
   ()
   (:documentation
    "A base class that built-in parse error classes derive from.
@@ -71,7 +72,7 @@ This class doesn't do anything."))
    "Returns the object that was produced when end-of-file was
 expected."))
 
-(defclass expected-eof (parser-error)
+(define-data expected-eof (parser-error)
   ((got
     :initarg :got
     :reader expected-eof-got
@@ -90,7 +91,7 @@ the token stream wasn't empty.
    "Returns the type of token that was expected when end-of-file was
 encountered."))
 
-(defclass unexpected-eof (parser-error)
+(define-data unexpected-eof (parser-error)
   ((expected-type
     :initarg :expected-type
     :reader unexpected-eof-expected-type
@@ -112,7 +113,7 @@ the token stream indicated end-of-file.
   (:documentation
    "Returns the token that was produced when the parse error occurred."))
 
-(defclass type-mismatch (parser-error)
+(define-data type-mismatch (parser-error)
   ((expected-type
     :initarg :expected-type
     :reader type-mismatch-expected-type
@@ -139,7 +140,7 @@ was expected and what was received."))
    "Returns a vector of the errors produced by each of the potential
 parses."))
 
-(defclass choice (parser-error)
+(define-data choice (parser-error)
   ((errors
     :initarg :errors
     :reader choice-errors
@@ -162,7 +163,7 @@ parses."))
        (format stream "~%")
        (print-error error stream))))
 
-(defclass unconditional-failure (parser-error)
+(define-data unconditional-failure (parser-error)
   ()
   (:documentation
    "A class representing the fact that the parse could not have
