@@ -15,6 +15,7 @@
 (defpackage :shcl/core/iterator
   (:use :common-lisp)
   (:import-from :shcl/core/utility #:make-extensible-vector)
+  (:import-from :fset)
   (:export
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
