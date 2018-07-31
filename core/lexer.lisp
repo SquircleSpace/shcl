@@ -1116,96 +1116,92 @@ command.  SHCL discards quote characters immediately and instead
 returns a token whose type attests to the fact that the characters
 were quoted.  A similar thing happens for command substitution,
 variable expansion, etc."
-  (let* ((context (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
-    (labels ((next-char () (lexer-context-next-char context)))
+  (let ((context (make-instance 'shell-lexer-context :stream stream :readtable readtable)))
+    (loop
+       (block again
+         (labels ((next-char () (lexer-context-next-char context))
+                  (again () (return-from again))
+                  (delimit () (return-from next-token (shell-lexer-context-delimit context))))
+           (cond
+             ;; If the end of input is recognized, the current token
+             ;; shall be delimited. If there is no current token, the
+             ;; end-of-input indicator shall be returned as the token.
+             ((eq :eof (next-char))
+              (when (shell-lexer-context-no-content-p context)
+                (shell-lexer-context-add-part context +eof+))
+              (delimit))
 
-      ;; The lexing rules depend on whether the current character
-      ;; was quoted.  We will always deal with quoting upfront, and
-      ;; so we can assume that the current character is never quoted
-      (loop
-         (block again
-           (labels ((again () (return-from again))
-                    (delimit () (return-from next-token (shell-lexer-context-delimit context))))
-             (cond
-               ;; If the end of input is recognized, the current token
-               ;; shall be delimited. If there is no current token, the
-               ;; end-of-input indicator shall be returned as the token.
-               ((eq :eof (next-char))
-                (when (shell-lexer-context-no-content-p context)
-                  (shell-lexer-context-add-part context +eof+))
+             ;; If the previous character was used as part of an
+             ;; operator and the current character is not quoted and
+             ;; can be used with the current characters to form an
+             ;; operator, it shall be used as part of that (operator)
+             ;; token.
+             ((let ((simple-word (shell-lexer-context-simple-word context)))
+                (and simple-word
+                     (operator-p simple-word)
+                     (operator-p (concatenate 'string simple-word (string (next-char))))))
+              (shell-lexer-context-extend-word context)
+              (again))
+
+             ;; If the previous character was used as part of an
+             ;; operator and the current character cannot be used with
+             ;; the current characters to form an operator, the
+             ;; operator containing the previous character shall be
+             ;; delimited.
+             ((let ((simple-word (shell-lexer-context-simple-word context)))
+                (and simple-word
+                     (operator-p simple-word)
+                     (not (operator-p (concatenate 'string simple-word (string (next-char)))))))
+              (delimit))
+
+             ((handle-extensible-syntax context)
+              (again))
+
+             ;; If the current character is not quoted and can be used
+             ;; as the first character of a new operator, the current
+             ;; token (if any) shall be delimited. The current
+             ;; character shall be used as the beginning of the next
+             ;; (operator) token.
+             ((operator-p (string (next-char)))
+              (unless (shell-lexer-context-no-content-p context)
                 (delimit))
+              (shell-lexer-context-extend-word context)
+              (again))
 
-               ;; If the previous character was used as part of an
-               ;; operator and the current character is not quoted and
-               ;; can be used with the current characters to form an
-               ;; operator, it shall be used as part of that (operator)
-               ;; token.
-               ((let ((simple-word (shell-lexer-context-simple-word context)))
-                  (and simple-word
-                       (operator-p simple-word)
-                       (operator-p (concatenate 'string simple-word (string (next-char))))))
-                (shell-lexer-context-extend-word context)
-                (again))
+             ;; If the current character is an unquoted <newline>, the
+             ;; current token shall be delimited.
+             ((equal #\linefeed (next-char))
+              (when (shell-lexer-context-no-content-p context)
+                (lexer-context-consume-character context)
+                (shell-lexer-context-add-part context +newline+))
+              (delimit))
 
-               ;; If the previous character was used as part of an
-               ;; operator and the current character cannot be used with
-               ;; the current characters to form an operator, the
-               ;; operator containing the previous character shall be
-               ;; delimited.
-               ((let ((simple-word (shell-lexer-context-simple-word context)))
-                  (and simple-word
-                       (operator-p simple-word)
-                       (not (operator-p (concatenate 'string simple-word (string (next-char)))))))
+             ;; If the current character is an unquoted <blank>, any
+             ;; token containing the previous character is delimited
+             ;; and the current character shall be discarded.
+             ((whitespace-p (next-char))
+              (unless (shell-lexer-context-no-content-p context)
                 (delimit))
+              (lexer-context-discard-character context)
+              (again))
 
-               ((handle-extensible-syntax context)
-                (again))
+             ;; If the previous character was part of a word, the
+             ;; current character shall be appended to that word.
+             ((not (shell-lexer-context-no-content-p context))
+              (shell-lexer-context-extend-word context)
+              (again))
 
-               ;; If the current character is not quoted and can be used
-               ;; as the first character of a new operator, the current
-               ;; token (if any) shall be delimited. The current
-               ;; character shall be used as the beginning of the next
-               ;; (operator) token.
-               ((operator-p (string (next-char)))
-                (unless (shell-lexer-context-no-content-p context)
-                  (delimit))
-                (shell-lexer-context-extend-word context)
-                (again))
+             ;; If the current character is a '#', it and all
+             ;; subsequent characters up to, but excluding, the next
+             ;; <newline> shall be discarded as a comment. The
+             ;; <newline> that ends the line is not considered part of
+             ;; the comment.
+             ((equal #\# (next-char))
+              (read-comment stream)
+              (again))
 
-               ;; If the current character is an unquoted <newline>, the
-               ;; current token shall be delimited.
-               ((equal #\linefeed (next-char))
-                (when (shell-lexer-context-no-content-p context)
-                  (lexer-context-consume-character context)
-                  (shell-lexer-context-add-part context +newline+))
-                (delimit))
-
-               ;; If the current character is an unquoted <blank>, any
-               ;; token containing the previous character is delimited
-               ;; and the current character shall be discarded.
-               ((whitespace-p (next-char))
-                (unless (shell-lexer-context-no-content-p context)
-                  (delimit))
-                (lexer-context-discard-character context)
-                (again))
-
-               ;; If the previous character was part of a word, the
-               ;; current character shall be appended to that word.
-               ((not (shell-lexer-context-no-content-p context))
-                (shell-lexer-context-extend-word context)
-                (again))
-
-               ;; If the current character is a '#', it and all
-               ;; subsequent characters up to, but excluding, the next
-               ;; <newline> shall be discarded as a comment. The
-               ;; <newline> that ends the line is not considered part of
-               ;; the comment.
-               ((equal #\# (next-char))
-                (read-comment stream)
-                (again))
-
-               ;; The current character is used as the start of a new
-               ;; word.
-               (t
-                (shell-lexer-context-extend-word context)
-                (again)))))))))
+             ;; The current character is used as the start of a new
+             ;; word.
+             (t
+              (shell-lexer-context-extend-word context)
+              (again))))))))
