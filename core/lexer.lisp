@@ -50,7 +50,7 @@
    #:lexer-context-mark-end-of-token #:shell-lexer-context-add-part
    #:shell-lexer-context-delimit #:shell-lexer-context #:lexer-context
    #:lexer-context-shell-extensible-read #:lexer-context-readtable
-   #:lexer-context-stream #:+standard-shell-readtable+))
+   #:lexer-context-stream #:standard-shell-readtable))
 (in-package :shcl/core/lexer)
 
 (optimization-settings)
@@ -81,9 +81,9 @@ This function should only be used for debugging purposes."))
    "A token representing end of file."))
 (defmethod print-object ((eof eof) stream)
   (print-unreadable-object (eof stream :type t)))
-(define-once-global +eof+ (make-instance 'eof)
-  (:documentation
-   "An instance of the `eof' token."))
+(defparameter *eof*
+  (make-instance 'eof)
+  "An instance of the `eof' token.")
 
 (define-data a-word (token)
   ()
@@ -240,7 +240,8 @@ character sequences."))
        ,@options)))
 
 (define-literal-token newline (string #\linefeed))
-(define-once-global +newline+ (make-instance 'newline))
+(defparameter *newline*
+  (make-instance 'newline))
 
 (defparameter *operators* (fset:empty-map))
 
@@ -737,63 +738,65 @@ variable substitution."))
   (lexer-context-mark-end-of-token context)
   (dollar-curly-lexer-context-base-token context))
 
-(define-once-global +quote-table+
-    (as-> *empty-dispatch-table* x
-      (with-handler x "'" 'handle-quote)
-      (with-handler x "\\" 'handle-backslash)
-      (with-handler x "\"" 'handle-double-quote)))
+(defparameter *quote-table*
+  (as-> *empty-dispatch-table* x
+    (with-handler x "'" 'handle-quote)
+    (with-handler x "\\" 'handle-backslash)
+    (with-handler x "\"" 'handle-double-quote)))
 
-(define-once-global +substitution-table+
-    (as-> *empty-dispatch-table* x
-      (with-dispatch-character x "$")
-      (with-default-handler x "$" 'handle-dollar)
-      (with-dispatch-character x "${")
-      (with-default-handler x "${" 'handle-dollar-curly)
-      (with-dispatch-character x "$(")
-      (with-default-handler x "$(" 'handle-dollar-paren)
-      (with-handler x "$((" 'handle-dollar-paren-paren)
-      (with-handler x "`" 'handle-backtick)))
+(defparameter *substitution-table*
+  (as-> *empty-dispatch-table* x
+    (with-dispatch-character x "$")
+    (with-default-handler x "$" 'handle-dollar)
+    (with-dispatch-character x "${")
+    (with-default-handler x "${" 'handle-dollar-curly)
+    (with-dispatch-character x "$(")
+    (with-default-handler x "$(" 'handle-dollar-paren)
+    (with-handler x "$((" 'handle-dollar-paren-paren)
+    (with-handler x "`" 'handle-backtick)))
 
-(define-once-global +double-quote-readtable+
-    (as-> *empty-dispatch-table* x
-      (use-table x +substitution-table+)
-      (with-default-handler x "" 'handle-add-next-char)
-      (with-dispatch-character x "\\")
-      (with-default-handler x "\\" 'handle-double-quote-backslash)
-      (with-handler x #(#\\ #\Linefeed) 'handle-double-quote-backslash-newline)
-      (with-handler x "\"" 'handle-double-quote-termination)))
+(defparameter *double-quote-readtable*
+  (as-> *empty-dispatch-table* x
+    (use-table x *substitution-table*)
+    (with-default-handler x "" 'handle-add-next-char)
+    (with-dispatch-character x "\\")
+    (with-default-handler x "\\" 'handle-double-quote-backslash)
+    (with-handler x #(#\\ #\Linefeed) 'handle-double-quote-backslash-newline)
+    (with-handler x "\"" 'handle-double-quote-termination)))
 
-(define-once-global +variable-expansion-policy+
-    (let ((policies
-           (as-> *empty-dispatch-table* x
-             (with-handler x "-" 'handle-use-default-policy)
-             (with-handler x "=" 'handle-assign-default-policy)
-             (with-handler x "?" 'handle-error-policy)
-             (with-handler x "+" 'handle-alternate-policy))))
-      (as-> *empty-dispatch-table* x
-        (with-dispatch-character x ":" :use-table policies)
-        (use-table x policies)
-        (with-handler x "}" 'end-variable-expansion-word))))
-
-(define-once-global +variable-expansion-word+
+(defparameter *variable-expansion-policy*
+  (let ((policies
+         (as-> *empty-dispatch-table* x
+           (with-handler x "-" 'handle-use-default-policy)
+           (with-handler x "=" 'handle-assign-default-policy)
+           (with-handler x "?" 'handle-error-policy)
+           (with-handler x "+" 'handle-alternate-policy))))
     (as-> *empty-dispatch-table* x
-      (use-table x +quote-table+)
-      (use-table x +substitution-table+)
-      (with-default-handler x "" 'handle-add-next-char)
-      (with-handler x "}" 'end-variable-expansion-word)))
+      (with-dispatch-character x ":" :use-table policies)
+      (use-table x policies)
+      (with-handler x "}" 'end-variable-expansion-word))))
 
-(define-once-global +standard-shell-readtable+
-    (as-> *empty-dispatch-table* x
-      (use-table x +quote-table+)
-      (use-table x +substitution-table+)
-      (with-dispatch-character x #(double-quote) :use-table +double-quote-readtable+)
-      (with-dispatch-character x #(variable-expansion-policy) :use-table +variable-expansion-policy+)
-      (with-dispatch-character x #(variable-expansion-word) :use-table +variable-expansion-word+))
-  (:documentation
-   "The readtable for run-of-the-mill shell syntax.
+(defparameter *variable-expansion-word*
+  (as-> *empty-dispatch-table* x
+    (use-table x *quote-table*)
+    (use-table x *substitution-table*)
+    (with-default-handler x "" 'handle-add-next-char)
+    (with-handler x "}" 'end-variable-expansion-word)))
+
+(defparameter *standard-shell-readtable*
+  (as-> *empty-dispatch-table* x
+    (use-table x *quote-table*)
+    (use-table x *substitution-table*)
+    (with-dispatch-character x #(double-quote) :use-table *double-quote-readtable*)
+    (with-dispatch-character x #(variable-expansion-policy) :use-table *variable-expansion-policy*)
+    (with-dispatch-character x #(variable-expansion-word) :use-table *variable-expansion-word*)))
+
+(defun standard-shell-readtable ()
+  "The readtable for run-of-the-mill shell syntax.
 
 This readtable only describes part of the behavior for shell syntax.
-The rest is handled by `next-token'."))
+The rest is handled by `next-token'."
+  *standard-shell-readtable*)
 
 (defun token-iterator-symbolic-readtable (stream readtable-sym)
     "Given a stream and a symbol whose value is a readtable, return an
@@ -807,7 +810,7 @@ needed."
         (stop))
       (emit token))))
 
-(defun token-iterator (stream &key (readtable +standard-shell-readtable+))
+(defun token-iterator (stream &key (readtable (standard-shell-readtable)))
   "Given a stream and a readtable, return an iterator that produces
 the tokens found in the stream."
   (make-iterator ()
@@ -816,13 +819,13 @@ the tokens found in the stream."
         (stop))
       (emit token))))
 
-(defun tokens-in-string (string &key (readtable +standard-shell-readtable+))
+(defun tokens-in-string (string &key (readtable (standard-shell-readtable)))
   "Return a vector containing the tokens present in the given string.
 
 See `next-token'."
   (tokens-in-stream (make-string-input-stream string) :readtable readtable))
 
-(defun tokens-in-stream (stream &key (readtable +standard-shell-readtable+))
+(defun tokens-in-stream (stream &key (readtable (standard-shell-readtable)))
   "Return a vector containing the tokens present in the given stream.
 
 See `next-token'."
@@ -1086,7 +1089,7 @@ produced by `lexer-context-readtable'."
 (defun handle-extensible-syntax (context)
   (lexer-context-shell-extensible-read context))
 
-(defun next-token (stream &key (readtable +standard-shell-readtable+))
+(defun next-token (stream &key (readtable (standard-shell-readtable)))
   "Read the next shell token from the given stream.
 
 The `readtable' gives you a way to influence the tokens that this
@@ -1104,7 +1107,7 @@ cannot override these behaviors using `readtable'.
 The remaining lexer behaviors specified by POSIX are simply rules in
 the standard shell readtable.  So, for example, quotes are handled by
 the readtable.  See the `:shcl/core/dispatch-table' package for more
-information about readtables.  See also `+standard-shell-readtable'.
+information about readtables.  See also `standard-shell-readtable'.
 The context object passed to readtable handlers is an instance of
 `shell-lexer-context'.
 
@@ -1128,7 +1131,7 @@ variable expansion, etc."
              ;; end-of-input indicator shall be returned as the token.
              ((eq :eof (next-char))
               (when (shell-lexer-context-no-content-p context)
-                (shell-lexer-context-add-part context +eof+))
+                (shell-lexer-context-add-part context *eof*))
               (delimit))
 
              ;; If the previous character was used as part of an
@@ -1173,7 +1176,7 @@ variable expansion, etc."
              ((equal #\linefeed (next-char))
               (when (shell-lexer-context-no-content-p context)
                 (lexer-context-consume-character context)
-                (shell-lexer-context-add-part context +newline+))
+                (shell-lexer-context-add-part context *newline*))
               (delimit))
 
              ;; If the current character is an unquoted <blank>, any

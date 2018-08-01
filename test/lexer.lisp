@@ -73,7 +73,7 @@
   (make-instance 'form-token :form value))
 
 (define-test extensible-reading
-  (let* ((readtable +standard-shell-readtable+)
+  (let* ((readtable (standard-shell-readtable))
          (stream (make-string-input-stream "[(+ 1 2 3)#,\"asdf\"#.stuff"))
          hash-hit
          s-reader-ran)

@@ -262,12 +262,12 @@ If that shell variable is unbound, this symbol evaluates to ~S." name default)))
              `((setf (documentation ',sym 'variable) ,documentation)))
          ',sym))))
 
-(define-once-global %ifs-default% (format nil "~C~C~C" #\space #\tab #\linefeed)
-  (:documentation
-   "The value of $IFS dictated by the posix standard."))
+(defparameter *ifs-default*
+  (format nil "~C~C~C" #\space #\tab #\linefeed)
+  "The value of $IFS dictated by the posix standard.")
 
 (define-environment-accessor $ifs
-  (:default %ifs-default%))
+  (:default *ifs-default*))
 (define-environment-accessor $path)
 (define-environment-accessor $cdpath)
 (define-environment-accessor $pwd)

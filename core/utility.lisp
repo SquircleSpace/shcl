@@ -18,7 +18,7 @@
   (:import-from :closer-mop)
   (:shadow #:when-let #:when-let*)
   (:export
-   #:whitespace-p #:as-> #:-> #:->> #:define-once-global #:required
+   #:whitespace-p #:as-> #:-> #:->> #:required
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
    #:symbol-nconc-gensym #:symbol-nconc-intern #:progn-concatenate #:bodyify
@@ -120,44 +120,6 @@ argument to the function rather than the first argument."
                  (t
                   `(funcall ,form ,sigil)))))
       `(as-> ,value ,sigil ,@(mapcar #'prepare forms)))))
-
-(defmacro define-once-global (name initform &body options)
-  "Define a global variable.
-
-The variable is initialized the first time it is accessed and is
-initialized at most once.  Redefining the variable with
-`define-once-global' will reset the variable to be uninitialized."
-  (check-type name symbol)
-  (let* ((value (gensym "VALUE"))
-         (setter-value (gensym "SETTER-VALUE"))
-         (lock (gensym "LOCK"))
-         (documentation (second (find :documentation options :key 'car)))
-         (no-lock (second (find :no-lock options :key 'car)))
-         (read-only (second (find :read-only options :key 'car)))
-         (lock-form (if no-lock '(progn) `(with-lock-held (,lock)))))
-
-    (check-type documentation (or null string))
-    (when documentation
-      (setf documentation (list documentation)))
-    (unless (member no-lock '(nil t))
-      (error ":no-lock option must have value nil or t"))
-    (unless (member read-only '(nil t))
-      (error ":read-only option must have value nil or t"))
-    `(progn
-       ,@(unless no-lock `((defvar ,lock (bordeaux-threads:make-lock ,(symbol-name name)))))
-       (defvar ,value)
-       (defun ,name ()
-         ,@documentation
-         (,@lock-form
-          (unless (boundp ',value)
-            (setf ,value ,initform))
-          ,value))
-       ,@(unless read-only
-           `((defun (setf ,name) (,setter-value)
-               (,@lock-form
-                (setf ,value ,setter-value)
-                ,setter-value))))
-       (define-symbol-macro ,name (,name)))))
 
 (defparameter *log-buffer* (make-array 1 :initial-element (make-array 0 :element-type 'string :fill-pointer t :adjustable t)
                                        :adjustable t :fill-pointer t))
