@@ -587,7 +587,7 @@ variable substitution."))
                                          :stream wrapped-stream
                                          :readtable (lexer-context-readtable context)
                                          :base-token base-token))
-           (read-value (dispatch-table-read stream inner-context readtable)))
+           (read-value (dispatch-table-read stream readtable nil inner-context)))
       (shell-lexer-context-add-part context read-value)
       t)))
 
@@ -1080,7 +1080,7 @@ produced by `lexer-context-readtable'."
     (unless readtable
       (setf readtable (lexer-context-readtable context)))
     (let* ((no-match-value '#:no-match-value)
-           (result (dispatch-table-read stream context readtable :no-match-value no-match-value)))
+           (result (dispatch-table-read stream readtable no-match-value context)))
       (not (eq result no-match-value)))))
 
 (defun handle-extensible-syntax (context)
