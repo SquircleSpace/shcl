@@ -217,10 +217,11 @@ installs the given one.  A conflict occurs when there is already a
 non-nil default handler for the given character sequence and `handler'
 is not `eq' to it.
 
-`handler' must be a function (or otherwise funcallable) that takes 3 arguments:
+`handler' must be a function (or otherwise funcallable) that takes at
+least 2 arguments:
 - the stream being read from,
 - the sequence of characters that were read prior to this handler being called,
-- and the context object provided during reading."
+- and any extra arguments provided by the caller of `dispatch-table-read'."
   (unless (find on-conflict #(:error :replace))
     (error "on-conflict argument must be either :error or :replace"))
   (labels
@@ -390,40 +391,33 @@ For information about the `on-conflict' and `handler' arguments, see
   "Produce a table that contains the union of the given tables"
   (%use-table dispatch-table other-dispatch-table (make-extensible-vector)))
 
-(defun %dispatch-table-read (stream dispatch-table initiation-sequence fallback context)
+(defun %dispatch-table-read (stream dispatch-table initiation-sequence fallback extra-args)
   (let ((next-char (peek-char nil stream nil :eof)))
     (multiple-value-bind (value found) (table-handler dispatch-table next-char)
       (when (not found)
-        (return-from %dispatch-table-read (funcall (or value fallback) stream initiation-sequence context)))
+        (return-from %dispatch-table-read (apply (or value fallback) stream initiation-sequence extra-args)))
 
       (vector-push-extend (read-char stream nil :eof) initiation-sequence)
 
-      (let ((result
-             (typecase value
-               (dispatch-table
-                (let ((inner-fallback (table-default value)))
-                  (%dispatch-table-read stream
-                                        value
-                                        initiation-sequence
-                                        (or inner-fallback
-                                            (lambda (s i c)
-                                              (declare (ignore s c))
-                                              (error "Unhandled dispatch character sequence ~A" i)))
-                                        context)))
+      (typecase value
+        (dispatch-table
+         (let ((inner-fallback (table-default value)))
+           (%dispatch-table-read stream
+                                 value
+                                 initiation-sequence
+                                 (or inner-fallback
+                                     (lambda (s i &rest args)
+                                       (declare (ignore s args))
+                                       (error "Unhandled dispatch character sequence ~A" i)))
+                                 extra-args)))
 
-               (t
-                (funcall value stream initiation-sequence context)))))
+        (t
+         (apply value stream initiation-sequence extra-args))))))
 
-        result))))
-
-(defun dispatch-table-read (stream context dispatch-table &key no-match-value)
+(defun dispatch-table-read (stream dispatch-table &optional no-match-value &rest extra-args)
   "Attempt to read something from `stream' using a `dispatch-table'.
 
 `stream' is the input stream to read a value from.
-
-`context' is an arbitrary object that will be passed to the handlers.
-Typically, there will be some conventional value to pass for this
-argument.
 
 `dispatch-table' is the table to use while reading.
 
@@ -432,11 +426,16 @@ whatever handler in `dispatch-table' ends up running.
 `no-match-value' is the value that will be returned if the
 `dispatch-table' had no handler for the next character in `stream'.
 If this value is returned then no characters in `stream' were
-consumed."
+consumed.
+
+`extra-args' are extra values that will be passed to the handlers
+after the stream and the sequence of values that were read.
+Typically, there will be some conventional values to pass for this
+argument."
   (labels
-      ((fallback (s initiation-sequence c)
-         (declare (ignore s c))
+      ((fallback (s initiation-sequence &rest rest)
+         (declare (ignore s rest))
          (assert (equal 0 (length initiation-sequence)) nil
                  "This function should only run when the first table had no matches, but we had ~A" initiation-sequence)
          (return-from dispatch-table-read no-match-value)))
-    (%dispatch-table-read stream dispatch-table (make-extensible-vector) #'fallback context)))
+    (%dispatch-table-read stream dispatch-table (make-extensible-vector) #'fallback extra-args)))
