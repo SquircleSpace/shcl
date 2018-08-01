@@ -49,7 +49,7 @@
   (:import-from :shcl/shell/main
     #:default-prompt #:*prompt-function* #:*fresh-prompt*))
 
-(defparameter *shell-readtable* +standard-shell-readtable+
+(defparameter *shell-readtable* (standard-shell-readtable)
   "The shell readtable used by the main shell loop.
 
 This only changes how `shcl/shell/main:main' reads shell commands.
@@ -58,7 +58,7 @@ in any way by this variable.")
 
 (define-builtin -shcl-reset-readtable ()
   "Restore the standard shell readtable."
-  (setf *shell-readtable* +standard-shell-readtable+)
+  (setf *shell-readtable* (standard-shell-readtable))
   0)
 
 (defparameter *fresh-prompt* t

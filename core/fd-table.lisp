@@ -94,24 +94,23 @@ inherit from this class."))
   (print-unreadable-object (fd stream :type t)
     (format stream "~A" (fd-wrapper-value fd))))
 
-(define-once-global %private-fds% (make-hash-table))
-(define-once-global %private-fds-lock% (make-recursive-lock)
-  (:documentation
-   "The lock protecting `%private-fds%'."))
+(defvar *private-fds* (make-hash-table))
+(defvar *private-fds-lock* (make-recursive-lock)
+  "The lock protecting `*private-fds*'.")
 (defvar *private-fds-locked* nil)
 
 (defmacro with-safe-fd-manipulation (&body body)
   (let ((fd (gensym "FD")))
-    `(with-recursive-lock-held (%private-fds-lock%)
+    `(with-recursive-lock-held (*private-fds-lock*)
        (let ((*private-fds-locked* t))
          (labels
              ((remember-private-fd (,fd)
                 (check-safe-fd-manipulation)
-                (setf (gethash ,fd %private-fds%) t)
+                (setf (gethash ,fd *private-fds*) t)
                 ,fd)
               (forget-private-fd (,fd)
                 (check-safe-fd-manipulation)
-                (remhash ,fd %private-fds%)
+                (remhash ,fd *private-fds*)
                 (values)))
            (declare (dynamic-extent #'remember-private-fd #'forget-private-fd)
                     (ignorable #'remember-private-fd #'forget-private-fd))
@@ -295,7 +294,7 @@ that argument is non-nil, then the given file descriptor will be examined and an
   (declare (ignore initargs slot-names))
   (let ((value (fd-wrapper-value wrapper)))
     (with-safe-fd-manipulation
-      (when (gethash value %private-fds%)
+      (when (gethash value *private-fds*)
         (error "Invalid fd ~A" value))
       (when ensure-opened-p
         (handler-case (fcntl value f-getfd)
@@ -474,7 +473,7 @@ Since this locks the fd table, it is very important to minimize the
 amount of work done in the body of this macro.  Ideally, you would
 do nothing exept spawn a new process."
   `(with-safe-fd-manipulation
-     (let ((,fd-list-sym (hash-table-keys %private-fds%)))
+     (let ((,fd-list-sym (hash-table-keys *private-fds*)))
        (declare (dynamic-extent ,fd-list-sym))
        ,@body)))
 

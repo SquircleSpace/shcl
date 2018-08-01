@@ -18,14 +18,6 @@
 
 (optimization-settings)
 
-(defparameter *value* 0)
-(define-once-global test-global (incf *value*))
-
-(define-test once-global
-  (is 1 test-global)
-  (is 1 test-global)
-  (is 1 *value*))
-
 (define-condition test-condition ()
   ())
 

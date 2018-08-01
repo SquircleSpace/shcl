@@ -122,7 +122,7 @@ lisp form and turns each element into a separate word."))
 
 (defparameter *splice-table*
   (as-> *empty-dispatch-table* x
-    (use-table x +standard-shell-readtable+)
+    (use-table x (standard-shell-readtable))
     (use-table x *splice-table-mixin*))
   "A shell readtable which supports injecting lisp forms.")
 
@@ -135,7 +135,7 @@ lisp form and turns each element into a separate word."))
 
 (defparameter *interpolation-table*
   (as-> *empty-dispatch-table* x
-    (use-table x +standard-shell-readtable+)
+    (use-table x (standard-shell-readtable))
     (use-table x *splice-table-mixin*)
     (use-table x *exit-reader-macro-table-mixin*))
   "A shell readtable which is suitable for use with the shell reader
@@ -209,7 +209,7 @@ evauluated in the null lexical environment."
                 (setf sep-needed t))))))
     (when (zerop (length command))
       (return-from builtin-eval 0))
-    (evaluate-shell-string command :readtable +standard-shell-readtable+)))
+    (evaluate-shell-string command :readtable (standard-shell-readtable))))
 
 (defmacro parse-token-sequence (tokens)
   "This macro is responsible for parsing (at macro expansion time) a
