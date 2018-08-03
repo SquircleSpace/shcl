@@ -50,7 +50,7 @@
   (ok (lexes-to-token-types "$(sub command word $variable)" 'command-word))
   (ok (lexes-to-token-types "$variable" 'variable-expansion-word))
   (ok (lexes-to-token-types "${FOO}" 'variable-expansion-word))
-  (ok (lexes-to-token-types "${#FOO}" 'variable-expansion-length-word))
+  (ok (lexes-to-token-types "${#FOO}" 'variable-expansion-word))
   (ok (lexes-to-token-types "$1" 'variable-expansion-word))
   (ok (lexes-to-token-types "some words # and the rest" 'simple-word 'simple-word)))
 
