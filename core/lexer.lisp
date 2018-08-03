@@ -47,10 +47,8 @@
    #:token-iterator-symbolic-readtable
 
    ;; Extensible reading
-   #:lexer-context-mark-end-of-token #:shell-lexer-context-add-part
-   #:shell-lexer-context-delimit #:shell-lexer-context #:lexer-context
-   #:lexer-context-shell-extensible-read #:lexer-context-readtable
-   #:lexer-context-stream #:standard-shell-readtable))
+   #:lexer-context #:lexer-context-mark-end-of-token
+   #:standard-shell-readtable))
 (in-package :shcl/core/lexer)
 
 (optimization-settings)
@@ -399,7 +397,7 @@ two letters that should be passed to a command."))
 (define-condition unexpected-eof (error)
   ())
 
-(defun lexer-context-extensible-read-loop (context readtable)
+(defun shell-lexer-context-extensible-read-loop (context readtable)
   "Read using the given context's readtable until end is marked.
 
 EOF results in the `unexpected-eof' error being signaled."
@@ -407,16 +405,15 @@ EOF results in the `unexpected-eof' error being signaled."
      :while (not (lexer-context-end-marked-p context)) :do
      (if (eq :eof (lexer-context-next-char context))
          (error 'unexpected-eof)
-         (lexer-context-shell-extensible-read context :readtable readtable)))
+         (handle-extensible-syntax context :readtable readtable)))
   (shell-lexer-context-delimit context))
 
-(defun read-double-quote (context)
-  (let* ((stream (lexer-context-stream context))
-         (readtable (subtable (lexer-context-readtable context) #(double-quote)))
+(defun read-double-quote (stream context)
+  (let* ((readtable (subtable (lexer-context-readtable context) #(double-quote)))
          (inner-context
           (make-instance 'shell-lexer-context :stream stream :readtable (lexer-context-readtable context)))
          (token (handler-case
-                    (lexer-context-extensible-read-loop inner-context readtable)
+                    (shell-lexer-context-extensible-read-loop inner-context readtable)
                   (unexpected-eof (e)
                     (declare (ignore e))
                     (error "Expected double quote to end before EOF")))))
@@ -453,14 +450,13 @@ some other command.  See `command-word-tokens' and
   (print-unreadable-object (command-word stream :type t)
     (format stream "~W" (command-word-tokens command-word))))
 
-(defun read-dollar-paren (context)
+(defun read-dollar-paren (stream context)
   ;; We need to parse a full command.  The best way to do that is with
   ;; our `NEXT-TOKEN' function, but that returns tokens instead of
   ;; strings.  We need a string containing everything it read!
   ;; Luckily, an echo stream allows us to know exactly what was read
   ;; by `NEXT-TOKEN'.
-  (let ((stream (lexer-context-stream context))
-        (out-stream (make-string-output-stream)))
+  (let ((out-stream (make-string-output-stream)))
     (format out-stream "$(")
     (let* ((echo-stream (make-echo-stream stream out-stream))
            (token-iterator (token-iterator echo-stream :readtable (lexer-context-readtable context)))
@@ -587,10 +583,8 @@ variable substitution."))
            (inner-context (make-instance 'dollar-curly-lexer-context
                                          :stream wrapped-stream
                                          :readtable (lexer-context-readtable context)
-                                         :base-token base-token))
-           (read-value (dispatch-table-read stream readtable nil inner-context)))
-      (shell-lexer-context-add-part context read-value)
-      t)))
+                                         :base-token base-token)))
+      (dispatch-table-read stream readtable nil inner-context))))
 
 (defun read-comment (stream)
   (let ((next-char (peek-char nil stream nil :eof)))
@@ -605,79 +599,68 @@ variable substitution."))
       (assert (done-p)))))
 
 (defun handle-quote (stream initiation-sequence context)
-  (declare (ignore initiation-sequence))
-  (shell-lexer-context-add-part context (read-single-quote stream))
-  t)
+  (declare (ignore initiation-sequence context))
+  (read-single-quote stream))
 
 (defun handle-backslash (stream initiation-sequence context)
-  (declare (ignore stream initiation-sequence))
-  (let ((next-char (lexer-context-next-char context)))
+  (declare (ignore initiation-sequence context))
+  (let ((next-char (read-char stream))) ;; Intentionally throwing an error on EOF...
     (unless (equal next-char #\Linefeed)
-      (shell-lexer-context-add-part context (make-escaped-character next-char))))
-  (lexer-context-consume-character context)
-  t)
+      (make-escaped-character next-char))))
 
 (defun handle-double-quote (stream initiation-sequence context)
-  (declare (ignore stream initiation-sequence))
-  (shell-lexer-context-add-part context (read-double-quote context))
-  t)
+  (declare (ignore initiation-sequence))
+  (read-double-quote stream context))
 
 (defun handle-dollar (stream initiation-sequence context)
+  (declare (ignore context))
   (let (name)
     (cond
       ((setf name (read-name stream :error-on-invalid-name-p nil))
-       (let ((part (make-instance 'variable-expansion-word
-                                  :variable name
-                                  :value (concatenate 'string "$" name))))
-         (shell-lexer-context-add-part context part)))
+       (make-instance 'variable-expansion-word
+                      :variable name
+                      :value (concatenate 'string "$" name)))
 
       (t
-       (shell-lexer-context-add-chars context initiation-sequence))))
-  t)
+       initiation-sequence))))
 
 (defun handle-dollar-paren (stream initiation-sequence context)
-  (declare (ignore stream initiation-sequence))
-  (shell-lexer-context-add-part context (read-dollar-paren context))
-  t)
+  (declare (ignore initiation-sequence))
+  (read-dollar-paren stream context))
 
 (defun handle-dollar-paren-paren (stream initiation-sequence context)
-  (declare (ignore initiation-sequence))
-  (shell-lexer-context-add-part context (read-dollar-paren-paren stream))
-  t)
+  (declare (ignore initiation-sequence context))
+  (read-dollar-paren-paren stream))
 
 (defun handle-backtick (stream initiation-sequence context)
-  (declare (ignore initiation-sequence))
-  (shell-lexer-context-add-part context (read-backquote stream))
-  t)
+  (declare (ignore initiation-sequence context))
+  (read-backquote stream))
 
 (defun handle-double-quote-backslash (stream initiation-sequence context)
-  (declare (ignore stream initiation-sequence))
-  (shell-lexer-context-add-chars context (string (lexer-context-consume-character context)))
-  t)
+  (declare (ignore initiation-sequence context))
+  (string (read-char stream)))
 
 (defun handle-double-quote-backslash-newline (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence context))
-  ;; This never happened.
-  t)
+  nil)
 
 (defun handle-double-quote-termination (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
-  t)
+  nil)
 
 (defun handle-add-next-char (stream initiation-sequence context)
-  (declare (ignore stream initiation-sequence))
-  (shell-lexer-context-add-chars context (string (lexer-context-consume-character context)))
-  t)
+  (declare (ignore initiation-sequence context))
+  (string (read-char stream)))
 
-(defun generic-policy-handler (context initiation-sequence class)
+(defun generic-policy-handler (stream initiation-sequence context class)
   (let* ((include-null-p (equal #\: (aref initiation-sequence 0)))
          (policy-readtable (subtable (lexer-context-readtable context) #(variable-expansion-word)))
          (inner-context
-          (make-instance 'lexer-context
-                         :stream (lexer-context-stream context)
+          (make-instance 'shell-lexer-context
+                         :stream stream
                          :readtable (lexer-context-readtable context)))
-         (token (lexer-context-extensible-read-loop inner-context policy-readtable))
+         (token (shell-lexer-context-extensible-read-loop inner-context policy-readtable))
          (part (make-instance class
                               :original-token (dollar-curly-lexer-context-base-token context)
                               :replacement-token token
@@ -718,22 +701,23 @@ variable substitution."))
   ())
 
 (defun handle-use-default-policy (stream initiation-sequence context)
-  (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'default-value-policy))
+  (generic-policy-handler stream initiation-sequence context 'default-value-policy))
 
 (defun handle-assign-default-policy (stream initiation-sequence context)
-  (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'assign-default-value-policy))
+  (generic-policy-handler stream initiation-sequence context 'assign-default-value-policy))
 
 (defun handle-error-policy (stream initiation-sequence context)
-  (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'error-policy))
+  (generic-policy-handler stream initiation-sequence context 'error-policy))
 
 (defun handle-alternate-policy (stream initiation-sequence context)
-  (declare (ignore stream))
-  (generic-policy-handler context initiation-sequence 'alternate-value-policy))
+  (generic-policy-handler stream initiation-sequence context 'alternate-value-policy))
 
 (defun end-variable-expansion-word (stream initiation-sequence context)
+  (declare (ignore stream initiation-sequence))
+  (lexer-context-mark-end-of-token context)
+  nil)
+
+(defun end-variable-expansion-word-policy (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
   (dollar-curly-lexer-context-base-token context))
@@ -774,7 +758,7 @@ variable substitution."))
     (as-> *empty-dispatch-table* x
       (with-dispatch-character x ":" :use-table policies)
       (use-table x policies)
-      (with-handler x "}" 'end-variable-expansion-word))))
+      (with-handler x "}" 'end-variable-expansion-word-policy))))
 
 (defparameter *variable-expansion-word*
   (as-> *empty-dispatch-table* x
@@ -831,10 +815,6 @@ See `next-token'."
 See `next-token'."
   (iterator-values (token-iterator stream :readtable readtable)))
 
-(defgeneric lexer-context-stream (context)
-  (:documentation
-   "Return the input stream associated with the given lexer context."))
-
 (defgeneric lexer-context-readtable (context)
   (:documentation
    "Return the readtable that is being used for the given lexer context."))
@@ -844,8 +824,7 @@ See `next-token'."
     :type stream
     :initform (make-string-output-stream))
    (stream
-    :type stream
-    :reader lexer-context-stream)
+    :type stream)
    (raw-stream
     :type stream
     :initarg :stream
@@ -985,12 +964,18 @@ If `part' is any other type, it is assumed to be a token.  Tokens will
 not be combined with each other or adjacent string content.
 
 See `shell-lexer-context-delimit'."
-  (when (stringp part)
+  (check-type part (or string token null))
+  (unless part
     (return-from shell-lexer-context-add-part
-      (shell-lexer-context-add-chars context part)))
+      (values)))
+  (when (stringp part)
+    (shell-lexer-context-add-chars context part)
+    (return-from shell-lexer-context-add-part
+      (values)))
   (shell-lexer-context-word-boundary context)
   (with-slots (parts) context
-    (vector-push-extend part parts)))
+    (vector-push-extend part parts))
+  (values))
 
 (defun shell-lexer-context-simple-word (context)
   (with-slots (parts pending-word) context
@@ -1083,11 +1068,19 @@ produced by `lexer-context-readtable'."
     (unless readtable
       (setf readtable (lexer-context-readtable context)))
     (let* ((no-match-value '#:no-match-value)
-           (result (dispatch-table-read stream readtable no-match-value context)))
-      (not (eq result no-match-value)))))
+           (result (dispatch-table-read stream readtable no-match-value context))
+           (matched-p (not (eq result no-match-value))))
+      (values
+       (when matched-p
+         result)
+       matched-p))))
 
-(defun handle-extensible-syntax (context)
-  (lexer-context-shell-extensible-read context))
+(defun handle-extensible-syntax (context &key readtable)
+  (multiple-value-bind (value matched-p)
+      (lexer-context-shell-extensible-read context :readtable readtable)
+    (when matched-p
+      (shell-lexer-context-add-part context value)
+      t)))
 
 (defun next-token (stream &key (readtable (standard-shell-readtable)))
   "Read the next shell token from the given stream.
