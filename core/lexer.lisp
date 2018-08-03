@@ -551,7 +551,7 @@ some other command.  See `command-word-tokens' and
     :initarg :base-token
     :initform (required)
     :accessor dollar-curly-lexer-context-base-token
-    :type token))
+    :type variable-expansion-word))
   (:documentation
    "A class to represent the state of the lexer while reading a
 variable substitution."))
@@ -655,19 +655,16 @@ variable substitution."))
           (make-instance 'shell-lexer-context
                          :stream stream
                          :readtable (lexer-context-readtable context)))
-         (token (shell-lexer-context-extensible-read-loop inner-context policy-readtable))
-         (part (make-instance class
-                              :original-token (dollar-curly-lexer-context-base-token context)
-                              :replacement-token token
-                              :include-null-p include-null-p)))
-    part))
+         (replacement-token (shell-lexer-context-extensible-read-loop inner-context policy-readtable))
+         (base-token (dollar-curly-lexer-context-base-token context)))
+    (make-instance class
+                   :variable (variable-expansion-word-variable base-token)
+                   :length-p (variable-expansion-word-length-p base-token)
+                   :replacement-token replacement-token
+                   :include-null-p include-null-p)))
 
-(define-data conditional-replacement-policy (token)
-  ((original-token
-    :initarg :original-token
-    :reader conditional-replacement-policy-original-token
-    :initform (required))
-   (replacement-token
+(define-data conditional-replacement-policy (variable-expansion-word)
+  ((replacement-token
     :initarg :replacement-token
     :reader conditional-replacement-policy-replacement-token
     :initform (required))
@@ -677,10 +674,12 @@ variable substitution."))
     :initform nil)))
 (defmethod print-object ((policy conditional-replacement-policy) stream)
   (print-unreadable-object (policy stream :type t)
-    (when-let ((include-null-p (conditional-replacement-policy-include-null-p policy)))
-      (declare (ignore include-null-p))
-      (format stream ":include-null-p "))
-    (format stream "~S ~S" (conditional-replacement-policy-original-token policy)
+    (format stream "~S" (variable-expansion-word-variable policy))
+    (when (variable-expansion-word-length-p policy)
+      (format stream " :length-p t"))
+    (when (conditional-replacement-policy-include-null-p policy)
+      (format stream " :include-null-p t"))
+    (format stream " :replacement-token ~S"
             (conditional-replacement-policy-replacement-token policy))))
 
 (define-data default-value-policy (conditional-replacement-policy)
@@ -707,15 +706,15 @@ variable substitution."))
 (defun handle-alternate-policy (stream initiation-sequence context)
   (generic-policy-handler stream initiation-sequence context 'alternate-value-policy))
 
-(defun end-variable-expansion-word (stream initiation-sequence context)
+(defun end-variable-expansion-word-with-policy (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
   nil)
 
-(defun end-variable-expansion-word-policy (stream initiation-sequence context)
+(defun end-variable-expansion-word-policy-free (stream initiation-sequence context)
   (declare (ignore stream initiation-sequence))
   (lexer-context-mark-end-of-token context)
-  (dollar-curly-lexer-context-base-token context))
+  (dollar-curly-lexer-context-base-token  context))
 
 (defparameter *quote-table*
   (as-> *empty-dispatch-table* x
@@ -753,14 +752,14 @@ variable substitution."))
     (as-> *empty-dispatch-table* x
       (with-dispatch-character x ":" :use-table policies)
       (use-table x policies)
-      (with-handler x "}" 'end-variable-expansion-word-policy))))
+      (with-handler x "}" 'end-variable-expansion-word-policy-free))))
 
 (defparameter *variable-expansion-word*
   (as-> *empty-dispatch-table* x
     (use-table x *quote-table*)
     (use-table x *substitution-table*)
     (with-default-handler x "" 'handle-add-next-char)
-    (with-handler x "}" 'end-variable-expansion-word)))
+    (with-handler x "}" 'end-variable-expansion-word-with-policy)))
 
 (defparameter *standard-shell-readtable*
   (as-> *empty-dispatch-table* x
