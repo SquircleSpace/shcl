@@ -24,14 +24,14 @@
    #:token #:a-word #:eof #:simple-word #:compound-word
    #:assignment-word #:name #:io-number #:literal-token #:newline
    #:reserved-word #:single-quote #:double-quote #:command-word
-   #:variable-expansion-word #:variable-expansion-length-word
+   #:variable-expansion-word
 
    ;; Slot accessors
    #:token-value #:simple-word-text #:compound-word-parts
    #:assignment-word-name #:assignment-word-value-word #:io-number-fd
    #:literal-token-string #:single-quote-contents #:double-quote-parts
    #:command-word-tokens #:command-word-evaluate-fn
-   #:variable-expansion-word-variable #:variable-expansion-length-word-variable
+   #:variable-expansion-word-variable #:variable-expansion-word-length-p
 
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
@@ -522,34 +522,29 @@ some other command.  See `command-word-tokens' and
   (:documentation
    "Return the variable name that the given token describes access to."))
 
+
+(defgeneric variable-expansion-word-length-p (token)
+  (:documentation
+   "Returns non-nil if the length of the variable's value should be accessed."))
+
 (define-data variable-expansion-word (a-word)
   ((variable
     :initarg :variable
     :initform (required)
     :reader variable-expansion-word-variable
-    :type string))
+    :type string)
+   (length-p
+    :initarg :length-p
+    :initform nil
+    :reader variable-expansion-word-length-p
+    :type boolean))
   (:documentation
    "A class to represent tokens where a shell variable is being accessed."))
 (defmethod print-object ((word variable-expansion-word) stream)
   (print-unreadable-object (word stream :type t)
-    (format stream "~S" (variable-expansion-word-variable word))))
-
-(defgeneric variable-expansion-length-word-variable (token)
-  (:documentation
-   "Return the variable name that the given token describes access to."))
-
-(define-data variable-expansion-length-word (a-word)
-  ((variable
-    :initarg :variable
-    :initform (required)
-    :reader variable-expansion-length-word-variable
-    :type string))
-  (:documentation
-   "A class to represent tokens where the length of a shell variable
-is being accessed."))
-(defmethod print-object ((word variable-expansion-length-word) stream)
-  (print-unreadable-object (word stream :type t)
-    (format stream "~S" (variable-expansion-length-word-variable word))))
+    (format stream "~S" (variable-expansion-word-variable word))
+    (when (variable-expansion-word-length-p word)
+      (format stream " :length-p t"))))
 
 (defclass dollar-curly-lexer-context (lexer-context)
   ((base-token
@@ -570,7 +565,7 @@ variable substitution."))
            (let ((name (read-name stream :greedy-digits t :error-on-invalid-name-p nil)))
              (return-from get-name-token
                (if name
-                   (make-instance 'variable-expansion-length-word :variable name)
+                   (make-instance 'variable-expansion-word :variable name :length-p t)
                    (make-instance 'variable-expansion-word :variable "#")))))
 
          (let ((name (read-name stream :greedy-digits t :error-on-invalid-name-p t)))

@@ -752,17 +752,19 @@ value."))
         (split value)
         (fset:seq (make-string-fragment value)))))
 
-(defmethod expand ((thing variable-expansion-word))
-  (expand-variable (variable-expansion-word-variable thing)))
-
-(defmethod expand ((thing variable-expansion-length-word))
+(defun expand-variable-length (variable)
   (let* ((*split-fields* nil)
-         (fragments (expand-variable (variable-expansion-length-word-variable thing)))
+         (fragments (expand-variable variable))
          (length 0))
     (fset:do-seq (fragment fragments)
       (when (string-fragment-p fragment)
         (incf length (length (string-fragment-string fragment)))))
     (fset:seq (make-string-fragment (format nil "~A" length)))))
+
+(defmethod expand ((thing variable-expansion-word))
+  (if (variable-expansion-word-length-p thing)
+      (expand-variable-length (variable-expansion-word-variable thing))
+      (expand-variable (variable-expansion-word-variable thing))))
 
 (defun ifs-parts (ifs)
   "Return two values: a string containing the non-whitespace
