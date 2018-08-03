@@ -96,23 +96,22 @@ lisp form and turns each element into a separate word."))
 
 (defun read-lisp-form (stream initiation-sequence context)
   "Read a `lisp-form'."
-  (declare (ignore initiation-sequence))
-  (let* ((form (read-preserving-whitespace stream))
-         (token (make-instance 'lisp-form :form form)))
-    (shell-lexer-context-add-part context token)))
+  (declare (ignore initiation-sequence context))
+  (let ((form (read-preserving-whitespace stream)))
+    (make-instance 'lisp-form :form form)))
 
 (defun read-lisp-splice-form (stream initiation-sequence context)
   "Read a `lisp-splice-form'."
-  (declare (ignore initiation-sequence))
-  (let* ((form (read-preserving-whitespace stream))
-         (token (make-instance 'lisp-splice-form :form form)))
-    (shell-lexer-context-add-part context token)))
+  (declare (ignore initiation-sequence context))
+  (let ((form (read-preserving-whitespace stream)))
+    (make-instance 'lisp-splice-form :form form)))
 
 (defun hash-default-handler (stream initiation-sequence context)
   "Read a comment"
   (unless (equal #\linefeed (aref initiation-sequence (- (length initiation-sequence) 1)))
     (read-line stream nil :eof))
-  (lexer-context-mark-end-of-token context))
+  (lexer-context-mark-end-of-token context)
+  nil)
 
 (defparameter *splice-table-mixin*
   (as-> *empty-dispatch-table* x
