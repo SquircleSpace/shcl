@@ -24,7 +24,9 @@
    #:token #:a-word #:eof #:simple-word #:compound-word
    #:assignment-word #:name #:io-number #:literal-token #:newline
    #:reserved-word #:single-quote #:double-quote #:command-word
-   #:variable-expansion-word
+   #:variable-expansion-word #:conditional-replacement-policy
+   #:default-value-policy #:assign-default-value-policy
+   #:error-policy #:alternate-value-policy
 
    ;; Slot accessors
    #:token-value #:simple-word-text #:compound-word-parts
@@ -32,6 +34,8 @@
    #:literal-token-string #:single-quote-contents #:double-quote-parts
    #:command-word-tokens #:command-word-evaluate-fn
    #:variable-expansion-word-variable #:variable-expansion-word-length-p
+   #:conditional-replacement-policy-replacement-token
+   #:conditional-replacement-policy-include-empty-string-p
 
    ;; Operators
    #:and-if #:or-if #:dsemi #:dless #:dgreat #:lessand #:greatand
@@ -649,7 +653,7 @@ variable substitution."))
   (string (read-char stream)))
 
 (defun generic-policy-handler (stream initiation-sequence context class)
-  (let* ((include-null-p (equal #\: (aref initiation-sequence 0)))
+  (let* ((include-empty-string-p (equal #\: (aref initiation-sequence 0)))
          (policy-readtable (subtable (lexer-context-readtable context) #(variable-expansion-word)))
          (inner-context
           (make-instance 'shell-lexer-context
@@ -661,38 +665,103 @@ variable substitution."))
                    :variable (variable-expansion-word-variable base-token)
                    :length-p (variable-expansion-word-length-p base-token)
                    :replacement-token replacement-token
-                   :include-null-p include-null-p)))
+                   :include-empty-string-p include-empty-string-p)))
+
+(defgeneric conditional-replacement-policy-include-empty-string-p (policy)
+  (:documentation
+   "Returns non-nil if the empty string should be covered by this
+policy.
+
+The exact meaning of the return value is defined by the policy.  For
+POSIX-standard-defined variable expansion policies, a non-nil return
+value indicates the use of the #\: character.  For example, POSIX
+specifies that variable access of the form \"${FOO:-default}\" should
+expand to \"default\" if FOO is either unset or set to the empty
+string.  Normally, the #\- expansion
+policy (a.k.a. `default-value-policy') would only expand to
+\"default\" if FOO is unset.  The presence of the #\: character
+indicates that the empty string should be covered as well."))
+
+(defgeneric conditional-replacement-policy-replacement-token (policy)
+  (:documentation
+   "Returns the token that should be used instead when this expansion
+policy decides not to use the variable value.
+
+The exact meaning of the return value is defined by the policy.  For
+the POSIX-standard-defined expansion policies, the returned token
+represents the content between the policy character (i.e. #\-, #\=,
+#\?, or #\+) and the closing curly brace.  For example, in the case of
+the #\- policy (a.k.a `default-value-policy'), this represents the
+value to be used if the variable is unset."))
 
 (define-data conditional-replacement-policy (variable-expansion-word)
   ((replacement-token
     :initarg :replacement-token
     :reader conditional-replacement-policy-replacement-token
     :initform (required))
-   (include-null-p
-    :initarg :include-null-p
-    :reader conditional-replacement-policy-include-null-p
-    :initform nil)))
+   (include-empty-string-p
+    :initarg :include-empty-string-p
+    :reader conditional-replacement-policy-include-empty-string-p
+    :initform nil))
+  (:documentation
+   "A base class to represent variable expansion with a replacement policy.
+
+This token class represents access to a variable with some extra rules
+on top.  For example, if the variable is unset or set to the empty
+string a `variable-expansion-word' will usually expand to the empty
+string.  If the token were instead an instance of the
+`default-value-policy' subclass, the token would expand to some
+replacement token.
+
+You don't need to use this class to represent a fancy variable
+expansion.
+
+For examples of conditional expansion policies, see
+`default-value-policy', `assign-default-value-policy', `error-policy',
+and `alternate-value-policy'."))
+
 (defmethod print-object ((policy conditional-replacement-policy) stream)
   (print-unreadable-object (policy stream :type t)
     (format stream "~S" (variable-expansion-word-variable policy))
     (when (variable-expansion-word-length-p policy)
       (format stream " :length-p t"))
-    (when (conditional-replacement-policy-include-null-p policy)
-      (format stream " :include-null-p t"))
+    (when (conditional-replacement-policy-include-empty-string-p policy)
+      (format stream " :include-empty-string-p t"))
     (format stream " :replacement-token ~S"
             (conditional-replacement-policy-replacement-token policy))))
 
 (define-data default-value-policy (conditional-replacement-policy)
-  ())
+  ()
+  (:documentation
+   "A token class to represent variable expansion with a default value.
+
+This class represents variable expansion that uses the #\- policy.
+For example, \"${FOO-default value}\"."))
 
 (define-data assign-default-value-policy (conditional-replacement-policy)
-  ())
+  ()
+  (:documentation
+   "A token class to represent variable expansion with a default
+value that should be used and then stored in the variable.
+
+This class represents variable expansion that uses the #\= policy.
+For example, \"${FOO=default value to assign}\"."))
 
 (define-data error-policy (conditional-replacement-policy)
-  ())
+  ()
+  (:documentation
+   "A token class to represent variable expansion with an error message.
+
+This class represents variable expansion that uses the #\? policy.
+For example, \"${FOO?Message to display if unset}\"."))
 
 (define-data alternate-value-policy (conditional-replacement-policy)
-  ())
+  ()
+  (:documentation
+   "A token class to represent variable expansion with an error message.
+
+This class represents variable expansion that uses the #\+ policy.
+For example, \"${FOO+Alternate value to use}\"."))
 
 (defun handle-use-default-policy (stream initiation-sequence context)
   (generic-policy-handler stream initiation-sequence context 'default-value-policy))
