@@ -16,7 +16,7 @@
   (:use
    :common-lisp :shcl/core/utility :shcl/core/posix :shcl/core/shell-environment
    :shcl/core/iterator)
-  (:import-from :shcl/core/data #:define-data)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :fset)
   (:export
    ;; High-level access
@@ -42,14 +42,16 @@
   ((value
     :initarg :value
     :initform nil
-    :updater environment-binding-value
+    :reader environment-binding-value
+    :writer unsafe-set-environment-binding-value
     :type (or null string)
     :documentation
     "The string value which this environment variable is bound to.")
    (exported-p
     :initarg :exported
     :initform nil
-    :updater environment-binding-exported-p
+    :reader environment-binding-exported-p
+    :writer unsafe-set-environment-binding-exported-p
     :type boolean
     :documentation
     "A boolean indicating whether this binding should be shared with
@@ -57,13 +59,23 @@ spawned processes.")
    (readonly-p
     :initarg :readonly-p
     :initform nil
-    :updater environment-binding-readonly-p
+    :reader environment-binding-readonly-p
+    :writer unsafe-set-environment-binding-readonly-p
     :type boolean
     :documentation
     "A boolean indicating whether this binding's value should be
 readonly or not."))
   (:documentation
    "Everything there is to know about an environment variable."))
+
+(define-cloning-setf-expander environment-binding-value
+    unsafe-set-environment-binding-value)
+
+(define-cloning-setf-expander environment-binding-exported-p
+    unsafe-set-environment-binding-exported-p)
+
+(define-cloning-setf-expander environment-binding-readonly-p
+    unsafe-set-environment-binding-readonly-p)
 
 (defparameter *env-default-binding* (make-instance 'environment-binding)
   "The default state for an environment binding.")

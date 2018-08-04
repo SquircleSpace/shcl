@@ -24,19 +24,31 @@
   ((a
     :initarg :a
     :initform nil
-    :updater base-a)))
+    :reader base-a
+    :writer unsafe-set-base-a)))
+
+(define-cloning-setf-expander base-a
+    unsafe-set-base-a)
 
 (define-data derived (base)
   ((b
     :initarg :b
     :initform nil
-    :updater derived-b)))
+    :reader derived-b
+    :writer unsafe-set-derived-b)))
+
+(define-cloning-setf-expander derived-b
+    unsafe-set-derived-b)
 
 (define-data derived-b (base)
   ((c
     :initarg :c
     :initform nil
-    :updater derived-c)))
+    :reader derived-c
+    :writer unsafe-set-derived-c)))
+
+(define-cloning-setf-expander derived-c
+    unsafe-set-derived-c)
 
 (defclass vanilla ()
   ((a
@@ -89,23 +101,39 @@
   ((a
     :initarg :a
     :initform 0
-    :updater numbers-a)
+    :reader numbers-a
+    :writer unsafe-set-numbers-a)
    (b
     :initarg :b
     :initform 0
-    :updater numbers-b)))
+    :reader numbers-b
+    :writer unsafe-set-numbers-b)))
+
+(define-cloning-setf-expander numbers-a
+    unsafe-set-numbers-a)
+
+(define-cloning-setf-expander numbers-b
+    unsafe-set-numbers-b)
 
 (define-data numbers-c (numbers)
   ((c
     :initarg :c
     :initform 0
-    :updater numbers-c)))
+    :reader numbers-c
+    :writer unsafe-set-numbers-c)))
+
+(define-cloning-setf-expander numbers-c
+    unsafe-set-numbers-c)
 
 (define-data numbers-d (numbers)
   ((d
     :initarg :d
     :initform 0
-    :updater numbers-d)))
+    :reader numbers-d
+    :writer unsafe-set-numbers-d)))
+
+(define-cloning-setf-expander numbers-d
+    unsafe-set-numbers-d)
 
 (define-test ordering
   (let ((a (make-instance 'numbers :a 123 :b 123))

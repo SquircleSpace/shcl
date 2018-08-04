@@ -24,7 +24,7 @@
                 #:with-fd-streams #:with-private-fds #:linearize-fd-bindings
                 #:fd-wrapper-value)
   (:import-from :shcl/core/exit-info #:exit-info #:make-exit-info)
-  (:import-from :shcl/core/data #:define-data)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :shcl/core/shell-environment #:preserve-special-variable #:with-subshell
                 #:extend-shell-environment)
   (:import-from :shcl/core/support
@@ -80,10 +80,18 @@ You do not need to specialize this function, but it is recommended."))
   ((table
     :initarg :table
     :initform (fset:empty-map)
-    :updater command-namespace-table)
+    :reader command-namespace-table
+    :writer unsafe-set-command-namespace-table)
    (fallback
     :initarg :fallback
-    :updater command-namespace-fallback)))
+    :reader command-namespace-fallback
+    :writer unsafe-set-command-namespace-fallback)))
+
+(define-cloning-setf-expander command-namespace-table
+    unsafe-set-command-namespace-table)
+
+(define-cloning-setf-expander command-namespace-fallback
+    unsafe-set-command-namespace-fallback)
 
 (defun make-command-namespace (&key fallback)
   "Produce a new, empty `command-namespace'.
@@ -219,7 +227,8 @@ See `install-command'."
   ((handler
     :initarg :handler
     :initform (required)
-    :updater special-builtin-handler))
+    :reader special-builtin-handler
+    :writer unsafe-set-special-builtin-handler))
   (:documentation
    "This type represents builtins that behave differently from other
 commands.
@@ -227,6 +236,9 @@ commands.
 Most commands run in a subshell environment or a different process
 entirely.  Special builtins do not.  There are other differences,
 too."))
+
+(define-cloning-setf-expander special-builtin-handler
+    unsafe-set-special-builtin-handler)
 
 (defmethod documentation ((command special-builtin) (doc-type (eql t)))
   (documentation (special-builtin-handler command) doc-type))
@@ -255,13 +267,17 @@ too."))
   ((handler
     :initarg :handler
     :initform (required)
-    :updater builtin-handler))
+    :reader builtin-handler
+    :writer unsafe-set-builtin-handler))
   (:documentation
    "Instances of this class represent normal, non-special builtin
 commands.
 
 See `special-builtin'.  Builtins are like normal commands except they
 are implemented in the shell itself."))
+
+(define-cloning-setf-expander builtin-handler
+    unsafe-set-builtin-handler)
 
 (defmethod documentation ((command builtin) (doc-type (eql t)))
   (documentation (builtin-handler command) doc-type))
