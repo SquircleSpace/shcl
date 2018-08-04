@@ -76,6 +76,16 @@ See `install-command' to learn more about priorities.
 
 You do not need to specialize this function, but it is recommended."))
 
+(defgeneric command-namespace-table (command-namespace)
+  (:documentation
+   "Returns an `fset:map' representing all the commands in the given
+namespace."))
+
+(defgeneric command-namespace-fallback (command-namespace)
+  (:documentation
+   "Returns the command that should be used if no matching command
+could be found."))
+
 (define-data command-namespace ()
   ((table
     :initarg :table
