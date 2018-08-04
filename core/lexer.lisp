@@ -416,9 +416,9 @@ EOF results in the `unexpected-eof' error being signaled."
   (shell-lexer-context-delimit context))
 
 (defun read-double-quote (stream)
-  (let* ((readtable (subtable (lexer-context-readtable stream) #(double-quote)))
+  (let* ((readtable (subtable (shell-lexer-context-readtable stream) #(double-quote)))
          (inner-context
-          (make-instance 'shell-lexer-context :stream stream :readtable (lexer-context-readtable stream)))
+          (make-instance 'shell-lexer-context :stream stream :readtable (shell-lexer-context-readtable stream)))
          (token (handler-case
                     (shell-lexer-context-extensible-read-loop inner-context readtable)
                   (unexpected-eof (e)
@@ -466,7 +466,7 @@ some other command.  See `command-word-tokens' and
   (let ((out-stream (make-string-output-stream)))
     (format out-stream "$(")
     (let* ((echo-stream (make-echo-stream stream out-stream))
-           (token-iterator (token-iterator echo-stream :readtable (lexer-context-readtable stream)))
+           (token-iterator (token-iterator echo-stream :readtable (shell-lexer-context-readtable stream)))
            (tokens (make-extensible-vector)))
 
       (do-iterator (token token-iterator)
@@ -558,7 +558,11 @@ some other command.  See `command-word-tokens' and
     :initarg :base-token
     :initform (required)
     :accessor dollar-curly-lexer-context-base-token
-    :type variable-expansion-word))
+    :type variable-expansion-word)
+   (shell-readtable
+    :initarg :shell-readtable
+    :initform (required)
+    :reader dollar-curly-lexer-context-shell-readtable))
   (:documentation
    "A class to represent the state of the lexer while reading a
 variable substitution."))
@@ -579,10 +583,10 @@ variable substitution."))
            (make-instance 'variable-expansion-word :variable name))))
 
     (let* ((base-token (get-name-token))
-           (readtable (subtable (lexer-context-readtable stream) #(variable-expansion-policy)))
+           (readtable (subtable (shell-lexer-context-readtable stream) #(variable-expansion-policy)))
            (inner-context (make-instance 'dollar-curly-lexer-context
                                          :stream stream
-                                         :readtable (lexer-context-readtable stream)
+                                         :shell-readtable (shell-lexer-context-readtable stream)
                                          :base-token base-token)))
       (dispatch-table-read inner-context readtable nil))))
 
@@ -654,11 +658,11 @@ variable substitution."))
 
 (defun generic-policy-handler (stream initiation-sequence class)
   (let* ((include-empty-string-p (equal #\: (aref initiation-sequence 0)))
-         (policy-readtable (subtable (lexer-context-readtable stream) #(variable-expansion-word)))
+         (policy-readtable (subtable (dollar-curly-lexer-context-shell-readtable stream) #(variable-expansion-word)))
          (inner-context
           (make-instance 'shell-lexer-context
                          :stream stream
-                         :readtable (lexer-context-readtable stream)))
+                         :readtable (dollar-curly-lexer-context-shell-readtable stream)))
          (replacement-token (shell-lexer-context-extensible-read-loop inner-context policy-readtable))
          (base-token (dollar-curly-lexer-context-base-token stream)))
     (make-instance class
@@ -878,10 +882,6 @@ See `next-token'."
 See `next-token'."
   (iterator-values (token-iterator stream :readtable readtable)))
 
-(defgeneric lexer-context-readtable (context)
-  (:documentation
-   "Return the readtable that is being used for the given lexer context."))
-
 (defgeneric lexer-context-first-consumed-character-position (context))
 
 (defgeneric lexer-context-consume-p (context)
@@ -912,11 +912,6 @@ the token that is ultimately delimited."))
     :type boolean
     :initform nil
     :reader lexer-context-end-marked-p)
-   (readtable
-    :type dispatch-table
-    :initarg :readtable
-    :initform (required)
-    :reader lexer-context-readtable)
    (starting-position
     :type (or null position-record))
    (first-consumed-character-position
@@ -998,13 +993,22 @@ the token that is ultimately delimited."))
   (with-slots (raw-stream) stream
     (listen raw-stream)))
 
+(defgeneric shell-lexer-context-readtable (context)
+  (:documentation
+   "Return the readtable that is being used for the given lexer context."))
+
 (defclass shell-lexer-context (lexer-context)
   ((pending-word
     :type (or null string)
     :initform nil)
    (parts
     :type array
-    :initform (make-extensible-vector)))
+    :initform (make-extensible-vector))
+   (readtable
+    :type dispatch-table
+    :initarg :readtable
+    :initform (required)
+    :reader shell-lexer-context-readtable))
   (:documentation
    "A class that contains the state of the lexer for the POSIX shell
 language.
@@ -1172,29 +1176,11 @@ See `shell-lexer-context-add-part'."
             (t
              (error "All cases should be covered above"))))))
 
-(defun lexer-context-shell-extensible-read (context &key readtable)
-  "Allow the given readtable to act on the given lexer context.
-
-This uses `dispatch-table-read' to read input from the given lexer
-context.  The value produced by `dispatch-table-read' is discarded.
-Thus, if you wish to impact the token being lexed, you must modify
-`context' inside the handler functions associated with the readtable.
-
-If `readtable' is nil, then this function will use the readtable
-produced by `lexer-context-readtable'."
-  (unless readtable
-    (setf readtable (lexer-context-readtable context)))
+(defun handle-extensible-syntax (context &key (readtable (shell-lexer-context-readtable context)))
   (let* ((no-match-value '#:no-match-value)
          (result (dispatch-table-read context readtable no-match-value))
-         (matched-p (not (eq result no-match-value))))
-    (values
-     (when matched-p
-       result)
-     matched-p)))
-
-(defun handle-extensible-syntax (context &key readtable)
-  (multiple-value-bind (value matched-p)
-      (lexer-context-shell-extensible-read context :readtable readtable)
+         (matched-p (not (eq result no-match-value)))
+         (value (when matched-p result)))
     (when matched-p
       (shell-lexer-context-add-part context value)
       t)))
