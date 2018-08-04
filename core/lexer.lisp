@@ -18,7 +18,7 @@
    :shcl/core/iterator)
   (:import-from :shcl/core/positional-stream
    #:make-position-record-from-positional-stream #:position-record)
-  (:import-from :shcl/core/data #:define-data)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :trivial-gray-streams)
   (:import-from :fset)
   (:import-from :closer-mop)
@@ -32,7 +32,7 @@
    #:error-policy #:alternate-value-policy
 
    ;; Slot accessors
-   #:token-value #:simple-word-text #:compound-word-parts
+   #:token-value #:token-position #:simple-word-text #:compound-word-parts
    #:assignment-word-name #:assignment-word-value-word #:io-number-fd
    #:literal-token-string #:single-quote-contents #:double-quote-parts
    #:command-word-tokens #:command-word-evaluate-fn
@@ -72,18 +72,28 @@
   ((value
     :type (or null string)
     :initform nil
-    :updater token-value
+    :reader token-value
+    :writer unsafe-set-token-value
     :initarg :value)
    (position
     :type (or null position-record)
     :initform nil
-    :updater token-position
+    :reader token-position
+    :writer unsafe-set-token-position
     :initarg :position))
   (:documentation
    "A class representing a token in the POSIX shell language."))
+
+(define-cloning-setf-expander token-value
+    unsafe-set-token-value)
+
+(define-cloning-setf-expander token-position
+    unsafe-set-token-position)
+
 (defmethod print-object ((token token) stream)
   (print-unreadable-object (token stream :type t)
     (format stream "~W" (token-value token))))
+
 (defmethod make-load-form ((token token) &optional environment)
   (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of token)))))
     (make-load-form-saving-slots token :slot-names slots :environment environment)))
@@ -109,13 +119,18 @@ similar tokens.  Its a grab-bag of miscellaneous token types."))
 (define-data simple-word (a-word)
   ((text
     :initarg :text
-    :updater simple-word-text
+    :reader simple-word-text
+    :writer unsafe-set-simple-word-text
     :initform (required)
     :type string))
   (:documentation
    "A class for plain-old sequences of characters.
 
 There's nothing special going on here."))
+
+(define-cloning-setf-expander simple-word-text
+    unsafe-set-simple-word-text)
+
 (defmethod print-object ((simple-word simple-word) stream)
   (print-unreadable-object (simple-word stream :type t)
     (format stream "~W" (simple-word-text simple-word))))
@@ -123,11 +138,16 @@ There's nothing special going on here."))
 (define-data compound-word (a-word)
   ((parts :type vector
           :initform (required)
-          :updater compound-word-parts
+          :reader compound-word-parts
+          :writer unsafe-set-compound-word-parts
           :initarg :parts))
   (:documentation
    "A token class that consists of several tokens combined into a
 single aggregate token."))
+
+(define-cloning-setf-expander compound-word-parts
+    unsafe-set-compound-word-parts)
+
 (defmethod print-object ((compound-word compound-word) stream)
   (print-unreadable-object (compound-word stream :type t)
     (format stream "~W" (compound-word-parts compound-word))))
@@ -148,18 +168,27 @@ The value portion is the part tat comes after the #\= character."))
   ((name
     :type name
     :initform (required)
-    :updater assignment-word-name
+    :reader assignment-word-name
+    :writer unsafe-set-assignment-word-name
     :initarg :name)
    (value-word
     :type a-word
     :initarg :value-word
     :initform (required)
-    :updater assignment-word-value-word))
+    :reader assignment-word-value-word
+    :writer unsafe-set-assignment-word-value-word))
   (:documentation
    "A class to represent words that look like variable assignments.
 
 Whether or not this token actually represents a variable assignment
 won't be known until after parsing happens."))
+
+(define-cloning-setf-expander assignment-word-name
+    unsafe-set-assignment-word-name)
+
+(define-cloning-setf-expander assignment-word-value-word
+    unsafe-set-assignment-word-value-word)
+
 (defmethod print-object ((word assignment-word) stream)
   (print-unreadable-object (word stream :type t)
     (format stream "~W = ~W" (assignment-word-name word) (assignment-word-value-word word))))
@@ -193,11 +222,16 @@ won't be known until after parsing happens."))
   ((fd
     :type integer
     :initform (required)
-    :updater io-number-fd
+    :reader io-number-fd
+    :writer unsafe-set-io-number-fd
     :initarg :fd))
   (:documentation
    "A class to represent file descriptor identifiers for redirect
 operations."))
+
+(define-cloning-setf-expander io-number-fd
+    unsafe-set-io-number-fd)
+
 (defmethod print-object ((io-number io-number) stream)
   (print-unreadable-object (io-number stream :type t)
     (format stream "~W" (io-number-fd io-number))))
@@ -362,9 +396,14 @@ two letters that should be passed to a command."))
     :initarg :contents
     :initform (required)
     :type string
-    :updater single-quote-contents))
+    :reader single-quote-contents
+    :writer unsafe-set-single-quote-contents))
   (:documentation
    "A class to represent characters that are quoted with #\'."))
+
+(define-cloning-setf-expander single-quote-contents
+    unsafe-set-single-quote-contents)
+
 (defmethod print-object ((single-quote single-quote) stream)
   (print-unreadable-object (single-quote stream :type t)
     (format stream "~W" (single-quote-contents single-quote))))
@@ -401,10 +440,15 @@ two letters that should be passed to a command."))
 (define-data double-quote (compound-word)
   ((parts :type vector
           :initform (required)
-          :updater double-quote-parts
+          :reader double-quote-parts
+          :writer unsafe-set-double-quote-parts
           :initarg :parts))
   (:documentation
    "A class to represent tokens that are quoted using #\"."))
+
+(define-cloning-setf-expander double-quote-parts
+    unsafe-set-double-quote-parts)
+
 (defmethod print-object ((double-quote double-quote) stream)
   (print-unreadable-object (double-quote stream :type t)
     (format stream "~W" (double-quote-parts double-quote))))
@@ -451,16 +495,25 @@ retrieves the token sequence for the inner command."))
     :initarg :tokens
     :initform (required)
     :type vector
-    :updater command-word-tokens)
+    :reader command-word-tokens
+    :writer unsafe-set-command-word-tokens)
    (evaluate-fn
     :initform nil
-    :updater command-word-evaluate-fn))
+    :reader command-word-evaluate-fn
+    :writer unsafe-set-command-word-evaluate-fn))
   (:documentation
    "A class to represent uses of command substitution.
 
 During the expansion phase, this token will expand to be the output of
 some other command.  See `command-word-tokens' and
 `command-word-evaluate-fn'."))
+
+(define-cloning-setf-expander command-word-tokens
+    unsafe-set-command-word-tokens)
+
+(define-cloning-setf-expander command-word-evaluate-fn
+    unsafe-set-command-word-evaluate-fn)
+
 (defmethod print-object ((command-word command-word) stream)
   (print-unreadable-object (command-word stream :type t)
     (format stream "~W" (command-word-tokens command-word))))

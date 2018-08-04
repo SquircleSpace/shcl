@@ -18,7 +18,7 @@
    :shcl/core/expand
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/dispatch-table)
-  (:import-from :shcl/core/data #:define-data)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :shcl/core/command #:define-special-builtin)
   (:import-from :shcl/core/evaluate #:evaluation-form-iterator #:translate #:expansion-preparation-form)
   (:import-from :shcl/core/posix)
@@ -39,7 +39,8 @@
     :documentation
     "The form this token represents")
    (function
-    :updater lisp-form-function
+    :reader lisp-form-function
+    :writer unsafe-set-lisp-form-function
     :documentation
     "This function evaluates the form."))
   (:documentation
@@ -49,6 +50,10 @@ If possible, the `function' slot should be compiled in the Lisp
 lexical environment where the token was used.
 
 This token always expands to one word."))
+
+(define-cloning-setf-expander lisp-form-function
+    unsafe-set-lisp-form-function)
+
 (defmethod print-object ((token lisp-form) stream)
   (print-unreadable-object (token stream :type t)
     (format stream "~W" (slot-value token 'form))))

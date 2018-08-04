@@ -27,7 +27,8 @@
   ((%characters
     :type fset:map
     :initform (fset:empty-map)
-    :updater dispatch-table-characters))
+    :reader dispatch-table-characters
+    :writer unsafe-set-dispatch-table-characters))
   (:documentation
    "A class representing a super-powered readtable.
 
@@ -61,6 +62,9 @@ function.  `dispatch-table' does not do that.
 Use `with-dispatch-character', `with-default-handler', `with-handler',
 and `use-table' to create dispatch tables that have handlers installed
 in them."))
+
+(define-cloning-setf-expander dispatch-table-characters
+    unsafe-set-dispatch-table-characters)
 
 (defmethod make-load-form ((table dispatch-table) &optional env)
   (declare (ignore env))

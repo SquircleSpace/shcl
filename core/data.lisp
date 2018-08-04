@@ -16,13 +16,14 @@
   (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
   (:import-from :fset)
-  (:export #:define-data))
+  (:export #:define-data #:define-cloning-setf-expander #:clone))
 (in-package :shcl/core/data)
 
 (optimization-settings)
 
-(defmacro define-cloning-accessor (name &key slot-name accessor)
-  "Define a non-destructive reader and setf-expander.
+(defmacro define-cloning-setf-expander (setf-name unsafe-setter-name &optional (getter-name setf-name))
+  "Define a setf expander for `setf-name' that clones the object
+before modifying it.
 
 Immutable data structures can be very useful, but they can also be
 pretty annoying when you want to update them.  Your only option is to
@@ -32,48 +33,41 @@ macro makes that processs easier and more fluent by allowing you to
 use the `setf' macro to do it.
 
 This only works if you provide a method for `clone' specialized on the
-appropriate type."
-  (unless (and (or slot-name accessor) (not (and slot-name accessor)))
-    (error "define-cloning-accessor requires either a slot-name xor an accessor function"))
-  (let* ((object (gensym "OBJECT"))
-         (env (gensym "ENV"))
-         (vars (gensym "VARS"))
-         (vals (gensym "VALS"))
-         (set-vars (gensym "SET-VARS"))
-         (setter (gensym "SETTER"))
-         (getter (gensym "GETTER"))
-         (inner-clone (gensym "INNER-CLONE"))
-         (set-var (gensym "SET-VAR"))
-         ;; AAAAH nested backquotes are hard!  I couldn't figure out
-         ;; how to get the appropriate accessor form into the setf
-         ;; expander forms.  This is a bit hacky, but it works, damn
-         ;; it!
-         (access-macro (gensym "ACCESS-MACRO"))
-         (access-wrapper
-          (if slot-name
-              (list `(defmacro ,access-macro (,object)
-                       `(slot-value ,,object ,'',slot-name)))
-              (list `(defmacro ,access-macro (,object)
-                       `(,',accessor ,,object))))))
-    `(progn
-       ,@access-wrapper
-       (defun ,name (,object)
-         "Auto-generated slot accessor."
-         (,access-macro ,object))
-       (define-setf-expander ,name (,object &environment ,env)
-         (multiple-value-bind (,vars ,vals ,set-vars ,setter ,getter) (get-setf-expansion ,object ,env)
-           (let ((,inner-clone (gensym "INNER-CLONE"))
-                 (,set-var (gensym "SET-VAR")))
-             (values
-              `(,@,vars ,,inner-clone)
-              `(,@,vals (clone ,,getter))
-              `(,,set-var)
-              `(progn
-                 (setf (,',access-macro ,,inner-clone) ,,set-var)
-                 (multiple-value-bind ,,set-vars ,,inner-clone
-                   ,,setter)
-                 ,,set-var)
-              `(,',access-macro ,,inner-clone))))))))
+object type that `getter-name' and `unsafe-setter-name' manipulate.
+
+`setf-name' is the name of the setf expander that is defined.
+
+`unsafe-setter-name' is a symbol naming a function that takes two
+arguments: the new value to store in the object and the object to
+manipulate.
+
+`getter-name' is a symbol naming a function that takes one argument:
+the object to retrieve a value from.  If `getter-name' is not provided
+then it defaults to be the same as `setf-name'."
+  (let ((object (gensym "OBJECT"))
+        (env (gensym "ENV"))
+        (vars (gensym "VARS"))
+        (vals (gensym "VALS"))
+        (set-vars (gensym "SET-VARS"))
+        (setter (gensym "SETTER"))
+        (getter (gensym "GETTER"))
+        (inner-clone (gensym "INNER-CLONE"))
+        (set-var (gensym "SET-VAR")))
+    `(define-setf-expander ,setf-name (,object &environment ,env)
+       (multiple-value-bind (,vars ,vals ,set-vars ,setter ,getter)
+           (get-setf-expansion ,object ,env)
+         (let ((,inner-clone (gensym "INNER-CLONE"))
+               (,set-var (gensym "SET-VAR")))
+           (values
+            `(,@,vars ,,inner-clone)
+            `(,@,vals (clone ,,getter))
+            `(,,set-var)
+            `(progn
+               (,',unsafe-setter-name ,,set-var ,,inner-clone)
+               (multiple-value-bind ,,set-vars ,,inner-clone
+                 ,,setter)
+               ,,set-var)
+            `(,',getter-name ,,inner-clone)))))))
 
 (defun clone-slots (slots old new)
   "For each given slot name, store `old''s value in `new'."
@@ -84,9 +78,9 @@ appropriate type."
 
 (defgeneric clone (object)
   (:documentation
-   "Create a clone of the given object which contains the same data.
+   "Create a shallow clone of the given object which contains the same data.
 
-If you wish to use `define-cloning-accessor' to access parts of a
+If you wish to use `define-cloning-setf-expander' to access parts of a
 type, you must define a method for that type which returns an object
 which is not `eq' to the input object."))
 (defmethod clone (object)
@@ -207,43 +201,12 @@ This macro works just like `defclass' with a few modifications.
    An error will be signaled if the class you are attempting to define
    doesn't have `data' in its class precedence list.  See the
    documentation for `data' to learn more about the implications of
-   being a subclass of `data'.
-
-3. Slot definitions may now include the `:updater' argument to define
-   a cloning accessor with `define-cloning-accessor'.  See the
-   documentation for `define-cloning-accessor' to learn more about how
-   they behave."
+   being a subclass of `data'."
   (when (find :metaclass options :key #'car)
     (error "metaclass option is forbidden"))
   (unless direct-superclasses
     (setf direct-superclasses '(data)))
-  (let (updaters)
-    (labels
-        ((normalize-slot-definition (definition)
-           (when (symbolp definition)
-             (return-from normalize-slot-definition definition))
-           (let ((slot-name (car definition))
-                 (remaining (cdr definition))
-                 cleaned)
-             (loop :while remaining :do
-                (progn
-                  (unless (cdr remaining)
-                    (error "odd number of elements in &key list for slot definition"))
-                  (destructuring-bind (key value &rest rest) remaining
-                    (cond
-                      ((eq key :updater)
-                       (push (cons value slot-name) updaters))
-                      (t
-                       (push key cleaned)
-                       (push value cleaned)))
-                    (setf remaining rest))))
-             (cons slot-name (nreverse cleaned))))
-         (updater-form (updater-description)
-           `(define-cloning-accessor ,(car updater-description) :slot-name ,(cdr updater-description))))
-      (setf direct-slots (mapcar #'normalize-slot-definition direct-slots))
-      `(progn
-         (defclass ,name ,direct-superclasses ,direct-slots
-           (:metaclass data-class)
-           ,@options)
-         ,@(mapcar #'updater-form updaters)
-         ',name))))
+  `(defclass ,name ,direct-superclasses
+     ,direct-slots
+     (:metaclass data-class)
+     ,@options))
