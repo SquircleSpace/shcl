@@ -116,6 +116,10 @@
 These tokens represent file paths, quoted strings, command names, and
 similar tokens.  Its a grab-bag of miscellaneous token types."))
 
+(defgeneric simple-word-text (simple-word)
+  (:documentation
+   "Returns the string that the given object represents."))
+
 (define-data simple-word (a-word)
   ((text
     :initarg :text
@@ -134,6 +138,10 @@ There's nothing special going on here."))
 (defmethod print-object ((simple-word simple-word) stream)
   (print-unreadable-object (simple-word stream :type t)
     (format stream "~W" (simple-word-text simple-word))))
+
+(defgeneric compound-word-parts (compound-word)
+  (:documentation
+   "Returns the vector of tokens contained within a compound word."))
 
 (define-data compound-word (a-word)
   ((parts :type vector
@@ -217,6 +225,10 @@ won't be known until after parsing happens."))
   ()
   (:documentation
    "A class to represent words that look like shell variable names."))
+
+(defgeneric io-number-fd (io-number)
+  (:documentation
+   "Returns the file descriptor number the given object represents."))
 
 (define-data io-number (token)
   ((fd
@@ -391,6 +403,10 @@ two letters that should be passed to a command."))
 (defun eof-error (&rest rest)
   (apply 'error 'eof-error rest))
 
+(defgeneric single-quote-contents (single-quote)
+  (:documentation
+   "Return the string that a given single quote token contains."))
+
 (define-data single-quote (a-word)
   ((contents
     :initarg :contents
@@ -436,6 +452,11 @@ two letters that should be passed to a command."))
 
 (defun make-escaped-character (char)
   (make-instance 'escaped-character :contents (string char) :value (format nil "~C~C" #\\ char)))
+
+(defgeneric double-quote-parts (double-quote)
+  (:documentation
+   "Returns the vector of tokens contained within a double quote
+token."))
 
 (define-data double-quote (compound-word)
   ((parts :type vector
@@ -489,6 +510,17 @@ EOF results in the `unexpected-eof' error being signaled."
 
 Command words are tokens that contain entire shell commands.  This
 retrieves the token sequence for the inner command."))
+
+(defgeneric command-word-evaluate-fn (command-word)
+  (:documentation
+   "Return the function that \"evaluates\" a given command word
+token.
+
+A command word token expands to the output of a shell command.  The
+return value of this function can be funcalled to evaluate the shell
+command.  Note that this function may return nil initially.  The
+function will be made accessible later in SHCL's evaluation
+pipeline."))
 
 (define-data command-word (a-word)
   ((tokens

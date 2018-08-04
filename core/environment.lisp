@@ -38,6 +38,20 @@
 (defparameter *env-default* ""
   "The value of unset environment variables.")
 
+(defgeneric environment-binding-value (binding)
+  (:documentation
+   "Returns the value associated with a given binding."))
+
+(defgeneric environment-binding-exported-p (binding)
+  (:documentation
+   "Returns non-nil iff the given binding should be exported to a
+child process."))
+
+(defgeneric environment-binding-readonly-p (binding)
+  (:documentation
+   "Returns non-nil iff the given binding should be prevented from
+changing."))
+
 (define-data environment-binding ()
   ((value
     :initarg :value
