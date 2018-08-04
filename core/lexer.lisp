@@ -62,15 +62,23 @@
 
 (defgeneric token-value (token)
   (:documentation
-   "Returns the string that was used to build this token.
+   "Returns the string that was used to build this token."))
 
-This function should only be used for debugging purposes."))
+(defgeneric token-position (token)
+  (:documentation
+   "Returns a `position-record' describing where this token began."))
 
 (define-data token ()
-  ((value :type (or null string)
-          :initform nil
-          :updater token-value
-          :initarg :value))
+  ((value
+    :type (or null string)
+    :initform nil
+    :updater token-value
+    :initarg :value)
+   (position
+    :type (or null position-record)
+    :initform nil
+    :updater token-position
+    :initarg :position))
   (:documentation
    "A class representing a token in the POSIX shell language."))
 (defmethod print-object ((token token) stream)
@@ -156,7 +164,7 @@ won't be known until after parsing happens."))
   (print-unreadable-object (word stream :type t)
     (format stream "~W = ~W" (assignment-word-name word) (assignment-word-value-word word))))
 
-(defun make-assignment-word-from-parts (parts raw)
+(defun make-assignment-word-from-parts (parts &rest initargs)
   (let* ((first-part (aref parts 0))
          (first-word (simple-word-text first-part))
          (name-break-point (assignment-word-p first-word))
@@ -174,7 +182,7 @@ won't be known until after parsing happens."))
     (let ((final-value (if (equal 1 (length new-parts))
                            (aref new-parts 0)
                            (make-instance 'compound-word :parts new-parts :value nil))))
-      (make-instance 'assignment-word :name name :value-word final-value :value raw))))
+      (apply 'make-instance 'assignment-word :name name :value-word final-value initargs))))
 
 (define-data name (simple-word)
   ()
@@ -285,8 +293,8 @@ All the same, this class exists to help group them all together."))
 (define-operator great ">")
 (define-operator less "<")
 
-(defun make-operator (string raw)
-  (make-instance (fset:lookup *operators* string) :value raw))
+(defun make-operator (string &rest initargs)
+  (apply 'make-instance (fset:lookup *operators* string) initargs))
 
 (defun operator-p (word)
   (fset:lookup *operators* word))
@@ -336,8 +344,8 @@ two letters that should be passed to a command."))
 (define-reserved-word bang "!")
 (define-reserved-word in "in")
 
-(defun make-reserved (string raw)
-  (make-instance (fset:lookup *reserved-words* string) :value raw))
+(defun make-reserved (string &rest initargs)
+  (apply 'make-instance (fset:lookup *reserved-words* string) initargs))
 
 (defun reserved-p (word)
   (fset:lookup *reserved-words* word))
@@ -874,7 +882,10 @@ the tokens found in the stream."
   "Return a vector containing the tokens present in the given string.
 
 See `next-token'."
-  (tokens-in-stream (make-string-input-stream string) :readtable readtable))
+  (tokens-in-stream
+   (make-instance 'shcl/core/positional-stream:positional-input-stream
+                  :underlying-stream (make-string-input-stream string))
+   :readtable readtable))
 
 (defun tokens-in-stream (stream &key (readtable (standard-shell-readtable)))
   "Return a vector containing the tokens present in the given stream.
@@ -943,19 +954,29 @@ the token that is ultimately delimited."))
         (raw-stream all-chars consumed-chars last-char-status
                     first-consumed-character-position)
       stream
-    (let ((char (if hang-p
-                    (read-char raw-stream nil :eof)
-                    (read-char-no-hang raw-stream nil :eof))))
+    (let* ((consume-p (lexer-context-consume-p stream))
+           (needs-position-record
+            (and
+             (not (slot-boundp stream 'first-consumed-character-position))
+             consume-p))
+           (position-record
+            (when needs-position-record
+              (make-position-record-from-positional-stream raw-stream)))
+           (char (if hang-p
+                     (read-char raw-stream nil :eof)
+                     (read-char-no-hang raw-stream nil :eof))))
+      (when needs-position-record
+        (if (eq char :eof)
+            (setf first-consumed-character-position nil)
+            (setf first-consumed-character-position position-record)))
       (cond
         ((and (not hang-p)
               (not char)))
         ((eq char :eof)
          (setf last-char-status nil))
-        ((lexer-context-consume-p stream)
+        (consume-p
          (vector-push-extend char all-chars)
          (vector-push-extend char consumed-chars)
-         (unless (slot-boundp stream 'first-consumed-character-position)
-           (setf first-consumed-character-position (make-position-record-from-positional-stream raw-stream)))
          (setf last-char-status 'consumed))
         (t
          (vector-push-extend char all-chars)
@@ -1138,36 +1159,38 @@ See `shell-lexer-context-add-part'."
   (shell-lexer-context-word-boundary context)
   (with-slots (parts consumed-chars) context
     (let* ((part-count (length parts))
-           (simple-word (shell-lexer-context-simple-word context)))
+           (simple-word (shell-lexer-context-simple-word context))
+           (position (lexer-context-first-consumed-character-position context))
+           (initargs `(:value ,consumed-chars :position ,position)))
       (cond ((and simple-word
                   (operator-p simple-word))
-             (make-operator simple-word consumed-chars))
+             (apply 'make-operator simple-word initargs))
 
             ((and simple-word
                   (reserved-p simple-word))
-             (make-reserved simple-word consumed-chars))
+             (apply 'make-reserved simple-word initargs))
 
             ((and simple-word
                   (not (find-if-not #'digit-char-p simple-word))
                   (or (equal #\< (peek-char nil context nil :eof))
                       (equal #\> (peek-char nil context nil :eof))))
-             (make-instance 'io-number :value consumed-chars :fd (parse-integer simple-word)))
+             (apply 'make-instance 'io-number :fd (parse-integer simple-word) initargs))
 
             ((and simple-word
                   (name-p simple-word))
-             (make-instance 'name :value consumed-chars :text simple-word))
+             (apply 'make-instance 'name :text simple-word initargs))
 
             ((shell-lexer-context-assignment-p context)
-             (make-assignment-word-from-parts parts consumed-chars))
+             (apply 'make-assignment-word-from-parts parts initargs))
 
             ((equal 1 part-count)
              (let ((part (aref parts 0)))
-               (unless (token-value part)
-                 (setf (token-value part) consumed-chars))
+               (setf (token-value part) consumed-chars)
+               (setf (token-position part) position)
                part))
 
             ((< 1 part-count)
-             (make-instance 'compound-word :parts parts :value consumed-chars))
+             (apply 'make-instance 'compound-word :parts parts initargs))
 
             ((equal 0 part-count)
              (when (eq :error if-empty)
