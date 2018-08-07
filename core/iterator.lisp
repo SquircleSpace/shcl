@@ -14,7 +14,7 @@
 
 (defpackage :shcl/core/iterator
   (:use :common-lisp)
-  (:import-from :shcl/core/utility #:make-extensible-vector)
+  (:import-from :shcl/core/utility #:make-extensible-vector #:optimization-settings #:required)
   (:import-from :fset)
   (:export
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
@@ -24,6 +24,8 @@
    #:iterator-values #:lookahead-iterator-wrapper
    #:lookahead-iterator-position-token))
 (in-package :shcl/core/iterator)
+
+(optimization-settings)
 
 (defclass iterator ()
   ((compute
