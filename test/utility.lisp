@@ -28,14 +28,14 @@
 
 (define-test hooks
   (define-hook test-hook)
-  (add-hook test-hook 'signals-test)
-  (is-condition (run-hook test-hook) test-condition)
-  (remove-hook test-hook 'signals-test)
-  (handler-case (progn (run-hook test-hook) (pass "No signal expected"))
+  (add-hook 'test-hook 'signals-test)
+  (is-condition (run-hook 'test-hook) test-condition)
+  (remove-hook 'test-hook 'signals-test)
+  (handler-case (progn (run-hook 'test-hook) (pass "No signal expected"))
     (test-condition () (fail "Unexpected signal")))
-  (add-hook test-hook 'signals-test)
+  (add-hook 'test-hook 'signals-test)
   (define-hook test-hook)
-  (handler-case (progn (run-hook test-hook) (pass "No signal expected"))
+  (handler-case (progn (run-hook 'test-hook) (pass "No signal expected"))
     (test-condition () (fail "Unexpected signal"))))
 
 (define-test when-let-tests
