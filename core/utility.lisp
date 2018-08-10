@@ -230,35 +230,32 @@ level."
    "A condition indicating that a feature hasn't been implemented
 yet."))
 
-(defstruct hook
-  (functions (fset:empty-set)))
-
 (defmacro define-hook (name &optional documentation)
   "Create a hook.
 
 A hook is more or less an unordered collection of functions.  When the
 hook is run with `run-hook', each function will be called once."
   `(defparameter ,name
-     (make-hook)
+     (fset:empty-set)
      ,documentation))
 
 (defun add-hook (hook function-symbol)
   "Add a function a function to a hook."
-  (check-type hook hook)
+  (check-type hook symbol)
   (check-type function-symbol symbol)
-  (setf (hook-functions hook) (fset:with (hook-functions hook) function-symbol))
+  (setf (symbol-value hook) (fset:with (symbol-value hook) function-symbol))
   hook)
 
 (defun remove-hook (hook function-symbol)
   "Remove a function from a hook."
-  (check-type hook hook)
+  (check-type hook symbol)
   (check-type function-symbol symbol)
-  (setf (hook-functions hook) (fset:less (hook-functions hook) function-symbol))
+  (setf (symbol-value hook) (fset:less (symbol-value hook) function-symbol))
   hook)
 
 (defun run-hook (hook)
   "Run each function in the provided hook."
-  (fset:do-set (fn (hook-functions hook))
+  (fset:do-set (fn (symbol-value hook))
     (funcall fn)))
 
 (define-hook *revival-hook*
@@ -266,13 +263,13 @@ hook is run with `run-hook', each function will be called once."
 
 (defmacro on-revival (function-symbol)
   "When the process starts, call the named function."
-  `(add-hook *revival-hook* ',function-symbol))
+  `(add-hook '*revival-hook* ',function-symbol))
 
 (defun observe-revival ()
   "The process has started!"
-  (run-hook *revival-hook*))
+  (run-hook '*revival-hook*))
 
-(push 'observe-revival uiop:*image-restore-hook*)
+(pushnew 'observe-revival uiop:*image-restore-hook*)
 
 (define-hook *dump-hook*
   "This hook is run when an executable is being prepared.
@@ -282,13 +279,13 @@ for lisp compilers like ECL.")
 
 (defmacro on-dump (function-symbol)
   "When saving an executable, call the named function."
-  `(add-hook *dump-hook* ',function-symbol))
+  `(add-hook '*dump-hook* ',function-symbol))
 
 (defun observe-dump ()
   "We're saving an executable!"
-  (run-hook *dump-hook*))
+  (run-hook '*dump-hook*))
 
-(push 'observe-dump uiop:*image-dump-hook*)
+(pushnew 'observe-dump uiop:*image-dump-hook*)
 
 (defun %when-let (let-sym bindings body)
   (let ((block (gensym (format nil "WHEN-~A-BLOCK" (symbol-name let-sym)))))
