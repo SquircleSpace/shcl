@@ -35,7 +35,8 @@
 
    ;; Convenience and high-level parsing tools
    #:syntax-iterator #:define-terminal #:define-nonterminal #:syntax-tree
-   #:define-nonterminal-class #:parse-failure #:parse-failure-error-object))
+   #:define-nonterminal-class #:parse-failure #:parse-failure-error-object
+   #:print-error))
 (in-package :shcl/core/parser)
 
 (optimization-settings)
@@ -54,7 +55,9 @@ See `define-nonterminal'."))
 (defmethod print-object ((st syntax-tree) stream)
   (print-unreadable-object (st stream :type t :identity nil)))
 
-(defgeneric print-error (err stream))
+(defgeneric print-error (err stream)
+  (:documentation
+   "Print a human-readable description of `err' to `stream'."))
 
 (defmethod print-error (err stream)
   (if err
