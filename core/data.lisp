@@ -16,7 +16,8 @@
   (:use :common-lisp :shcl/core/utility)
   (:import-from :closer-mop)
   (:import-from :fset)
-  (:export #:define-data #:define-cloning-setf-expander #:clone))
+  (:export
+   #:define-data #:define-cloning-setf-expander #:clone #:data-class #:data))
 (in-package :shcl/core/data)
 
 (optimization-settings)
@@ -194,19 +195,18 @@ must not inherit from `data'."))
 
 This macro works just like `defclass' with a few modifications.
 
-1. The metaclass is always `data-class'.  See the documentation for
-   `data-class' to learn more about the implications of this.
+1. The metaclass is defaults to `data-class'.  See the documentation
+   for `data-class' to learn more about the implications of this.
 
 2. The class will inherit from `data' if no superclass is specified.
    An error will be signaled if the class you are attempting to define
    doesn't have `data' in its class precedence list.  See the
    documentation for `data' to learn more about the implications of
    being a subclass of `data'."
-  (when (find :metaclass options :key #'car)
-    (error "metaclass option is forbidden"))
+  (unless (find :metaclass options :key #'car)
+    (push '(:metaclass data-class) options))
   (unless direct-superclasses
     (setf direct-superclasses '(data)))
   `(defclass ,name ,direct-superclasses
      ,direct-slots
-     (:metaclass data-class)
      ,@options))
