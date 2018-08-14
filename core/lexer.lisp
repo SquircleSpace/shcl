@@ -18,7 +18,7 @@
    :shcl/core/iterator)
   (:import-from :shcl/core/positional-stream
    #:make-position-record-from-positional-stream #:position-record)
-  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander #:data-class)
   (:import-from :trivial-gray-streams)
   (:import-from :fset)
   (:import-from :closer-mop)
@@ -30,6 +30,9 @@
    #:variable-expansion-word #:conditional-replacement-policy
    #:default-value-policy #:assign-default-value-policy
    #:error-policy #:alternate-value-policy
+
+   ;; Token metaclasses
+   #:literal-token-class
 
    ;; Slot accessors
    #:token-value #:token-position #:simple-word-text #:compound-word-parts
@@ -276,29 +279,51 @@ operations."))
   (:documentation
    "Return the string that this literal token always represents."))
 
-(define-data literal-token (token)
-  ((string
+(defclass literal-token-class (data-class)
+  ((token-string
     :type string
-    :allocation :class
+    :allocation :instance
     :reader literal-token-string))
+  (:documentation
+   "A metaclass to represent classes that represent literal strings.
+
+Classes that are an instance of `literal-token-class' have a fixed
+string representation.  That string representation can be accessed
+using `literal-token-string'."))
+
+(defmethod closer-mop:validate-superclass ((class literal-token-class)
+                                           (super data-class))
+  ;; We promise to be data-like!
+  t)
+
+(define-data literal-token (token)
+  ()
   (:documentation
    "This class is a base class for tokens that represent very specific
 character sequences."))
+
+(defmethod literal-token-string ((literal-token literal-token))
+  (literal-token-string (class-of literal-token)))
+
 (defmethod print-object ((literal-token literal-token) stream)
   (print-unreadable-object (literal-token stream :type t)))
 
 (defmacro define-literal-token (name string &optional (superclasses '(literal-token)) slots &body options)
+  (check-type string string)
   `(progn
      (define-data ,name ,superclasses
        ((value :initform ,string)
-        (string :initform ,string)
         ,@slots)
        ,@(unless (getf options :documentation)
            `((:documentation
               ,(format nil "A token class representing the ~W character sequence." string))))
-       ,@options)))
+       ,@(unless (getf options :metaclass)
+           `((:metaclass literal-token-class)))
+       ,@options)
+     (setf (slot-value (find-class ',name) 'token-string) ,string)
+     ',name))
 
-(define-literal-token newline (string #\linefeed))
+(define-literal-token newline #.(string #\linefeed))
 (defparameter *newline*
   (make-instance 'newline))
 
