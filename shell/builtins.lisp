@@ -14,6 +14,9 @@
 
 (defpackage :shcl/shell/builtins
   (:use :common-lisp :shcl/core/utility :shcl/core/command)
+  (:import-from :shcl/shell/complete #:completion-suggestions-for-input)
+  (:import-from :shcl/core/iterator #:do-iterator)
+  (:import-from :shcl/core/lexer)
   (:import-from :fset))
 (in-package :shcl/shell/builtins)
 
@@ -38,4 +41,19 @@
     (write-string doc)
     (unless (equal #\newline (aref doc (1- (length doc))))
       (terpri)))
+  0)
+
+(define-builtin -shcl-complete (&option point &required input-string)
+  (cond
+    ((< 1 (length point))
+     (error 'command-error :message "point option must not be specified more than once."))
+    ((equal 1 (length point))
+     (setf point (wrap-errors
+                   (parse-integer (aref point 0) :junk-allowed nil))))
+    ((equal 0 (length point))
+     (setf point (length input-string))))
+
+  (let ((readtable (shcl/core/lexer:standard-shell-readtable)))
+    (do-iterator (value (completion-suggestions-for-input input-string point readtable))
+      (format t "~A~%" value)))
   0)
