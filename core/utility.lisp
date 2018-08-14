@@ -239,11 +239,11 @@ hook is run with `run-hook', each function will be called once."
      (fset:empty-set)
      ,documentation))
 
-(defun add-hook (hook function-symbol)
+(defun add-hook (hook function)
   "Add a function a function to a hook."
   (check-type hook symbol)
-  (check-type function-symbol symbol)
-  (setf (symbol-value hook) (fset:with (symbol-value hook) function-symbol))
+  (check-type function (or symbol function))
+  (setf (symbol-value hook) (fset:with (symbol-value hook) function))
   hook)
 
 (defun remove-hook (hook function-symbol)
@@ -253,10 +253,13 @@ hook is run with `run-hook', each function will be called once."
   (setf (symbol-value hook) (fset:less (symbol-value hook) function-symbol))
   hook)
 
-(defun run-hook (hook)
-  "Run each function in the provided hook."
+(defun run-hook (hook &rest args)
+  "Run each function in the provided hook.
+
+Any arguments provided in `args' will be passed to every function in
+the hook."
   (fset:do-set (fn (symbol-value hook))
-    (funcall fn)))
+    (apply fn args)))
 
 (define-hook *revival-hook*
   "This hook is run when the process starts.")
