@@ -18,7 +18,7 @@
    :shcl/core/iterator)
   (:import-from :shcl/core/advice #:define-advice #:define-advisable)
   (:export
-   #:command-iterator
+   #:command-iterator #:*intermediate-parse-error-hook*
    ;; nonterminals
    #:complete-command #:command-list #:and-or #:and-or-tail :pipeline
    #:pipe-sequence #:pipe-sequence-tail #:command
@@ -54,46 +54,64 @@
   clobber if-word then else elif fi do-word done case-word esac while until
   for lbrace rbrace bang in semi par pipe lparen rparen great less)
 
-(define-nonterminal start
+(define-hook *intermediate-parse-error-hook*
+    "This hook is run when a parse error is detected in a nonterminal of
+the shell grammar.
+
+Each function will receive one argument: the error produced.  Note
+that these errors do not represent fatal parse errors.  They simply
+represent times when the parser chose a bad branch.")
+
+(defun error-hook (error)
+  (run-hook '*intermediate-parse-error-hook* error))
+
+(defmacro define-hooked-nonterminal (name-and-options &body clauses)
+  (when (symbolp name-and-options)
+    (setf name-and-options (list name-and-options)))
+  (setf name-and-options
+        `(,@name-and-options :error-hook 'error-hook))
+  `(define-nonterminal ,name-and-options ,@clauses))
+
+(define-hooked-nonterminal start
   parse-eof
   parse-complete-command)
 
-(define-nonterminal complete-command
+(define-hooked-nonterminal complete-command
   (newline-list &optional complete-command)
   (command-list command-end))
 
-(define-nonterminal command-end
+(define-hooked-nonterminal command-end
   parse-eof
   parse-newline)
 
-(define-nonterminal command-list
+(define-hooked-nonterminal command-list
   (and-or &optional separator-op command-list))
 
-(define-nonterminal and-or
+(define-hooked-nonterminal and-or
   (pipeline and-or-tail))
 
-(define-nonterminal and-or-tail
+(define-hooked-nonterminal and-or-tail
   (and-if linebreak pipeline and-or-tail)
   (or-if linebreak pipeline and-or-tail)
   ())
 
-(define-nonterminal pipeline
+(define-hooked-nonterminal pipeline
   (bang pipe-sequence)
   parse-pipe-sequence)
 
-(define-nonterminal pipe-sequence
+(define-hooked-nonterminal pipe-sequence
   (command pipe-sequence-tail))
 
-(define-nonterminal pipe-sequence-tail
+(define-hooked-nonterminal pipe-sequence-tail
   (pipe linebreak command pipe-sequence-tail)
   ())
 
-(define-nonterminal command
+(define-hooked-nonterminal command
   (compound-command &optional redirect-list)
   parse-function-definition
   parse-simple-command)
 
-(define-nonterminal compound-command
+(define-hooked-nonterminal compound-command
   parse-brace-group
   parse-subshell
   parse-for-clause
@@ -102,10 +120,10 @@
   parse-while-clause
   parse-until-clause)
 
-(define-nonterminal subshell
-  (lparen compound-list rparen))
+(define-hooked-nonterminal subshell
+  (lparen linebreak (term-sequence parse-dangling-term-sequence) rparen))
 
-(define-nonterminal compound-list
+(define-hooked-nonterminal compound-list
   (linebreak term-sequence))
 
 (define-nonterminal-class term ()
@@ -113,10 +131,20 @@
      separator))
 
 (define-advisable parse-term-sequence (iter)
-  (let ((continue-p t))
+  (parser-repeat (1 nil iter)
+    (parser-block
+      (parser-value
+       (make-instance 'term
+                      'and-or (parse (parse-and-or iter))
+                      'separator (parse
+                                  (parse-separator iter)))))))
+
+(define-advisable parse-dangling-term-sequence (iter)
+  (let (stop-error
+        stop-error-p)
     (parser-repeat (1 nil iter)
       (cond
-        (continue-p
+        ((not stop-error-p)
          (parser-block
            (parser-value
             (make-instance 'term
@@ -124,13 +152,14 @@
                            'separator (parse
                                        (parser-handler-case iter
                                            (parse-separator iter)
-                                         (t ()
-                                            (setf continue-p nil)
+                                         (t (err)
+                                            (setf stop-error-p t)
+                                            (setf stop-error err)
                                             (parser-value nil))))))))
         (t
-         (parser-error (make-instance 'unconditional-failure)))))))
+         (parser-error stop-error))))))
 
-(define-nonterminal for-clause
+(define-hooked-nonterminal for-clause
   (for name-nt linebreak for-clause-range (body parse-do-group)))
 
 (define-nonterminal-class for-clause-range ()
@@ -149,65 +178,65 @@
                       'sequential-sep (parse-sequential-sep iter))))
     (parser-value nil)))
 
-(define-nonterminal name-nt
+(define-hooked-nonterminal name-nt
   (name)) ;; Apply rule 5 (need not be reflected in the grammar)
 
-(define-nonterminal in-nt
+(define-hooked-nonterminal in-nt
   (in)) ;; Apply rule 6 (need not be reflected in the grammar)
 
-(define-nonterminal case-clause
+(define-hooked-nonterminal case-clause
   (case-word a-word linebreak in-nt linebreak case-list esac)
   (case-word a-word linebreak in-nt linebreak case-list-ns esac)
   (case-word a-word linebreak in-nt linebreak esac))
 
-(define-nonterminal case-list-ns
+(define-hooked-nonterminal case-list-ns
   (case-list case-item-ns)
   (case-item-ns))
 
-(define-nonterminal case-list
+(define-hooked-nonterminal case-list
   (case-item case-list-tail))
 
-(define-nonterminal case-list-tail
+(define-hooked-nonterminal case-list-tail
   (case-item case-list-tail)
   ())
 
-(define-nonterminal case-item-ns
+(define-hooked-nonterminal case-item-ns
   (pattern rparen linebreak)
   (pattern rparen compound-list linebreak)
   (lparen pattern rparen linebreak)
   (lparen pattern rparen compound-list linebreak))
 
-(define-nonterminal case-item
+(define-hooked-nonterminal case-item
   (pattern rparen linebreak dsemi linebreak)
   (pattern rparen compound-list dsemi linebreak)
   (lparen pattern rparen linebreak dsemi linebreak)
   (lparen pattern rparen compound-list dsemi linebreak))
 
-(define-nonterminal pattern
+(define-hooked-nonterminal pattern
   (a-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
 
-(define-nonterminal pattern-tail
+(define-hooked-nonterminal pattern-tail
   (pipe a-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
   ())
 
-(define-nonterminal if-clause
+(define-hooked-nonterminal if-clause
   (if-word (condition parse-compound-list) then (body parse-compound-list) else-part))
 
-(define-nonterminal else-part
+(define-hooked-nonterminal else-part
   (elif (condition parse-compound-list) then (body parse-compound-list) else-part)
   (else (body parse-compound-list) fi)
   parse-fi)
 
-(define-nonterminal while-clause
+(define-hooked-nonterminal while-clause
   (while (condition parse-compound-list) (body parse-do-group)))
 
-(define-nonterminal until-clause
+(define-hooked-nonterminal until-clause
   (until (condition parse-compound-list) (body parse-do-group)))
 
-(define-nonterminal function-definition
+(define-hooked-nonterminal function-definition
   (fname linebreak function-body))
 
-(define-nonterminal function-body
+(define-hooked-nonterminal function-body
   (compound-command redirect-list) ;; Apply rule 9 (need not be reflected in the grammar)
   (compound-command)) ;; Apply rule 9 (need not be reflected in the grammar)
 
@@ -231,13 +260,13 @@
                     'lparen (cdr name-lparen)
                     'rparen rparen))))
 
-(define-nonterminal brace-group
+(define-hooked-nonterminal brace-group
   (lbrace compound-list rbrace))
 
-(define-nonterminal do-group
+(define-hooked-nonterminal do-group
   (do-word compound-list done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
-(define-nonterminal simple-command
+(define-hooked-nonterminal simple-command
   (cmd-prefix &optional cmd-word cmd-suffix)
   (cmd-name &optional cmd-suffix))
 
@@ -247,31 +276,31 @@
   `(and a-word (not reserved-word)))
 (define-terminal cmd-name)
 
-(define-nonterminal cmd-word
+(define-hooked-nonterminal cmd-word
   parse-a-word) ;; Apply rule 7b (might need to be reflected in the grammar)
 
-(define-nonterminal cmd-prefix
+(define-hooked-nonterminal cmd-prefix
   (io-redirect cmd-prefix-tail)
   (assignment-word cmd-prefix-tail))
 
-(define-nonterminal cmd-prefix-tail
+(define-hooked-nonterminal cmd-prefix-tail
   (io-redirect cmd-prefix-tail)
   (assignment-word cmd-prefix-tail)
   ())
 
-(define-nonterminal cmd-suffix
+(define-hooked-nonterminal cmd-suffix
   (io-redirect cmd-suffix-tail)
   (a-word cmd-suffix-tail))
 
-(define-nonterminal cmd-suffix-tail
+(define-hooked-nonterminal cmd-suffix-tail
   (io-redirect cmd-suffix-tail)
   (a-word cmd-suffix-tail)
   ())
 
-(define-nonterminal redirect-list
+(define-hooked-nonterminal redirect-list
   (io-redirect redirect-list-tail))
 
-(define-nonterminal redirect-list-tail
+(define-hooked-nonterminal redirect-list-tail
   (io-redirect redirect-list-tail)
   ())
 
@@ -292,7 +321,7 @@
                                     (parse-io-file iter)
                                     (parse-io-here iter))))))))
 
-(define-nonterminal io-file
+(define-hooked-nonterminal io-file
   ((redirect parse-less) filename)
   ((redirect parse-lessand) (fd-description parse-simple-word))
   ((redirect parse-great) filename)
@@ -301,32 +330,32 @@
   ((redirect parse-lessgreat) filename)
   ((redirect parse-clobber) filename))
 
-(define-nonterminal filename
+(define-hooked-nonterminal filename
   parse-a-word) ;; Apply rule 2 (need not be reflected in grammar)
 
-(define-nonterminal io-here
+(define-hooked-nonterminal io-here
   (dless here-end)
   (dlessdash here-end))
 
-(define-nonterminal here-end
+(define-hooked-nonterminal here-end
   (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
 
-(define-nonterminal newline-list
+(define-hooked-nonterminal newline-list
   (newline &optional newline-list))
 
-(define-nonterminal linebreak
+(define-hooked-nonterminal linebreak
   (newline-list)
   ())
 
-(define-nonterminal separator-op
+(define-hooked-nonterminal separator-op
   parse-par
   parse-semi)
 
-(define-nonterminal separator
+(define-hooked-nonterminal separator
   (separator-op linebreak)
   (newline-list))
 
-(define-nonterminal sequential-sep
+(define-hooked-nonterminal sequential-sep
   (semi linebreak)
   (newline-list))
 

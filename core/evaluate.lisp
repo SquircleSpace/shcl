@@ -281,10 +281,10 @@ for the given redirect."))
        (error "Malformed COMMAND instance")))))
 
 (defmethod translate ((sy subshell))
-  (with-slots (compound-list) sy
+  (with-slots (term-sequence) sy
     (return-from translate
       `(with-subshell
-        ,@(bodyify (translate compound-list))))))
+        ,@(bodyify (apply 'progn-concatenate (map 'list 'translate term-sequence)))))))
 
 (defmethod translate ((sy term))
   (with-slots (and-or separator) sy
