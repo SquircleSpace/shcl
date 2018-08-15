@@ -63,6 +63,8 @@
       "Backslash lexes")
   (ok (lexes-to-token-types "\"double quotes $variable  escaped quote \\\"  end\"" 'double-quote)
       "Complex double quote lexes")
+  (ok (lexes-to-token-types "\"\"" 'double-quote)
+      "Empty double quote lexes")
   (ok (lexes-to-token-types "$(sub command word $variable)" 'command-word)
       "Command word lexes")
   (ok (lexes-to-token-types "$variable" 'variable-expansion-word)
