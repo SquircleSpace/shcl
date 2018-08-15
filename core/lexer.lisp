@@ -511,7 +511,7 @@ EOF results in the `unexpected-eof' error being signaled."
      (if (eq :eof (peek-char nil context nil :eof))
          (error 'unexpected-eof)
          (handle-extensible-syntax context :readtable readtable)))
-  (shell-lexer-context-delimit context))
+  (shell-lexer-context-delimit context :if-empty :empty-token))
 
 (defun read-double-quote (stream)
   (let* ((readtable (subtable (shell-lexer-context-readtable stream) #(double-quote)))
@@ -1260,11 +1260,11 @@ See `shell-lexer-context-delimit'."
 This function should be called at most once on a given context object.
 If the lexer context has no content, then the `if-empty' parameter
 controls the behavior of this function.  `if-empty' can be either
-`:error' or `nil'.
+`:error', `nil', or `:empty-token'.
 
 See `shell-lexer-context-add-part'."
-  (unless (or (eq if-empty :error) (eq if-empty nil))
-    (error "if-empty arg must be :error or nil"))
+  (unless (or (eq if-empty :error) (eq if-empty nil) (eq if-empty :empty-token))
+    (error "if-empty arg must be :error, nil, or :empty-token"))
 
   (shell-lexer-context-word-boundary context)
   (with-slots (parts consumed-chars) context
@@ -1303,11 +1303,16 @@ See `shell-lexer-context-add-part'."
              (apply 'make-instance 'compound-word :parts parts initargs))
 
             ((equal 0 part-count)
-             (when (eq :error if-empty)
-               (error "Empty token detected")))
+             (ecase if-empty
+               (:error
+                (error "Empty token detected"))
+               (:empty-token
+                (apply 'make-instance 'single-quote :contents "" initargs))
+               ((nil)
+                nil)))
 
             (t
-             (error "All cases should be covered above"))))))
+             (assert nil nil "All cases should be covered above"))))))
 
 (defun handle-extensible-syntax (context &key (readtable (shell-lexer-context-readtable context)))
   (let* ((no-match-value '#:no-match-value)
