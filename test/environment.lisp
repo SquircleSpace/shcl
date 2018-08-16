@@ -19,6 +19,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/environment)
+
 (defun contains-p (key)
   (nth-value 1 (env key)))
 

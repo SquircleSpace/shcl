@@ -21,6 +21,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/lisp-interpolation)
+
 (defun shell (str)
   (evaluate-shell-string str))
 

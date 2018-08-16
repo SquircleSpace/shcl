@@ -14,10 +14,14 @@
 
 (defpackage :shcl/test/foundation
   (:use :common-lisp :prove :lisp-namespace)
+  (:import-from :shcl/core/iterator #:do-iterator #:iterator)
+  (:import-from :shcl/core/utility #:optimization-settings)
   (:import-from :fset)
   (:export #:define-test #:run-test-set #:all-tests #:package-test-set
-           #:symbol-test))
+           #:symbol-test #:dependency-ordered-tests #:link-package-to-system))
 (in-package :shcl/test/foundation)
+
+(optimization-settings)
 
 (defvar *package-tests* (fset:empty-map (fset:empty-set)))
 
@@ -46,9 +50,9 @@ test forms inside the body (e.g. `ok')."
        ',name)))
 
 (defun run-test-set (tests)
-  "Run the test functions in the given set."
-  (let ((*suite* (make-instance 'suite :plan (fset:size tests))))
-    (fset:do-set (test tests)
+  "Run the test functions in the given iterable collection."
+  (let ((*suite* (make-instance 'suite :plan nil)))
+    (do-iterator (test (iterator tests))
       (funcall (symbol-test test)))
     (finalize)))
 
@@ -63,3 +67,91 @@ test forms inside the body (e.g. `ok')."
       (declare (ignore package))
       (fset:unionf all-tests tests))
     all-tests))
+
+(defvar *package-system-linkage-map* (fset:empty-map))
+
+(defun link-package-to-system (system-name &optional (this-package *package*))
+  "Record that the package named by `this-package' contains tests for
+`system-name'.
+
+Presently, this information is only used for
+`dependency-ordered-tests'."
+  (setf system-name (asdf:component-name (asdf:find-system system-name)))
+  (setf this-package (ensure-package this-package))
+  (setf (fset:lookup *package-system-linkage-map* this-package)
+        system-name)
+  (values))
+
+(defun dependency-ordered-tests ()
+  "Get an iterable, ordered collection of all tests defined with
+`define-test'.
+
+This returns the same tests that `all-tests' does, but it attempts to
+order the tests such that more foundational tests occur earlier than
+more derrived tests.  For example, if ASDF system A depends on ASDF
+system B, this function will try to put tests for system B before the
+tests for system A.
+
+In order for this to work, it must be possible to figure out which
+ASDF system a given test is testing.  Since it is useful to define
+tests in a seperate file (and often a seperate system) from the system
+under test, a function is provided to explicitly link a package
+containing tests to the system it tests.  See
+`link-package-to-system'.
+
+Tests that are not associated with an ASDF system will be run at the
+end in an unspecified order."
+  (let ((packages-without-linked-systems (fset:empty-set))
+        (packages-with-linked-systems (fset:empty-set))
+        (system-dependencies (fset:empty-map (fset:empty-set)))
+        (sorted-packages (shcl/core/utility:make-extensible-vector)))
+    (fset:do-map (package-designator tests *package-tests*)
+      (declare (ignore tests))
+      (let ((package (ensure-package package-designator)))
+        (if (fset:lookup *package-system-linkage-map* package)
+            (fset:adjoinf packages-with-linked-systems package)
+            (fset:adjoinf packages-without-linked-systems package))))
+    (labels
+        ((examined-p (system-name)
+           (nth-value 1 (fset:lookup system-dependencies system-name)))
+
+         (examine (system-name)
+           (when (examined-p system-name)
+             (return-from examine))
+
+           (shcl/core/debug:traverse-dependencies system-name (depender depended)
+             (declare (ignore depender))
+             (examine depended)
+             (fset:adjoinf (fset:lookup system-dependencies system-name) depended)
+             (fset:unionf (fset:lookup system-dependencies system-name)
+                          (fset:lookup system-dependencies depended))
+             nil))
+
+         (package-< (left right)
+           (setf left (fset:lookup *package-system-linkage-map* left))
+           (setf right (fset:lookup *package-system-linkage-map* right))
+           (let ((left-depends (fset:lookup system-dependencies left))
+                 (right-depends (fset:lookup system-dependencies right)))
+             (cond
+               ((fset:member? right left-depends)
+                nil)
+               ((fset:member? left right-depends)
+                t)
+               (t
+                (string< left right))))))
+
+      (fset:do-set (package packages-with-linked-systems)
+        (let ((linked-system (fset:lookup *package-system-linkage-map* package)))
+          (examine linked-system))
+        (vector-push-extend package sorted-packages))
+
+      (setf sorted-packages (sort sorted-packages #'package-<))
+
+      (fset:do-set (package packages-without-linked-systems)
+        (vector-push-extend package sorted-packages))
+
+      (shcl/core/iterator:concatenate-iterators
+       (shcl/core/iterator:map-iterator
+        (iterator sorted-packages)
+        (lambda (package)
+          (iterator (fset:lookup *package-tests* package))))))))

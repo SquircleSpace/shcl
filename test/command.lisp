@@ -24,6 +24,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/command)
+
 (defclass test-command ()
   ())
 

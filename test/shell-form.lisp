@@ -24,6 +24,10 @@
   (:import-from :fset))
 (in-package :shcl/test/shell-form)
 
+(optimization-settings)
+
+(link-package-to-system :shcl/core/shell-form)
+
 (define-test shell-not
   (let (evaluated-p)
     (ok (exit-info-true-p

@@ -20,6 +20,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/lexer)
+
 (defun lexes-to-token-types (string &rest tokens)
   (let ((real-tokens (tokens-in-string string)))
     (unless (equal (length real-tokens) (length tokens))

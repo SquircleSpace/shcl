@@ -20,6 +20,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/fd-table)
+
 (defvar *nop-fd-number* 0)
 
 (defmacro post-incf (place)

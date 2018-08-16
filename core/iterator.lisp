@@ -21,7 +21,7 @@
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
    #:filter-iterator #:concatenate-iterators #:concatenate-iterators*
-   #:iterator-values #:lookahead-iterator-wrapper
+   #:iterator-values #:lookahead-iterator-wrapper #:set-iterator
    #:lookahead-iterator-position-token))
 (in-package :shcl/core/iterator)
 
@@ -316,6 +316,15 @@ a new iterator in a given family."
       (setf seq (fset:less-first seq))
       (emit element))))
 
+(defun set-iterator (set)
+  "Produce an iterator that traverses an `fset:set'"
+  (make-iterator ()
+    (when (equal 0 (fset:size set))
+      (stop))
+    (let ((element (fset:least set)))
+      (setf set (fset:less set element))
+      (emit element))))
+
 (defgeneric iterator (thing)
   (:documentation
    "Produce an iterator that traverses the given thing."))
@@ -328,6 +337,9 @@ a new iterator in a given family."
 
 (defmethod iterator ((seq fset:seq))
   (seq-iterator seq))
+
+(defmethod iterator ((seq fset:set))
+  (set-iterator seq))
 
 (defmethod iterator ((iter iterator))
   iter)
