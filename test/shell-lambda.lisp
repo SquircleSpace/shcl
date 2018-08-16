@@ -20,6 +20,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/shell-lambda)
+
 (define-test happy-argument-parsing
   (is 123 (funcall (shell-lambda () 123) "argv0")
       "Trivial shell lambda works")

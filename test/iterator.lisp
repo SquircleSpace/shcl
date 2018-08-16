@@ -19,6 +19,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/iterator)
+
 (define-test iterator-tests
   (let* ((vector #(1 2 3 4 5))
          (list '(a b c d e))

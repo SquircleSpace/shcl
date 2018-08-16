@@ -21,6 +21,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/posix)
+
 (defcfun (opendir "opendir") dir-ptr
   (name :string))
 

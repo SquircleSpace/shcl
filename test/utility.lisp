@@ -18,6 +18,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/utility)
+
 (define-condition test-condition ()
   ())
 

@@ -12,10 +12,12 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl/test/debug
+(defpackage :shcl/test/lint
   (:use :common-lisp :shcl/core/utility :shcl/core/debug
         :shcl/test/foundation :prove))
-(in-package :shcl/test/debug)
+(in-package :shcl/test/lint)
+
+(optimization-settings)
 
 (define-test no-undocumented-symbols
   (is (fset:size (undocumented-symbols))

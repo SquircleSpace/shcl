@@ -20,6 +20,8 @@
 
 (optimization-settings)
 
+(link-package-to-system :shcl/core/data)
+
 (define-data base ()
   ((a
     :initarg :a
