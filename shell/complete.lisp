@@ -24,10 +24,6 @@
   (make-iterator ()
     (stop)))
 
-(defun completion-suggestions-for-tokens (tokens cursor-point)
-  (declare (ignore tokens cursor-point))
-  *empty-iterator*)
-
 (defun iterator-without-duplicates (iter)
   (let ((seen-values (fset:empty-set)))
     (filter-iterator
@@ -91,7 +87,7 @@
 (defmethod shcl/core/lexer:token-value ((sigil sigil-token))
   nil)
 
-(defun completion-suggestions-for-start-of-new-token (leading-tokens)
+(defun valid-types-for-next-token (leading-tokens)
   (let* ((sigil-token (make-instance 'sigil-token))
          (command-iterator (shcl/core/shell-grammar:command-iterator
                             (lookahead-iterator-wrapper
@@ -114,9 +110,34 @@
       (vector-push-extend error all-errors))
     (setf error (make-instance 'shcl/core/parser:choice :errors all-errors))
     (iterator-without-duplicates
-     (concatenate-iterators
-      (map-iterator (expected-types-for-parse-error error sigil-token)
-                    'simple-expansions-for-type)))))
+     (expected-types-for-parse-error error sigil-token))))
+
+(defun completion-suggestions-for-start-of-new-token-with-valid-token-types (valid-token-types)
+  (iterator-without-duplicates
+   (concatenate-iterators
+    (map-iterator valid-token-types 'simple-expansions-for-type))))
+
+(defun completion-suggestions-for-start-of-new-token (leading-tokens)
+  (completion-suggestions-for-start-of-new-token-with-valid-token-types
+   (valid-types-for-next-token leading-tokens)))
+
+(defun completion-suggestions-for-tokens (leading-tokens token-to-complete cursor-point)
+  (declare (ignore cursor-point))
+  (let* ((token-to-complete-value (shcl/core/lexer:token-value token-to-complete))
+         (valid-next-token-types (valid-types-for-next-token leading-tokens))
+         (new-token-suggestions
+          (completion-suggestions-for-start-of-new-token-with-valid-token-types
+           valid-next-token-types))
+         (applicable-new-token-suggestions
+          (filter-iterator
+           new-token-suggestions
+           (lambda (suggestion)
+             (and
+              (<= (length token-to-complete-value) (length suggestion))
+              (string= suggestion token-to-complete-value
+                       :end1 (min (length suggestion)
+                                  (length token-to-complete-value))))))))
+    applicable-new-token-suggestions))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.
@@ -148,5 +169,5 @@ text that could replace the token under point."
           (setf end-found t)
           (return))))
     (if end-found
-        (completion-suggestions-for-tokens tokens cursor-point)
+        (completion-suggestions-for-tokens tokens (vector-pop tokens) cursor-point)
         (completion-suggestions-for-start-of-new-token tokens))))
