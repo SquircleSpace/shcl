@@ -20,6 +20,18 @@
 (optimization-settings)
 
 (define-test no-undocumented-symbols
-  (is (fset:size (undocumented-symbols))
-      0
-      "No new undocumented symbols found"))
+  (let ((symbols (undocumented-symbols)))
+    (if (equal 0 (fset:size symbols))
+        (pass "Great!  No undocumented symbols found!")
+        (fail (with-output-to-string (out)
+                (format out "Found undocumented symbols:")
+                (let ((*print-gensym* nil))
+                  (fset:do-set (sym symbols)
+                    (multiple-value-bind (our-sym found-p) (find-symbol (symbol-name sym))
+                      (if (and found-p (eq our-sym sym))
+                          (format out " ~S:~S"
+                                  ;; Use symbol printer so that we get
+                                  ;; the automatic quoting behavior
+                                  (make-symbol (package-name (symbol-package sym)))
+                                  sym)
+                          (format out " ~S" sym))))))))))
