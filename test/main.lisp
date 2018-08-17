@@ -47,7 +47,7 @@
               (shcl/test/foundation:dependency-ordered-tests))
 
              (t
-              (shcl/core/iterator:concatenate-iterators
+              (shcl/core/iterator:concatenate-iterable-collection
                (shcl/core/iterator:map-iterator
                 (shcl/core/iterator:iterator package)
                 (lambda (package)

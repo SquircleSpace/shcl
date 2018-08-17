@@ -67,19 +67,74 @@
             (warn "Unexpected parse error ~A" err)
             *empty-iterator*)))))))
 
-(defgeneric simple-expansions-for-type (type))
+(defclass completion-context ()
+  ((cursor-point
+    :reader cursor-point
+    :initarg :cursor-point
+    :initform (required))))
 
-(defmethod simple-expansions-for-type ((class closer-mop:standard-class))
+(defgeneric completion-suggestions (desired-token-type token-fragment context)
+  (:method-combination concatenate-iterables))
+
+(defmethod completion-suggestions concatenate-iterables
+    (desired-token-type token-fragment context)
+  (declare (ignore desired-token-type token-fragment context))
   *empty-iterator*)
 
-(defmethod simple-expansions-for-type ((class shcl/core/lexer:literal-token-class))
-  (list-iterator (list (shcl/core/lexer:literal-token-string class))))
-
-(defmethod simple-expansions-for-type ((type symbol))
-  (let ((class (find-class type nil)))
-    (if class
-        (simple-expansions-for-type class)
+(defmethod completion-suggestions concatenate-iterables
+    ((desired shcl/core/lexer:literal-token-class) token context)
+  (let ((desired-string (shcl/core/lexer:literal-token-string desired))
+        (token-value (shcl/core/lexer:token-value token)))
+    (if (and (<= (length token-value) (length desired-string))
+             (string= desired-string token-value
+                      :end1 (min (length token-value) (length desired-string))))
+        (list-iterator (list desired-string))
         *empty-iterator*)))
+
+(shcl/core/data:define-data empty-token ()
+  ())
+
+(defmethod shcl/core/lexer:token-value ((empty-token empty-token))
+  "")
+
+(defvar *empty-token* (make-instance 'empty-token))
+
+(defgeneric expand-into-subclass-p (superclass subclass))
+
+(defmethod expand-into-subclass-p (superclass subclass)
+  t)
+
+(defmethod expand-into-subclass-p ((superclass (eql (find-class 'shcl/core/lexer:a-word)))
+                                   (subclass (eql (find-class 'shcl/core/lexer:reserved-word))))
+  nil)
+
+(defun expand-types (type-iterable)
+  (let ((unique-table (make-hash-table :test 'equal))
+        (type-iterator (iterator type-iterable)))
+    (make-iterator ()
+      (do-iterator (type type-iterator)
+        (unless (gethash type unique-table)
+          (let ((class (typecase type
+                         (symbol
+                          (find-class type nil))
+                         (standard-class
+                          type))))
+            (cond
+              (class
+               (setf (gethash class unique-table) t)
+               (setf (gethash (class-name class) unique-table) t)
+               (setf type-iterator
+                     (concatenate-iterables
+                      (filter-iterator (iterator (closer-mop:class-direct-subclasses class))
+                                       (lambda (subclass)
+                                         (expand-into-subclass-p class subclass)))
+                      type-iterator))
+               (emit class))
+
+              (t
+               (setf (gethash type unique-table) t)
+               (emit type))))))
+      (stop))))
 
 (defclass sigil-token ()
   ())
@@ -91,9 +146,9 @@
   (let* ((sigil-token (make-instance 'sigil-token))
          (command-iterator (shcl/core/shell-grammar:command-iterator
                             (lookahead-iterator-wrapper
-                             (concatenate-iterators*
-                              (iterator leading-tokens)
-                              (list-iterator (list sigil-token))))))
+                             (concatenate-iterables
+                              leading-tokens
+                              (list sigil-token)))))
          (shcl/core/shell-grammar:*intermediate-parse-error-hook*
           shcl/core/shell-grammar:*intermediate-parse-error-hook*)
          (all-errors (make-extensible-vector))
@@ -112,32 +167,10 @@
     (iterator-without-duplicates
      (expected-types-for-parse-error error sigil-token))))
 
-(defun completion-suggestions-for-start-of-new-token-with-valid-token-types (valid-token-types)
-  (iterator-without-duplicates
-   (concatenate-iterators
-    (map-iterator valid-token-types 'simple-expansions-for-type))))
-
-(defun completion-suggestions-for-start-of-new-token (leading-tokens)
-  (completion-suggestions-for-start-of-new-token-with-valid-token-types
-   (valid-types-for-next-token leading-tokens)))
-
-(defun completion-suggestions-for-tokens (leading-tokens token-to-complete cursor-point)
-  (declare (ignore cursor-point))
-  (let* ((token-to-complete-value (shcl/core/lexer:token-value token-to-complete))
-         (valid-next-token-types (valid-types-for-next-token leading-tokens))
-         (new-token-suggestions
-          (completion-suggestions-for-start-of-new-token-with-valid-token-types
-           valid-next-token-types))
-         (applicable-new-token-suggestions
-          (filter-iterator
-           new-token-suggestions
-           (lambda (suggestion)
-             (and
-              (<= (length token-to-complete-value) (length suggestion))
-              (string= suggestion token-to-complete-value
-                       :end1 (min (length suggestion)
-                                  (length token-to-complete-value))))))))
-    applicable-new-token-suggestions))
+(defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
+  (concatenate-iterable-collection
+   (map-iterator (expand-types (valid-types-for-next-token leading-tokens))
+                 (lambda (type) (completion-suggestions type token-to-complete context)))))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.
@@ -168,6 +201,7 @@ text that could replace the token under point."
         (when (>= token-end cursor-point)
           (setf end-found t)
           (return))))
-    (if end-found
-        (completion-suggestions-for-tokens tokens (vector-pop tokens) cursor-point)
-        (completion-suggestions-for-start-of-new-token tokens))))
+    (completion-suggestions-for-tokens
+     tokens
+     (if end-found (vector-pop tokens) *empty-token*)
+     (make-instance 'completion-context :cursor-point cursor-point))))

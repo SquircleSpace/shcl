@@ -20,7 +20,7 @@
    #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
-   #:filter-iterator #:concatenate-iterators #:concatenate-iterators*
+   #:filter-iterator #:concatenate-iterables #:concatenate-iterable-collection
    #:iterator-values #:lookahead-iterator-wrapper #:set-iterator
    #:lookahead-iterator-position-token))
 (in-package :shcl/core/iterator)
@@ -156,16 +156,25 @@ will return
          (when (funcall function value)
            (emit value))))))
 
-(defun concatenate-iterators (iterable)
-  "Concatenate a collection of iterators.
+(defun concatenate-iterable-collection (iterable)
+  "Concatenate a collection of iterables.
 
 `iterable' is anything that can be iterated using the `iterator'
-generic function.
+generic function.  It must contain objects that are also iterable
+using `iterator'.
 
-This function returns an iterator that traverses the iterators in
-`iterable' and emits the values that each iterator produces.  This
-function is essentially a generic version of
-`concatenate-iterators*'."
+This function returns an iterator that traverses the iterable
+containers in `iterable' and emits the values that each iterable
+contains.  This function is essentially a generic version of
+`concatenate-iterables'.
+
+This allows you to walk across containers of heterogenous types.  For
+example, the following is perfectly valid.
+
+    (concatenate-iterable-collection
+     (list (vector-iterator #(1 2 3))
+           #(4 5 6)
+           '(7 8 9)))"
   (let ((iter-iter (iterator iterable))
         current-iter)
     (make-iterator ()
@@ -173,17 +182,28 @@ function is essentially a generic version of
         (do-iterator (value current-iter)
           (emit value)))
       (do-iterator (inner-iter iter-iter)
-        (setf current-iter inner-iter)
+        (setf current-iter (iterator inner-iter))
         (do-iterator (value current-iter)
           (emit value)))
       (stop))))
 
-(defun concatenate-iterators* (&rest iterators)
-  "Concatenate some iterators.
+(defun concatenate-iterables (&rest iterables)
+  "Produce an iterator that traverses the values contained in the
+given iterables.
 
-This function returns an iterator that traverses the provided
-iterators and emits their values."
-  (concatenate-iterators iterators))
+This is simply a convenient version of
+`concatenate-iterable-collection'"
+  (concatenate-iterable-collection iterables))
+
+(define-method-combination concatenate-iterables
+    :identity-with-one-argument t
+    :documentation
+    "A method combination that combines method results using the
+`concatenate-iterables' function.
+
+This is like a generic version of the `nconc' method combination.
+Instead of returning lists that are then destructively modified, you
+may return any type that can be iterated with `iterator'.")
 
 (defun iterator-values (iter)
   "Extract all remaining values from the given iterator and return
