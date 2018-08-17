@@ -150,7 +150,7 @@ end in an unspecified order."
       (fset:do-set (package packages-without-linked-systems)
         (vector-push-extend package sorted-packages))
 
-      (shcl/core/iterator:concatenate-iterators
+      (shcl/core/iterator:concatenate-iterable-collection
        (shcl/core/iterator:map-iterator
         (iterator sorted-packages)
         (lambda (package)
