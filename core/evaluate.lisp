@@ -403,7 +403,7 @@ and io redirects."
   (let (assignments
         arguments
         redirects)
-    (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
+    (with-slots (cmd-prefix a-word cmd-suffix) sy
       (when (and (slot-boundp sy 'cmd-prefix)
                  cmd-prefix)
         (multiple-value-bind (prefix-assignments prefix-redirects) (cmd-prefix-parts cmd-prefix)
@@ -412,13 +412,9 @@ and io redirects."
           (dolist (r prefix-redirects)
             (push r redirects))))
 
-      (when (and (slot-boundp sy 'cmd-name)
-                 cmd-name)
-        (push cmd-name arguments))
-
-      (when (and (slot-boundp sy 'cmd-word)
-                 cmd-word)
-        (push cmd-word arguments))
+      (when (and (slot-boundp sy 'a-word)
+                 a-word)
+        (push a-word arguments))
 
       (when (and (slot-boundp sy 'cmd-suffix)
                  cmd-suffix)
@@ -442,9 +438,8 @@ and io redirects."
                  (fset:last ,result-exit-infos))))))
 
 (defmethod translate ((sy simple-command))
-  (with-slots (cmd-prefix cmd-word cmd-name cmd-suffix) sy
-    (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
-      (let* ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
-             (assignments (mapcar 'translate-assignment raw-assignments))
-             (arguments `(fset:convert 'list ,(expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname t))))
-        `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects)))))
+  (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
+    (let* ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
+           (assignments (mapcar 'translate-assignment raw-assignments))
+           (arguments `(fset:convert 'list ,(expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname t))))
+      `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects))))
