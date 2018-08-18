@@ -28,7 +28,7 @@
    #:case-list :case-list-tail #:case-item-ns #:case-item #:pattern
    #:pattern-tail :if-clause #:else-part #:while-clause
    #:until-clause #:function-definition :function-body #:fname
-   #:brace-group #:do-group #:simple-command #:cmd-name :cmd-word
+   #:brace-group #:do-group #:simple-command
    #:cmd-prefix #:cmd-prefix-tail #:cmd-suffix
    #:cmd-suffix-tail :redirect-list #:redirect-list-tail
    #:io-redirect #:io-file #:filename :io-source #:io-here #:here-end
@@ -301,17 +301,8 @@ represent times when the parser chose a bad branch.")
   (do-word (compound-list (compound-list-ending-with #'parse-done)) done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
 (define-hooked-nonterminal simple-command
-  (cmd-prefix &optional cmd-word cmd-suffix)
-  (cmd-name &optional cmd-suffix))
-
-;; Apply rule 7a
-(deftype cmd-name ()
-  "A type representing command names"
-  `(and a-word (not reserved-word)))
-(define-terminal cmd-name)
-
-(define-hooked-nonterminal cmd-word
-  parse-a-word) ;; Apply rule 7b (might need to be reflected in the grammar)
+  (cmd-prefix &optional a-word cmd-suffix)
+  (a-word &optional cmd-suffix))
 
 (define-hooked-nonterminal cmd-prefix
   (io-redirect cmd-prefix-tail)
