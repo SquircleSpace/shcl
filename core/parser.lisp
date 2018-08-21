@@ -662,14 +662,16 @@ will use the first production to match.
    slots for the nonterminal class and how to fill the slots.  Each
    element of the list is a list of two elements and describes one
    slot of the class.  The first element of the pair is the name of
-   the slot.  The second element is the name of the parser function
-   that should be called to produce the initarg value for the slot.  A
-   class will be generated that has all the slots named by all the
-   productions of this type.  See `define-nonterminal-class'.  You may
-   also include `&optional' in the production list.  After `&optional'
-   appears, slots are initialized more conservatively.  If a slot
-   initializer returns a parse failure but consumes no input then that
-   slot and all remaining slots will be initialized to nil.
+   the slot.  The second element should evaluate to a funcallable
+   object that takes one argument: the token iterator.  The function
+   will be funcalled and the return value will be used to initialize
+   the slot.  A class will be generated that has all the slots named
+   by all the productions of this type.  See
+   `define-nonterminal-class'.  You may also include `&optional' in
+   the production list.  After `&optional' appears, slots are
+   initialized more conservatively.  If a slot initializer returns a
+   parse failure but consumes no input then that slot and all
+   remaining slots will be initialized to nil.
 
    As a shorthand, you may simply provide a symbol instead of a list
    as a slot description.  The symbol will be used as the name of the
@@ -718,7 +720,7 @@ will use the first production to match.
            (vector-push-extend form result-forms))
          (slot-parts (slot-description)
            (if (symbolp slot-description)
-               (values (ensure-slot slot-description) (parser-part-name slot-description))
+               (values (ensure-slot slot-description) `#',(parser-part-name slot-description))
                (destructuring-bind (slot-name parser-function) slot-description
                  (values (ensure-slot slot-name) parser-function))))
          (hookify (option)
@@ -761,12 +763,12 @@ will use the first production to match.
                               `(',slot-name (unless ,optional-break-sym
                                               (,parse
                                                (parser-choice ,iter
-                                                 (,parser-function ,iter)
+                                                 (funcall ,parser-function ,iter)
                                                  (progn
                                                    (setf ,optional-break-sym t)
                                                    (parser-value nil)))))))
                              (t
-                              `(',slot-name (,parse (,parser-function ,iter)))))))))))
+                              `(',slot-name (,parse (funcall ,parser-function ,iter)))))))))))
 
              (add-option
               (if optional-break-sym

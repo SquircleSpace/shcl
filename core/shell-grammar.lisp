@@ -121,7 +121,7 @@ represent times when the parser chose a bad branch.")
   parse-until-clause)
 
 (define-hooked-nonterminal subshell
-  (lparen linebreak (term-sequence parse-dangling-term-sequence) rparen))
+  (lparen linebreak (term-sequence #'parse-dangling-term-sequence) rparen))
 
 (define-hooked-nonterminal compound-list
   (linebreak term-sequence))
@@ -160,7 +160,7 @@ represent times when the parser chose a bad branch.")
          (parser-error stop-error))))))
 
 (define-hooked-nonterminal for-clause
-  (for name-nt linebreak for-clause-range (body parse-do-group)))
+  (for name-nt linebreak for-clause-range (body #'parse-do-group)))
 
 (define-nonterminal-class for-clause-range ()
     (in-nt
@@ -220,18 +220,18 @@ represent times when the parser chose a bad branch.")
   ())
 
 (define-hooked-nonterminal if-clause
-  (if-word (condition parse-compound-list) then (body parse-compound-list) else-part))
+  (if-word (condition #'parse-compound-list) then (body #'parse-compound-list) else-part))
 
 (define-hooked-nonterminal else-part
-  (elif (condition parse-compound-list) then (body parse-compound-list) else-part)
-  (else (body parse-compound-list) fi)
+  (elif (condition #'parse-compound-list) then (body #'parse-compound-list) else-part)
+  (else (body #'parse-compound-list) fi)
   parse-fi)
 
 (define-hooked-nonterminal while-clause
-  (while (condition parse-compound-list) (body parse-do-group)))
+  (while (condition #'parse-compound-list) (body #'parse-do-group)))
 
 (define-hooked-nonterminal until-clause
-  (until (condition parse-compound-list) (body parse-do-group)))
+  (until (condition #'parse-compound-list) (body #'parse-do-group)))
 
 (define-hooked-nonterminal function-definition
   (fname linebreak function-body))
@@ -322,13 +322,13 @@ represent times when the parser chose a bad branch.")
                                     (parse-io-here iter))))))))
 
 (define-hooked-nonterminal io-file
-  ((redirect parse-less) filename)
-  ((redirect parse-lessand) (fd-description parse-simple-word))
-  ((redirect parse-great) filename)
-  ((redirect parse-greatand) (fd-description parse-simple-word))
-  ((redirect parse-dgreat) filename)
-  ((redirect parse-lessgreat) filename)
-  ((redirect parse-clobber) filename))
+  ((redirect #'parse-less) filename)
+  ((redirect #'parse-lessand) (fd-description #'parse-simple-word))
+  ((redirect #'parse-great) filename)
+  ((redirect #'parse-greatand) (fd-description #'parse-simple-word))
+  ((redirect #'parse-dgreat) filename)
+  ((redirect #'parse-lessgreat) filename)
+  ((redirect #'parse-clobber) filename))
 
 (define-hooked-nonterminal filename
   parse-a-word) ;; Apply rule 2 (need not be reflected in grammar)
