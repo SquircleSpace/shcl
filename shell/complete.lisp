@@ -25,12 +25,12 @@
     (stop)))
 
 (defun iterator-without-duplicates (iter)
-  (let ((seen-values (fset:empty-set)))
+  (let ((seen-values (make-hash-table :test 'equal)))
     (filter-iterator
      iter
      (lambda (obj)
-       (unless (fset:contains? seen-values obj)
-         (fset:adjoinf seen-values obj)
+       (unless (gethash obj seen-values)
+         (setf (gethash obj seen-values) t)
          t)))))
 
 (defun expected-types-for-parse-error (err sigil-token)
