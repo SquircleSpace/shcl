@@ -33,6 +33,30 @@
          (setf (gethash obj seen-values) t)
          t)))))
 
+(defgeneric parse-error-involves-sigil-token-p (err sigil-token))
+
+(defmethod parse-error-involves-sigil-token-p (err sigil-token)
+  nil)
+
+(defgeneric parse-error-expected-types (err))
+
+(defmethod parse-error-involves-sigil-token-p ((err shcl/core/parser:expected-eof) sigil-token)
+  (eq sigil-token (shcl/core/parser:expected-eof-got err)))
+
+(defmethod parse-error-expected-types ((err shcl/core/parser:expected-eof))
+  (list :eof))
+
+(defmethod parse-error-involves-sigil-token-p ((err shcl/core/parser:type-mismatch) sigil-token)
+  (eq sigil-token (shcl/core/parser:type-mismatch-got err)))
+
+(defmethod parse-error-expected-types ((err shcl/core/parser:type-mismatch))
+  (list (shcl/core/parser:type-mismatch-expected-type err)))
+
+(defmethod parse-error-expected-types ((err shcl/core/parser:choice))
+  (concatmap-iterator
+   (shcl/core/parser:choice-errors-iterator err :recursive-p t)
+   'parse-error-expected-types))
+
 (defun expected-types-for-parse-error (err sigil-token)
   (labels
       ((expected-type (error)
@@ -108,33 +132,39 @@
                                    (subclass (eql (find-class 'shcl/core/lexer:reserved-word))))
   nil)
 
-(defun expand-types (type-iterable)
-  (let ((unique-table (make-hash-table :test 'equal))
-        (type-iterator (iterator type-iterable)))
-    (make-iterator ()
-      (do-iterator (type type-iterator)
-        (unless (gethash type unique-table)
-          (let ((class (typecase type
-                         (symbol
-                          (find-class type nil))
-                         (standard-class
-                          type))))
-            (cond
-              (class
-               (setf (gethash class unique-table) t)
-               (setf (gethash (class-name class) unique-table) t)
-               (setf type-iterator
-                     (concatenate-iterables
-                      (filter-iterator (iterator (closer-mop:class-direct-subclasses class))
-                                       (lambda (subclass)
-                                         (expand-into-subclass-p class subclass)))
-                      type-iterator))
-               (emit class))
+(defun make-unique-table ()
+  (make-hash-table :test 'equal))
 
-              (t
-               (setf (gethash type unique-table) t)
-               (emit type))))))
-      (stop))))
+(defun expand-type (type &key (unique-table (make-unique-table)))
+  (when (gethash type unique-table)
+    (return-from expand-type *empty-iterator*))
+
+  (let ((class (typecase type
+                 (symbol
+                  (find-class type nil))
+                 (standard-class
+                  type))))
+    (unless class
+      (setf (gethash type unique-table) t)
+      (return-from expand-type
+        (list-iterator (list type))))
+
+    (let ((seen-class (gethash class unique-table)))
+      (setf (gethash type unique-table) t)
+      (when seen-class
+        (return-from expand-type
+          *empty-iterator*)))
+
+    (setf (gethash class unique-table) t)
+
+    (concatenate-iterables
+     (list class)
+     (concatenate-iterable-collection
+      (map-iterator
+       (filter-iterator (iterator (closer-mop:class-direct-subclasses class))
+                        (lambda (subclass)
+                          (expand-into-subclass-p class subclass)))
+       (lambda (subclass) (expand-type subclass :unique-table unique-table)))))))
 
 (defclass sigil-token ()
   ())
@@ -142,7 +172,7 @@
 (defmethod shcl/core/lexer:token-value ((sigil sigil-token))
   nil)
 
-(defun valid-types-for-next-token (leading-tokens)
+(defun completion-relevant-parse-errors-for-leading-tokens (leading-tokens)
   (let* ((sigil-token (make-instance 'sigil-token))
          (command-iterator (shcl/core/shell-grammar:command-iterator
                             (lookahead-iterator-wrapper
@@ -152,25 +182,37 @@
          (shcl/core/shell-grammar:*intermediate-parse-error-hook*
           shcl/core/shell-grammar:*intermediate-parse-error-hook*)
          (all-errors (make-extensible-vector))
-         error)
-    (add-hook
-     'shcl/core/shell-grammar:*intermediate-parse-error-hook*
-     (lambda (err) (vector-push-extend err all-errors)))
-    (handler-case
-        (do-iterator (command command-iterator)
-          (declare (ignore command)))
-      (shcl/core/parser:parse-failure (err)
-        (setf error (shcl/core/parser:parse-failure-error-object err))))
-    (when error
-      (vector-push-extend error all-errors))
-    (setf error (make-instance 'shcl/core/parser:choice :errors all-errors))
-    (iterator-without-duplicates
-     (expected-types-for-parse-error error sigil-token))))
+         (seen-errors (make-hash-table :test 'eq)))
+    (labels
+        ((add-error (err)
+           (when (and (parse-error-involves-sigil-token-p err sigil-token)
+                      (not (gethash err seen-errors)))
+             (vector-push-extend err all-errors)
+             (setf (gethash err seen-errors) t))))
+      (add-hook
+       'shcl/core/shell-grammar:*intermediate-parse-error-hook*
+       #'add-error)
+      (handler-case
+          (do-iterator (command command-iterator)
+            (declare (ignore command)))
+        (shcl/core/parser:parse-failure (err)
+          (add-error (shcl/core/parser:parse-failure-error-object err))))
+      all-errors)))
+
+(defun valid-types-for-next-token (leading-tokens)
+  (let* ((all-errors (completion-relevant-parse-errors-for-leading-tokens leading-tokens))
+         (error (make-instance 'shcl/core/parser:choice :errors all-errors)))
+    (parse-error-expected-types error)))
 
 (defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
-  (concatenate-iterable-collection
-   (map-iterator (expand-types (valid-types-for-next-token leading-tokens))
-                 (lambda (type) (completion-suggestions type token-to-complete context)))))
+  (let* ((unique-table (make-unique-table))
+         (raw-type-iter (valid-types-for-next-token leading-tokens))
+         (type-iter (concatmap-iterator raw-type-iter
+                                        (lambda (type)
+                                          (expand-type type :unique-table unique-table)))))
+    (concatmap-iterator type-iter
+                        (lambda (type)
+                          (completion-suggestions type token-to-complete context)))))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.

@@ -21,8 +21,8 @@
    #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
    #:filter-iterator #:concatenate-iterables #:concatenate-iterable-collection
-   #:iterator-values #:lookahead-iterator-wrapper #:set-iterator
-   #:lookahead-iterator-position-token))
+   #:concatmap-iterator #:iterator-values #:lookahead-iterator-wrapper
+   #:set-iterator #:lookahead-iterator-position-token))
 (in-package :shcl/core/iterator)
 
 (optimization-settings)
@@ -175,14 +175,23 @@ example, the following is perfectly valid.
      (list (vector-iterator #(1 2 3))
            #(4 5 6)
            '(7 8 9)))"
+  (concatmap-iterator iterable 'identity))
+
+(defun concatmap-iterator (iterable function)
+  "Map `function' onto the elements of `iterable', then concatenate
+the iterable sequences that result.
+
+The following forms are semantically equivalent.
+    (concatenate-iterable-collection (map-iterator iter fn))
+    (concatmap-iterator iter fn)"
   (let ((iter-iter (iterator iterable))
         current-iter)
     (make-iterator ()
       (when current-iter
         (do-iterator (value current-iter)
           (emit value)))
-      (do-iterator (inner-iter iter-iter)
-        (setf current-iter (iterator inner-iter))
+      (do-iterator (inner-value iter-iter)
+        (setf current-iter (iterator (funcall function inner-value)))
         (do-iterator (value current-iter)
           (emit value)))
       (stop))))
