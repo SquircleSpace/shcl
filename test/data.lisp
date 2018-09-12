@@ -168,3 +168,48 @@
     (setf (numbers-a a) 124)
     (is (fset:compare a b) :greater
         "Different direved clases can be ordered")))
+
+(defvar *clone-test-class-a-counter* 0)
+(defvar *clone-test-class-b-counter* 0)
+
+(defclass clone-test-class ()
+  ((a
+    :initform (incf *clone-test-class-a-counter*)
+    :initarg :a)
+   (b
+    :initform (incf *clone-test-class-b-counter*)
+    :initarg :b)))
+
+(define-clone-method clone-test-class)
+
+(define-test clone
+  (let* ((*clone-test-class-a-counter* 0)
+         (*clone-test-class-b-counter* 0)
+         (instance (make-instance 'clone-test-class :a 100 :b 200))
+         clone)
+    (is *clone-test-class-a-counter* 0
+        "Initforms haven't run yet")
+    (is *clone-test-class-b-counter* 0
+        "Initforms haven't run yet")
+
+    (setf clone (clone instance))
+
+    (is *clone-test-class-a-counter* 0
+        "Initforms haven't run yet")
+    (is *clone-test-class-b-counter* 0
+        "Initforms haven't run yet")
+    (ok (not (eq instance clone))
+        "The clone is a different instance")
+    (is (slot-value clone 'a) (slot-value instance 'a)
+        "The clone has the same slot values")
+    (is (slot-value clone 'b) (slot-value instance 'b)
+        "The clone has the same slot values")
+
+    (setf clone (clone instance :a 123))
+
+    (is (slot-value clone 'a) 123
+        "clone respected initargs")
+    (ok (not (equal (slot-value instance 'a) 123))
+        "The original wasn't modified")
+    (is (slot-value clone 'b) (slot-value instance 'b)
+        "Slots that weren't initarg'd have the same value")))
