@@ -20,6 +20,82 @@
 
 (optimization-settings)
 
+(defgeneric expand-type (type unique-table))
+
+(defmethod expand-type :around (type unique-table)
+  (when (unique-table-contains-p unique-table type)
+    (return-from expand-type nil))
+  (unique-table-insert unique-table type)
+  (call-next-method))
+
+(defmethod expand-type (type unique-table)
+  (declare (ignore unique-table))
+  (list type))
+
+(defgeneric expand-compound-type (type-car type unique-table))
+
+(defmethod expand-compound-type (type-car type unique-table)
+  (declare (ignore type-car unique-table))
+  (list type))
+
+(defvar *collect-tab-complete-info* nil)
+
+(defvar *command-words* nil)
+
+(shcl/core/advice:define-advice shcl/core/shell-grammar:parse-simple-command
+    :around tab-complete
+    (iter)
+  (declare (ignore iter))
+  (unless *collect-tab-complete-info*
+    (return-from shcl/core/shell-grammar:parse-simple-command
+      (call-next-method)))
+
+  (let ((*command-words* (make-extensible-vector)))
+    (call-next-method)))
+
+(deftype command-word (real-type)
+  real-type)
+
+(defmethod expand-compound-type ((type-car (eql 'command-word)) type unique-table)
+  (let ((class (find-class (second type))))
+    (unless class
+      (warn "Unexpected command word type: ~A" type)
+      (return-from expand-compound-type
+        (expand-type (second type) unique-table)))
+
+    (concatenate-iterables
+     (list class)
+     (concatmap-iterator
+      (closer-mop:class-direct-subclasses class)
+      (lambda (subclass)
+        (unless (eq subclass (find-class 'shcl/core/lexer:reserved-word))
+          (expand-type subclass unique-table)))))))
+
+(defgeneric wrap-expected-type (error-object))
+
+(defmethod wrap-expected-type ((err shcl/core/parser:unexpected-eof))
+  (shcl/core/data:clone err :expected-type `(command-word ,(shcl/core/parser:unexpected-eof-expected-type err))))
+
+(defmethod wrap-expected-type ((err shcl/core/parser:type-mismatch))
+  (shcl/core/data:clone err :expected-type `(command-word ,(shcl/core/parser:type-mismatch-expected-type err))))
+
+(shcl/core/advice:define-advice shcl/core/shell-grammar:parse-simple-command-word
+    :around tab-complete
+    (iter)
+  (declare (ignore iter))
+  (unless *collect-tab-complete-info*
+    (return-from shcl/core/shell-grammar:parse-simple-command-word
+      (call-next-method)))
+
+  (assert *command-words*)
+  (shcl/core/parser:parser-bind (value error-p) (call-next-method)
+    (cond
+      (error-p
+       (shcl/core/parser:parser-error (wrap-expected-type value)))
+      (t
+       (vector-push-extend value *command-words*)
+       (shcl/core/parser:parser-value value)))))
+
 (defvar *empty-iterator*
   (make-iterator ()
     (stop)))
@@ -57,40 +133,6 @@
    (shcl/core/parser:choice-errors-iterator err :recursive-p t)
    'parse-error-expected-types))
 
-(defun expected-types-for-parse-error (err sigil-token)
-  (labels
-      ((expected-type (error)
-         (cond
-           ((and (typep error 'shcl/core/parser:expected-eof)
-                 (eq sigil-token
-                     (shcl/core/parser:expected-eof-got error)))
-            (values t :eof))
-
-           ((and (typep error 'shcl/core/parser:type-mismatch)
-                 (eq sigil-token
-                     (shcl/core/parser:type-mismatch-got error)))
-            (values t (shcl/core/parser:type-mismatch-expected-type error)))
-
-           (t
-            (values nil)))))
-    (typecase err
-      (shcl/core/parser:choice
-       (map-iterator
-        (filter-iterator
-         (shcl/core/parser:choice-errors-iterator err :recursive-p t)
-         #'expected-type)
-        (lambda (e)
-          (nth-value 1 (expected-type e)))))
-
-      (t
-       (multiple-value-bind (valid-p type) (expected-type err)
-         (cond
-           (valid-p
-            (list-iterator (list type)))
-           (t
-            (warn "Unexpected parse error ~A" err)
-            *empty-iterator*)))))))
-
 (defclass completion-context ()
   ((cursor-point
     :reader cursor-point
@@ -123,48 +165,35 @@
 
 (defvar *empty-token* (make-instance 'empty-token))
 
-(defgeneric expand-into-subclass-p (superclass subclass))
-
-(defmethod expand-into-subclass-p (superclass subclass)
-  t)
-
-(defmethod expand-into-subclass-p ((superclass (eql (find-class 'shcl/core/lexer:a-word)))
-                                   (subclass (eql (find-class 'shcl/core/lexer:reserved-word))))
-  nil)
-
 (defun make-unique-table ()
   (make-hash-table :test 'equal))
 
-(defun expand-type (type &key (unique-table (make-unique-table)))
-  (when (gethash type unique-table)
-    (return-from expand-type *empty-iterator*))
+(defun unique-table-contains-p (unique-table value)
+  (nth-value 1 (gethash value unique-table)))
 
-  (let ((class (typecase type
-                 (symbol
-                  (find-class type nil))
-                 (standard-class
-                  type))))
-    (unless class
-      (setf (gethash type unique-table) t)
-      (return-from expand-type
-        (list-iterator (list type))))
+(defun unique-table-insert (unique-table value)
+  (setf (gethash value unique-table) t)
+  value)
 
-    (let ((seen-class (gethash class unique-table)))
-      (setf (gethash type unique-table) t)
-      (when seen-class
-        (return-from expand-type
-          *empty-iterator*)))
+(defmethod expand-type ((type cons) unique-table)
+  (expand-compound-type (car type) type unique-table))
 
-    (setf (gethash class unique-table) t)
+(defmethod expand-type ((type symbol) unique-table)
+  (let ((class (find-class type nil)))
+    (if class
+        (expand-type class unique-table)
+        (call-next-method))))
 
-    (concatenate-iterables
-     (list class)
-     (concatenate-iterable-collection
-      (map-iterator
-       (filter-iterator (iterator (closer-mop:class-direct-subclasses class))
-                        (lambda (subclass)
-                          (expand-into-subclass-p class subclass)))
-       (lambda (subclass) (expand-type subclass :unique-table unique-table)))))))
+(defmethod expand-type ((type standard-class) unique-table)
+  (concatenate-iterables
+   (list type)
+   (concatmap-iterator
+    (closer-mop:class-direct-subclasses type)
+    (lambda (subclass)
+      (expand-type subclass unique-table)))))
+
+(defmethod expand-compound-type ((type-car (eql 'or)) type-cdr unique-table)
+  (concatmap-iterator type-cdr (lambda (type) (expand-type type unique-table))))
 
 (defclass sigil-token ()
   ())
@@ -173,7 +202,8 @@
   nil)
 
 (defun completion-relevant-parse-errors-for-leading-tokens (leading-tokens)
-  (let* ((sigil-token (make-instance 'sigil-token))
+  (let* ((*collect-tab-complete-info* t)
+         (sigil-token (make-instance 'sigil-token))
          (command-iterator (shcl/core/shell-grammar:command-iterator
                             (lookahead-iterator-wrapper
                              (concatenate-iterables
@@ -200,16 +230,15 @@
       all-errors)))
 
 (defun valid-types-for-next-token (leading-tokens)
-  (let* ((all-errors (completion-relevant-parse-errors-for-leading-tokens leading-tokens))
-         (error (make-instance 'shcl/core/parser:choice :errors all-errors)))
-    (parse-error-expected-types error)))
+  (let ((all-errors (completion-relevant-parse-errors-for-leading-tokens leading-tokens)))
+    (concatmap-iterator all-errors 'parse-error-expected-types)))
 
 (defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
   (let* ((unique-table (make-unique-table))
          (raw-type-iter (valid-types-for-next-token leading-tokens))
          (type-iter (concatmap-iterator raw-type-iter
                                         (lambda (type)
-                                          (expand-type type :unique-table unique-table)))))
+                                          (expand-type type unique-table)))))
     (concatmap-iterator type-iter
                         (lambda (type)
                           (completion-suggestions type token-to-complete context)))))
