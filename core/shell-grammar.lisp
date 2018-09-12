@@ -34,7 +34,9 @@
    #:io-redirect #:io-file #:filename :io-source #:io-here #:here-end
    #:newline-list :linebreak #:separator-op #:separator
    #:sequential-sep :redirect #:fd-description
-   #:condition #:body))
+   #:condition #:body
+
+   #:parse-simple-command #:parse-simple-command-word))
 (in-package :shcl/core/shell-grammar)
 
 (optimization-settings)
@@ -300,9 +302,12 @@ represent times when the parser chose a bad branch.")
 (define-hooked-nonterminal do-group
   (do-word (compound-list (compound-list-ending-with #'parse-done)) done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
+(define-advisable parse-simple-command-word (iter)
+  (parse-a-word iter))
+
 (define-hooked-nonterminal simple-command
-  (cmd-prefix &optional a-word cmd-suffix)
-  (a-word &optional cmd-suffix))
+  (cmd-prefix &optional (a-word #'parse-simple-command-word) cmd-suffix)
+  ((a-word #'parse-simple-command-word) &optional cmd-suffix))
 
 (define-hooked-nonterminal cmd-prefix
   (io-redirect cmd-prefix-tail)
@@ -315,11 +320,11 @@ represent times when the parser chose a bad branch.")
 
 (define-hooked-nonterminal cmd-suffix
   (io-redirect cmd-suffix-tail)
-  (a-word cmd-suffix-tail))
+  ((a-word #'parse-simple-command-word) cmd-suffix-tail))
 
 (define-hooked-nonterminal cmd-suffix-tail
   (io-redirect cmd-suffix-tail)
-  (a-word cmd-suffix-tail)
+  ((a-word #'parse-simple-command-word) cmd-suffix-tail)
   ())
 
 (define-hooked-nonterminal redirect-list
