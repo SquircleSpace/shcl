@@ -17,7 +17,8 @@
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export
-   #:define-data #:define-cloning-setf-expander #:clone #:data-class #:data))
+   #:define-data #:define-cloning-setf-expander #:clone #:data-class #:data
+   #:define-clone-method #:clone-object))
 (in-package :shcl/core/data)
 
 (optimization-settings)
@@ -70,22 +71,54 @@ then it defaults to be the same as `setf-name'."
                ,,set-var)
             `(,',getter-name ,,inner-clone)))))))
 
-(defun clone-slots (slots old new)
-  "For each given slot name, store `old''s value in `new'."
-  (dolist (slot slots)
-    (when (slot-boundp old slot)
-      (setf (slot-value new slot) (slot-value old slot))))
-  new)
-
-(defgeneric clone (object)
+(defgeneric clone (object &rest initargs &key)
   (:documentation
    "Create a shallow clone of the given object which contains the same data.
 
+For object types, the new, cloned object should be initialized in the
+way described in `clone-object''s documentation.  Since some objects
+are not generally safe to clone, this generic function does not have a
+standard method that clones arbitrary instances of `standard-object'.
+On the other hand, `data' is expected to be safe to use with `clone'.
+So, this generic function has a method for `data' that simply calls
+`clone-object'.  If you think that `clone-object' is safe to use with
+a class, you should define a method on `clone' that calls
+`clone-object'.  The `define-clone-method' macro will do this for you.
+
+If `object' isn't an instance of some `standard-class' class (e.g. a
+builtin or struct type), then the initialization flow and meaning of
+`initargs' is unspecified.  However, methods you define should follow
+these guidelines.
+
+- If the conventional function for creating instance of `object''s
+type uses keyword arguments (e.g. `make-instance' for object types),
+`initargs' should have the same semantics as that function.
+
+- If the conventional function does not use keyword arguments for
+initialization, `initargs' should use keywords derived from the reader
+functions.  For example, the `clone' method for `cons' accepts
+keywords `:car' and `:cdr'.
+
 If you wish to use `define-cloning-setf-expander' to access parts of a
-type, you must define a method for that type which returns an object
-which is not `eq' to the input object."))
-(defmethod clone (object)
-  object)
+type, you must define a `clone' method for that type which returns an
+object which is not `eq' to the input object."))
+
+(defmacro define-clone-method (class-name)
+  "Define a `clone' method specialized on the given class that simply
+calls `clone-object'.
+
+`class-name' is not evaluated."
+  (check-type class-name symbol)
+  (let ((object (gensym "OBJECT"))
+        (initargs (gensym "INITARGS")))
+    `(defmethod clone ((,object ,class-name) &rest ,initargs &key &allow-other-keys)
+       (apply 'clone-object ,object ,initargs))))
+
+(defmethod clone ((cons cons) &key (car (car cons)) (cdr (cdr cons)))
+  (cons car cdr))
+
+(defmethod clone ((number number) &key)
+  number)
 
 (defclass data-class (standard-class)
   ()
@@ -117,10 +150,34 @@ example...
 If these sorts of operations are inappropriate for your class, you
 must not inherit from `data'."))
 
-(defmethod clone ((object data))
-  (clone-slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of object)))
-               object
-               (allocate-instance (class-of object))))
+(defun clone-object (object &rest initargs &key &allow-other-keys)
+  "Create a clone of `object' and initialize it with the provided
+initargs.
+
+This function first allocates a new instance of `object''s class.  It
+then copies the values of `object''s slots into the new instances.
+Finally, it calls `shared-initialize' passing in the provided
+initargs.
+
+Note that this function passes in nil as the list of slot names to
+`shared-initialize'.  So, the cloned instance will not have any slots
+initialized according to the class's initforms."
+  (let* ((class (class-of object))
+         (new-instance (allocate-instance class)))
+    (dolist (slot (closer-mop:class-slots class))
+      (let ((name (closer-mop:slot-definition-name slot)))
+        ;; The standard allows allocate-instance to return objects
+        ;; with slots already bound.  So, we're going to make sure
+        ;; that new-instance's slots have the exact same values as
+        ;; object's slots.
+        (if (slot-boundp object name)
+            (setf (slot-value new-instance name) (slot-value object name))
+            (slot-makunbound new-instance name))))
+    (apply 'shared-initialize new-instance nil initargs)
+    new-instance))
+
+(defmethod clone ((object data) &rest initargs &key &allow-other-keys)
+  (apply 'clone-object object initargs))
 
 (defmethod fset:compare ((first data) (second data))
   (labels
