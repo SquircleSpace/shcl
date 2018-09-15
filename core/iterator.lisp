@@ -22,7 +22,10 @@
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
    #:filter-iterator #:concatenate-iterables #:concatenate-iterable-collection
    #:concatmap-iterator #:iterator-values #:lookahead-iterator-wrapper
-   #:set-iterator #:lookahead-iterator-position-token))
+   #:set-iterator #:lookahead-iterator-position-token
+
+   ;; High-level sequence functions
+   #:starts-with-p))
 (in-package :shcl/core/iterator)
 
 (optimization-settings)
@@ -372,3 +375,31 @@ a new iterator in a given family."
 
 (defmethod iterator ((iter iterator))
   iter)
+
+(defun starts-with-p (iterable iterable-prefix &key (test 'eql))
+  "Returns non-nil if the first elements of `iterable' match the
+first elements of `iterable-prefix'.
+
+`iterable' and `iterable-prefix' may be any type that can be passed to
+the `iterator' generic function.  When non-equal elements are
+found (as determined by the function provided in the `test'
+parameter), this function returns nil.  If `iterable' has fewer
+elements than `iterable-prefix', this function returns nil."
+  (let ((prefix (iterator iterable-prefix))
+        (seq (iterator iterable)))
+    (labels
+        ((next-expected ()
+           (multiple-value-bind (value valid-p) (next prefix)
+             (unless valid-p
+               (return-from starts-with-p t))
+             value))
+         (next-found ()
+           (multiple-value-bind (value valid-p) (next seq)
+             (unless valid-p
+               (return-from starts-with-p nil))
+             value)))
+      (loop :for expected = (next-expected)
+         :for found = (next-found) :do
+         (unless (funcall test found expected)
+           (return-from starts-with-p nil)))
+      (assert nil nil "This function doesn't return normally"))))
