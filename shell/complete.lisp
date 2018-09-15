@@ -22,6 +22,10 @@
 
 (defgeneric expand-type (type unique-table))
 
+(defun type-expander (&optional (unique-table (make-unique-table)))
+  (lambda (type)
+    (expand-type type unique-table)))
+
 (defmethod expand-type :around (type unique-table)
   (when (unique-table-contains-p unique-table type)
     (return-from expand-type nil))
@@ -50,7 +54,7 @@
     (return-from shcl/core/shell-grammar:parse-simple-command
       (call-next-method)))
 
-  (let ((*command-words* (make-extensible-vector)))
+  (let ((*command-words* (fset:empty-seq)))
     (call-next-method)))
 
 (deftype command-word (real-type)
@@ -93,7 +97,7 @@
       (error-p
        (shcl/core/parser:parser-error (wrap-expected-type value)))
       (t
-       (vector-push-extend value *command-words*)
+       (fset:push-last *command-words* value)
        (shcl/core/parser:parser-value value)))))
 
 (defvar *empty-iterator*
@@ -201,7 +205,7 @@
 (defmethod shcl/core/lexer:token-value ((sigil sigil-token))
   nil)
 
-(defun completion-relevant-parse-errors-for-leading-tokens (leading-tokens)
+(defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
   (let* ((*collect-tab-complete-info* t)
          (sigil-token (make-instance 'sigil-token))
          (command-iterator (shcl/core/shell-grammar:command-iterator
@@ -211,14 +215,22 @@
                               (list sigil-token)))))
          (shcl/core/shell-grammar:*intermediate-parse-error-hook*
           shcl/core/shell-grammar:*intermediate-parse-error-hook*)
-         (all-errors (make-extensible-vector))
-         (seen-errors (make-hash-table :test 'eq)))
+         (seen-errors (make-hash-table :test 'eq))
+         (suggestions (fset:empty-set)))
     (labels
         ((add-error (err)
            (when (and (parse-error-involves-sigil-token-p err sigil-token)
-                      (not (gethash err seen-errors)))
-             (vector-push-extend err all-errors)
-             (setf (gethash err seen-errors) t))))
+                      (not (nth-value 1 (gethash err seen-errors))))
+             (setf (gethash err seen-errors) t)
+             (let* ((expected-types (parse-error-expected-types err))
+                    (all-expected-types (concatmap-iterator expected-types (type-expander)))
+                    (suggestion-producer (lambda (type)
+                                           (completion-suggestions type token-to-complete context)))
+                    (err-suggestions (concatmap-iterator all-expected-types suggestion-producer)))
+               ;; Consume suggestions eagerly so they are computed in
+               ;; the dynamic context where the error was produced
+               (do-iterator (suggestion err-suggestions)
+                 (fset:adjoinf suggestions suggestion))))))
       (add-hook
        'shcl/core/shell-grammar:*intermediate-parse-error-hook*
        #'add-error)
@@ -226,22 +238,10 @@
           (do-iterator (command command-iterator)
             (declare (ignore command)))
         (shcl/core/parser:parse-failure (err)
+          ;; This really should have already been handled, but just in
+          ;; case...
           (add-error (shcl/core/parser:parse-failure-error-object err))))
-      all-errors)))
-
-(defun valid-types-for-next-token (leading-tokens)
-  (let ((all-errors (completion-relevant-parse-errors-for-leading-tokens leading-tokens)))
-    (concatmap-iterator all-errors 'parse-error-expected-types)))
-
-(defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
-  (let* ((unique-table (make-unique-table))
-         (raw-type-iter (valid-types-for-next-token leading-tokens))
-         (type-iter (concatmap-iterator raw-type-iter
-                                        (lambda (type)
-                                          (expand-type type unique-table)))))
-    (concatmap-iterator type-iter
-                        (lambda (type)
-                          (completion-suggestions type token-to-complete context)))))
+      suggestions)))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.
