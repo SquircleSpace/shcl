@@ -155,9 +155,7 @@
     ((desired shcl/core/lexer:literal-token-class) token context)
   (let ((desired-string (shcl/core/lexer:literal-token-string desired))
         (token-value (shcl/core/lexer:token-value token)))
-    (if (and (<= (length token-value) (length desired-string))
-             (string= desired-string token-value
-                      :end1 (min (length token-value) (length desired-string))))
+    (if (starts-with-p desired-string token-value)
         (list-iterator (list desired-string))
         *empty-iterator*)))
 
