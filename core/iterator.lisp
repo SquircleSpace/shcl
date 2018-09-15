@@ -122,7 +122,7 @@ control transfer out of the body of `make-iterator'."
         (more-sym (gensym "MORE-SYM"))
         (iter-fun (gensym "ITER-FUN"))
         (internal-value-sym (gensym "INTERNAL-VALUE-SYM")))
-    `(let* ((,iter-sym ,iter)
+    `(let* ((,iter-sym (iterator ,iter))
             (,iter-fun (iterate-function ,iter-sym)))
        (loop
           (multiple-value-bind (,internal-value-sym ,more-sym) (funcall ,iter-fun ,iter-sym)
