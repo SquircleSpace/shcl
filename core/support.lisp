@@ -14,11 +14,13 @@
 
 (defpackage :shcl/core/support
   (:use :common-lisp :cffi :shcl/core/utility :shcl/core/posix-types)
+  (:import-from :bordeaux-threads #:make-lock #:with-lock-held)
   (:export
    #:wifexited #:wifstopped #:wifsignaled #:wexitstatus #:wtermsig #:wstopsig
    #:string-table #:fd-actions #:make-fd-actions #:fd-actions-add-close
    #:fd-actions-add-dup2 #:shcl-spawn #:s-isreg #:s-isdir #:s-ischr #:s-isblk
-   #:s-isfifo #:s-islnk #:s-issock #:define-c-wrapper))
+   #:s-isfifo #:s-islnk #:s-issock #:define-c-wrapper #:syscall-error
+   #:syscall-errno))
 (in-package :shcl/core/support)
 
 (optimization-settings)
@@ -29,6 +31,30 @@
     (:linux (:default "libshcl-support") :search-path ".")))
 
 (use-foreign-library shcl-support)
+
+(defgeneric syscall-errno (syscall-error)
+  (:documentation
+   "Return the errno that was set when the given condition was
+signaled."))
+
+(define-condition syscall-error (error)
+  ((errno
+    :initform errno
+    :reader syscall-errno
+    :type integer)
+   (function
+    :initform nil
+    :initarg :function
+    :accessor syscall-error-function))
+  (:report (lambda (c s)
+             (format s "Encountered an error (~A) in ~A.  ~A"
+                     (syscall-errno c)
+                     (syscall-error-function c)
+                     (strerror (syscall-errno c)))))
+  (:documentation
+   "A condition to represent an error in a POSIX C function.
+
+Use `syscall-errno' to access the error code."))
 
 (defun pass (value)
   "Returns t."
@@ -80,6 +106,18 @@ It will signal a `syscall-error' if the following predicate returns nil.
              ,return-type
            ,@arg-descriptions)
          ,(wrapper)))))
+
+(define-c-wrapper (%strerror "strerror") (:string)
+  (err :int))
+
+(defvar *strerror-lock* (make-lock)
+  "This lock prevents multiple shcl threads from calling `strerror'
+simultaneously")
+
+(defun strerror (err)
+  "Convert the given errno value into a string."
+  (with-lock-held (*strerror-lock*)
+    (%strerror err)))
 
 (define-c-wrapper (wifexited "wifexited" :library shcl-support) ((:boolean :int))
   (status :int))

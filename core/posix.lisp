@@ -14,7 +14,7 @@
 
 (defpackage :shcl/core/posix
   (:use
-   :common-lisp :cffi :trivial-garbage :bordeaux-threads :shcl/core/posix-types
+   :common-lisp :cffi :trivial-garbage :shcl/core/posix-types
    :shcl/core/utility :shcl/core/iterator :shcl/core/support)
   (:import-from :fset)
   (:export
@@ -28,30 +28,6 @@
 (in-package :shcl/core/posix)
 
 (optimization-settings)
-
-(defgeneric syscall-errno (syscall-error)
-  (:documentation
-   "Return the errno that was set when the given condition was
-signaled."))
-
-(define-condition syscall-error (error)
-  ((errno
-    :initform errno
-    :reader syscall-errno
-    :type integer)
-   (function
-    :initform nil
-    :initarg :function
-    :accessor syscall-error-function))
-  (:report (lambda (c s)
-             (format s "Encountered an error (~A) in ~A.  ~A"
-                     (syscall-errno c)
-                     (syscall-error-function c)
-                     (strerror (syscall-errno c)))))
-  (:documentation
-   "A condition to represent an error in a POSIX C function.
-
-Use `syscall-errno' to access the error code."))
 
 (defun not-negative-p (number)
   "Returns non-nil if `number' is non-negative."
@@ -323,18 +299,6 @@ The output parameter is returned as an instance of the `stat' class."
   (with-foreign-object (buf '(:struct stat))
     (%fstatat fd path buf flag)
     (make-instance 'stat :pointer buf)))
-
-(define-c-wrapper (%strerror "strerror") (:string)
-  (err :int))
-
-(defvar *strerror-lock* (make-lock)
-  "This lock prevents multiple shcl threads from calling `strerror'
-simultaneously")
-
-(defun strerror (err)
-  "Convert the given errno value into a string."
-  (with-lock-held (*strerror-lock*)
-    (%strerror err)))
 
 (define-foreign-type file-ptr ()
   ()
