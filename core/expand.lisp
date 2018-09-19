@@ -489,24 +489,6 @@ The return value is appropriate for storing in a `wild-path'."
             (vector-push-extend (if dir dir "") directories))))
       path)))
 
-(defun directory-contents-iterator (dir-ptr)
-  "Return an iterator which returns the contents of the given directory.
-
-`dir-ptr' is assumed to remain valid for the lifetime of this
-iterator.  Using this iterator after `dir-ptr' has been closed results
-in undefined behavior."
-  (make-iterator ()
-    (tagbody
-     again
-       (let ((dirent (shcl/core/posix:readdir dir-ptr)))
-         (when (null-pointer-p dirent)
-           (stop))
-         (let ((name (foreign-string-to-lisp (foreign-slot-pointer dirent '(:struct dirent) 'd-name))))
-           (if (or (equal "." name)
-                   (equal ".." name))
-               (go again)
-               (emit name)))))))
-
 (defmacro with-directory-or-nil ((dir-name) &body body)
   "This is a wrapper around
 `shcl/core/working-directory:with-local-working-directory' which
@@ -585,8 +567,9 @@ directory."
         ((not (stringp next))
          (let ((matches (fset:empty-seq)))
            (with-dir-ptr-for-fd (dir-ptr (get-fd-current-working-directory))
-             (do-iterator (file (directory-contents-iterator dir-ptr))
-               (when (scan next file)
+             (shcl/core/posix:do-directory-contents (file dir-ptr)
+               (when (and (not (or (equal file ".") (equal file "..")))
+                          (scan next file))
                  (if as-directory-p
                      (with-directory-or-nil (file)
                        (let ((rest (recurse-and-prefix file t)))
