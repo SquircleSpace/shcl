@@ -1013,7 +1013,7 @@ not leak the `dir-ptr-wrapper' without closing it first."
           result)
       (unwind-protect
            (progn
-             (setf new-fd (remember-private-fd (dup fd)))
+             (setf new-fd (remember-private-fd (dup (fd-wrapper-value fd))))
              (setf fdopen (fdopendir new-fd))
              (setf close-new-fd nil)
              (debug-log status "FDOPENDIR ~A = ~A" new-fd fd)
