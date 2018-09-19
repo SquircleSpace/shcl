@@ -80,3 +80,9 @@
 (constant (enoent "ENOENT"))
 (constant (at-symlink-nofollow "AT_SYMLINK_NOFOLLOW"))
 (constant (path-max "PATH_MAX"))
+
+(constant (r-ok "R_OK"))
+(constant (w-ok "W_OK"))
+(constant (x-ok "X_OK"))
+(constant (f-ok "F_OK"))
+(constant (at-eaccess "AT_EACCESS"))

@@ -24,7 +24,7 @@
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:fstatat #:syscall-error #:syscall-errno #:file-ptr #:fdopen
    #:fclose #:fileno #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
-   #:wtermsig #:wstopsig))
+   #:wtermsig #:wstopsig #:faccessat))
 (in-package :shcl/core/posix)
 
 (optimization-settings)
@@ -316,3 +316,9 @@ The output parameter is returned as an instance of the `stat' class."
 
 (define-c-wrapper (fileno "fileno") (:int #'not-negative-1-p)
   (stream file-ptr))
+
+(define-c-wrapper (faccessat "faccessat") (:int #'not-negative-1-p)
+  (fd :int)
+  (path :string)
+  (amode :int)
+  (flag :int))
