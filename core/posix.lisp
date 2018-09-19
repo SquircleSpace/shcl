@@ -18,7 +18,7 @@
    :shcl/core/utility :shcl/core/iterator :shcl/core/support)
   (:import-from :fset)
   (:export
-   #:environment-iterator #:dir-ptr #:fdopendir
+   #:environment-iterator #:do-directory-contents #:dir-ptr #:fdopendir
    #:closedir #:dirfd #:readdir
    #:posix-read #:strlen #:posix-write #:exit
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
@@ -103,6 +103,26 @@ during iteration."
   "This function is a wrapper around the readdir C function."
   (setf errno 0)
   (%readdir dirp))
+
+(defmacro do-directory-contents ((file-name dir-ptr &optional result) &body body)
+  "Use `readdir' to iterate across the files contained within `dir-ptr'.
+
+`body' is repeatedly evaluated with `file-name' bound to each
+successive file found in `dir-ptr'.  When no more files are found,
+`result' is evaluated and returned.  Iteration can be aborted early by
+returning from the nil block (i.e. using `return').
+
+Note that both \".\" and \"..\" are included in the directory
+traversal.  You should be prepared to handle them accordingly."
+  (let ((dir (gensym "DIR"))
+        (dirent (gensym "DIRENT")))
+    `(let ((,dir ,dir-ptr))
+       (loop
+          (let ((,dirent (readdir ,dir)))
+            (when (null-pointer-p ,dirent)
+              (return ,result))
+            (let ((,file-name (foreign-string-to-lisp (foreign-slot-pointer ,dirent '(:struct dirent) 'd-name))))
+              ,@body))))))
 
 (define-c-wrapper (%posix-read "read") (ssize-t #'not-negative-1-p)
   (fd :int)
