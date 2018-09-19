@@ -159,13 +159,74 @@
         (list-iterator (list desired-string))
         *empty-iterator*)))
 
-(shcl/core/data:define-data empty-token ()
-  ())
+(defun directory-p (at-fd path)
+  (handler-case
+      (shcl/core/fd-table:receive-ref-counted-fd
+          (file (shcl/core/fd-table:retained-fd-openat at-fd path shcl/core/posix-types:o-rdonly))
+        (shcl/core/support:s-isdir (slot-value (shcl/core/posix:fstat (shcl/core/fd-table:fd-wrapper-value file)) 'shcl/core/posix-types:st-mode)))
+    (shcl/core/posix:syscall-error ()
+      nil)))
 
-(defmethod shcl/core/lexer:token-value ((empty-token empty-token))
-  "")
+(defun executable-p (at-fd path)
+  (handler-case
+      (progn
+        (shcl/core/posix:faccessat (shcl/core/fd-table:fd-wrapper-value at-fd) path shcl/core/posix-types:x-ok shcl/core/posix-types:at-eaccess)
+        t)
+    (shcl/core/posix:syscall-error ()
+      nil)))
 
-(defvar *empty-token* (make-instance 'empty-token))
+(defmacro do-executables-in-dir-fd ((executable-name dir-fd &optional result) &body body)
+  (let ((dir (gensym "DIR"))
+        (dir-ptr (gensym "DIR-PTR"))
+        (file-name (gensym "FILE-NAME")))
+    `(let ((,dir ,dir-fd))
+       (shcl/core/fd-table:with-dir-ptr-for-fd (,dir-ptr ,dir)
+         (shcl/core/posix:do-directory-contents (,file-name ,dir-ptr ,result)
+           (when (and (not (equal "." ,file-name))
+                      (not (equal ".." ,file-name))
+                      (not (directory-p ,dir ,file-name))
+                      (executable-p ,dir ,file-name))
+             (let ((,executable-name ,file-name))
+               ,@body)))))))
+
+(defun executables-in-directory (path)
+  (let ((result (make-extensible-vector)))
+    (labels
+        ((retained-fd-open-dir ()
+           (handler-case
+               (shcl/core/fd-table:retained-fd-openat
+                (shcl/core/working-directory:get-fd-current-working-directory)
+                path shcl/core/posix-types:o-rdonly)
+             (shcl/core/posix:syscall-error ()
+               (return-from executables-in-directory result)))))
+      (shcl/core/fd-table:receive-ref-counted-fd
+          (dir-fd (retained-fd-open-dir))
+        (do-executables-in-dir-fd (executable-name dir-fd)
+          (vector-push-extend executable-name result))))
+    result))
+
+(defun all-binary-commands ()
+  (let ((result-vector (make-extensible-vector)))
+    (do-iterator (path (shcl/core/environment:colon-list-iterator shcl/core/environment:$path))
+      (when (equal "" path)
+        (setf path "."))
+      (vector-push-extend (executables-in-directory path) result-vector))
+    (concatenate-iterable-collection result-vector)))
+
+(defmethod completion-suggestions concatenate-iterables
+    ((desired (eql (find-class 'shcl/core/lexer:simple-word)))
+     (token shcl/core/lexer:simple-word)
+     context)
+  (unless *command-words*
+    (return-from completion-suggestions))
+
+  (when (equal 0 (fset:size *command-words*))
+    (labels
+        ((compatible-p (command)
+           (starts-with-p command (shcl/core/lexer:simple-word-text token))))
+      (filter-iterator (all-binary-commands) #'compatible-p))))
+
+(defvar *empty-token* (make-instance 'shcl/core/lexer:simple-word :text ""))
 
 (defun make-unique-table ()
   (make-hash-table :test 'equal))
