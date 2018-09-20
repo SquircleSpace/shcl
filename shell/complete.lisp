@@ -61,19 +61,19 @@
   real-type)
 
 (defmethod expand-compound-type ((type-car (eql 'command-word)) type unique-table)
-  (let ((class (find-class (second type))))
-    (unless class
-      (warn "Unexpected command word type: ~A" type)
-      (return-from expand-compound-type
-        (expand-type (second type) unique-table)))
+  (destructuring-bind (type-car type) type
+    (declare (ignore type-car))
+    (let ((class (etypecase type
+                   (symbol (find-class type))
+                   (standard-class type))))
 
-    (concatenate-iterables
-     (list class)
-     (concatmap-iterator
-      (closer-mop:class-direct-subclasses class)
-      (lambda (subclass)
-        (unless (eq subclass (find-class 'shcl/core/lexer:reserved-word))
-          (expand-type subclass unique-table)))))))
+      (unless (eq class (find-class 'shcl/core/lexer:reserved-word))
+        (concatenate-iterables
+         (list class)
+         (concatmap-iterator
+          (closer-mop:class-direct-subclasses class)
+          (lambda (subclass)
+            (expand-type `(command-word ,subclass) unique-table))))))))
 
 (defgeneric wrap-expected-type (error-object))
 
