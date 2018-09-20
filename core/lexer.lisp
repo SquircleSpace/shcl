@@ -314,10 +314,10 @@ character sequences."))
      (define-data ,name ,superclasses
        ((value :initform ,string)
         ,@slots)
-       ,@(unless (getf options :documentation)
+       ,@(unless (assoc :documentation options)
            `((:documentation
               ,(format nil "A token class representing the ~W character sequence." string))))
-       ,@(unless (getf options :metaclass)
+       ,@(unless (assoc :metaclass options)
            `((:metaclass literal-token-class)))
        ,@options)
      (setf (slot-value (find-class ',name) 'token-string) ,string)
