@@ -381,7 +381,7 @@ All the same, this class exists to help group them all together."))
 
 (defparameter *reserved-words* (fset:empty-map))
 
-(define-data reserved-word (a-word literal-token)
+(define-data reserved-word (simple-word literal-token)
   ()
   (:documentation
    "A class to represent uses of words that POSIX treats specially.
@@ -393,8 +393,43 @@ two letters that should be passed to a command."))
 (defmacro define-reserved-word (name string &optional (superclasses '(reserved-word)) slots &body options)
   (check-type name symbol)
   (check-type string string)
+  (let (text-slot-found)
+    (labels
+        ((munge (slot)
+           (cond
+             ((eq 'text slot)
+              (setf text-slot-found t)
+              `(text :initform ,string))
+             ((and (consp slot)
+                   (eq 'text (car slot)))
+              (setf text-slot-found t)
+              (if (not (listp (cdr slot)))
+                  slot ;; Okay, that's crazy.  We're not touching this.
+                  (let ((plist (cdr slot))
+                        initform-found)
+                    (loop :while plist :do
+                       (destructuring-bind (key &optional value &rest rest) plist
+                         (declare (ignore value))
+                         ;; Sure, its invalid to have a plist key without a
+                         ;; value, but we're not making that value
+                         ;; judgement, here.  That's for defclass to
+                         ;; complain about.
+                         (when (eq key :initform)
+                           (setf initform-found t)
+                           (return))
+                         (setf plist rest)))
+                    (if initform-found
+                        slot
+                        `(,(car slot) :initform string ,@(cdr slot))))))
+             (t
+              slot))))
+      (setf slots (mapcar #'munge slots))
+      (unless text-slot-found
+        (push `(text :initform ,string) slots))))
   `(progn
-     (define-literal-token ,name ,string ,superclasses ,slots ,@options)
+     (define-literal-token ,name ,string ,superclasses
+         ,slots
+       ,@options)
      (fset:adjoinf *reserved-words* ,string ',name)
      ',name))
 
