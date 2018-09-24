@@ -167,6 +167,10 @@
   ((cursor-point
     :reader completion-context-cursor-point
     :initarg :cursor-point
+    :initform (required))
+   (readtable
+    :reader completion-context-readtable
+    :initarg :readtable
     :initform (required))))
 
 (defgeneric completion-suggestions (desired-token-type token-fragment context)
@@ -356,4 +360,5 @@ text that could replace the token under point."
     (completion-suggestions-for-tokens
      tokens
      (if end-found (vector-pop tokens) *empty-token*)
-     (make-instance 'completion-context :cursor-point cursor-point))))
+     (make-instance 'completion-context :cursor-point cursor-point
+                    :readtable readtable))))
