@@ -14,6 +14,32 @@
 
 (defpackage :shcl/shell/complete
   (:use :common-lisp :shcl/core/utility :shcl/core/iterator)
+  (:import-from :shcl/core/advice #:define-advice)
+  (:import-from :shcl/core/shell-grammar
+   #:parse-simple-command #:parse-simple-command-word #:command-iterator
+   #:*intermediate-parse-error-hook*)
+  (:import-from :shcl/core/data #:clone)
+  (:import-from :shcl/core/lexer
+   #:reserved-word #:literal-token-class #:literal-token-string #:token-value
+   #:simple-word #:simple-word-text #:token-iterator #:token-position)
+  (:import-from :shcl/core/parser
+   #:unexpected-eof #:unexpected-eof-expected-type #:type-mismatch
+   #:type-mismatch-expected-type #:parser-bind #:parser-error #:parser-value
+   #:expected-eof #:expected-eof-got #:type-mismatch-got #:choice
+   #:choice-errors-iterator #:parse-failure #:parse-failure-error-object)
+  (:import-from :shcl/core/fd-table
+   #:receive-ref-counted-fd #:retained-fd-openat #:fd-wrapper-value
+   #:with-dir-ptr-for-fd)
+  (:import-from :shcl/core/posix
+   #:fstat #:faccessat #:syscall-error #:do-directory-contents)
+  (:import-from :shcl/core/posix-types #:o-rdonly #:st-mode #:x-ok #:at-eaccess)
+  (:import-from :shcl/core/support #:s-isdir)
+  (:import-from :shcl/core/environment #:colon-list-iterator #:$path)
+  (:import-from :shcl/core/positional-stream
+   #:positional-input-stream #:position-record-offset)
+  (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
+  (:import-from :closer-mop #:class-direct-subclasses)
+  (:import-from :fset)
   ;;  (:nicknames :shcl/shell/sisyphus)
   (:export #:completion-suggestions-for-input))
 (in-package :shcl/shell/complete)
@@ -46,12 +72,12 @@
 
 (defvar *command-words* nil)
 
-(shcl/core/advice:define-advice shcl/core/shell-grammar:parse-simple-command
+(define-advice parse-simple-command
     :around tab-complete
     (iter)
   (declare (ignore iter))
   (unless *collect-tab-complete-info*
-    (return-from shcl/core/shell-grammar:parse-simple-command
+    (return-from parse-simple-command
       (call-next-method)))
 
   (let ((*command-words* (fset:empty-seq)))
@@ -67,38 +93,38 @@
                    (symbol (find-class type))
                    (standard-class type))))
 
-      (unless (eq class (find-class 'shcl/core/lexer:reserved-word))
+      (unless (eq class (find-class 'reserved-word))
         (concatenate-iterables
          (list class)
          (concatmap-iterator
-          (closer-mop:class-direct-subclasses class)
+          (class-direct-subclasses class)
           (lambda (subclass)
             (expand-type `(command-word ,subclass) unique-table))))))))
 
 (defgeneric wrap-expected-type (error-object))
 
-(defmethod wrap-expected-type ((err shcl/core/parser:unexpected-eof))
-  (shcl/core/data:clone err :expected-type `(command-word ,(shcl/core/parser:unexpected-eof-expected-type err))))
+(defmethod wrap-expected-type ((err unexpected-eof))
+  (clone err :expected-type `(command-word ,(unexpected-eof-expected-type err))))
 
-(defmethod wrap-expected-type ((err shcl/core/parser:type-mismatch))
-  (shcl/core/data:clone err :expected-type `(command-word ,(shcl/core/parser:type-mismatch-expected-type err))))
+(defmethod wrap-expected-type ((err type-mismatch))
+  (clone err :expected-type `(command-word ,(type-mismatch-expected-type err))))
 
-(shcl/core/advice:define-advice shcl/core/shell-grammar:parse-simple-command-word
+(define-advice parse-simple-command-word
     :around tab-complete
     (iter)
   (declare (ignore iter))
   (unless *collect-tab-complete-info*
-    (return-from shcl/core/shell-grammar:parse-simple-command-word
+    (return-from parse-simple-command-word
       (call-next-method)))
 
   (assert *command-words*)
-  (shcl/core/parser:parser-bind (value error-p) (call-next-method)
+  (parser-bind (value error-p) (call-next-method)
     (cond
       (error-p
-       (shcl/core/parser:parser-error (wrap-expected-type value)))
+       (parser-error (wrap-expected-type value)))
       (t
        (fset:push-last *command-words* value)
-       (shcl/core/parser:parser-value value)))))
+       (parser-value value)))))
 
 (defvar *empty-iterator*
   (make-iterator ()
@@ -120,21 +146,21 @@
 
 (defgeneric parse-error-expected-types (err))
 
-(defmethod parse-error-involves-sigil-token-p ((err shcl/core/parser:expected-eof) sigil-token)
-  (eq sigil-token (shcl/core/parser:expected-eof-got err)))
+(defmethod parse-error-involves-sigil-token-p ((err expected-eof) sigil-token)
+  (eq sigil-token (expected-eof-got err)))
 
-(defmethod parse-error-expected-types ((err shcl/core/parser:expected-eof))
+(defmethod parse-error-expected-types ((err expected-eof))
   (list :eof))
 
-(defmethod parse-error-involves-sigil-token-p ((err shcl/core/parser:type-mismatch) sigil-token)
-  (eq sigil-token (shcl/core/parser:type-mismatch-got err)))
+(defmethod parse-error-involves-sigil-token-p ((err type-mismatch) sigil-token)
+  (eq sigil-token (type-mismatch-got err)))
 
-(defmethod parse-error-expected-types ((err shcl/core/parser:type-mismatch))
-  (list (shcl/core/parser:type-mismatch-expected-type err)))
+(defmethod parse-error-expected-types ((err type-mismatch))
+  (list (type-mismatch-expected-type err)))
 
-(defmethod parse-error-expected-types ((err shcl/core/parser:choice))
+(defmethod parse-error-expected-types ((err choice))
   (concatmap-iterator
-   (shcl/core/parser:choice-errors-iterator err :recursive-p t)
+   (choice-errors-iterator err :recursive-p t)
    'parse-error-expected-types))
 
 (defclass completion-context ()
@@ -152,27 +178,27 @@
   *empty-iterator*)
 
 (defmethod completion-suggestions concatenate-iterables
-    ((desired shcl/core/lexer:literal-token-class) token context)
-  (let ((desired-string (shcl/core/lexer:literal-token-string desired))
-        (token-value (shcl/core/lexer:token-value token)))
+    ((desired literal-token-class) token context)
+  (let ((desired-string (literal-token-string desired))
+        (token-value (token-value token)))
     (if (starts-with-p desired-string token-value)
         (list-iterator (list desired-string))
         *empty-iterator*)))
 
 (defun directory-p (at-fd path)
   (handler-case
-      (shcl/core/fd-table:receive-ref-counted-fd
-          (file (shcl/core/fd-table:retained-fd-openat at-fd path shcl/core/posix-types:o-rdonly))
-        (shcl/core/support:s-isdir (slot-value (shcl/core/posix:fstat (shcl/core/fd-table:fd-wrapper-value file)) 'shcl/core/posix-types:st-mode)))
-    (shcl/core/posix:syscall-error ()
+      (receive-ref-counted-fd
+          (file (retained-fd-openat at-fd path o-rdonly))
+        (s-isdir (slot-value (fstat (fd-wrapper-value file)) 'st-mode)))
+    (syscall-error ()
       nil)))
 
 (defun executable-p (at-fd path)
   (handler-case
       (progn
-        (shcl/core/posix:faccessat (shcl/core/fd-table:fd-wrapper-value at-fd) path shcl/core/posix-types:x-ok shcl/core/posix-types:at-eaccess)
+        (faccessat (fd-wrapper-value at-fd) path x-ok at-eaccess)
         t)
-    (shcl/core/posix:syscall-error ()
+    (syscall-error ()
       nil)))
 
 (defmacro do-executables-in-dir-fd ((executable-name dir-fd &optional result) &body body)
@@ -180,8 +206,8 @@
         (dir-ptr (gensym "DIR-PTR"))
         (file-name (gensym "FILE-NAME")))
     `(let ((,dir ,dir-fd))
-       (shcl/core/fd-table:with-dir-ptr-for-fd (,dir-ptr ,dir)
-         (shcl/core/posix:do-directory-contents (,file-name ,dir-ptr ,result)
+       (with-dir-ptr-for-fd (,dir-ptr ,dir)
+         (do-directory-contents (,file-name ,dir-ptr ,result)
            (when (and (not (equal "." ,file-name))
                       (not (equal ".." ,file-name))
                       (not (directory-p ,dir ,file-name))
@@ -194,12 +220,12 @@
     (labels
         ((retained-fd-open-dir ()
            (handler-case
-               (shcl/core/fd-table:retained-fd-openat
-                (shcl/core/working-directory:get-fd-current-working-directory)
-                path shcl/core/posix-types:o-rdonly)
-             (shcl/core/posix:syscall-error ()
+               (retained-fd-openat
+                (get-fd-current-working-directory)
+                path o-rdonly)
+             (syscall-error ()
                (return-from executables-in-directory result)))))
-      (shcl/core/fd-table:receive-ref-counted-fd
+      (receive-ref-counted-fd
           (dir-fd (retained-fd-open-dir))
         (do-executables-in-dir-fd (executable-name dir-fd)
           (vector-push-extend executable-name result))))
@@ -207,15 +233,15 @@
 
 (defun all-binary-commands ()
   (let ((result-vector (make-extensible-vector)))
-    (do-iterator (path (shcl/core/environment:colon-list-iterator shcl/core/environment:$path))
+    (do-iterator (path (colon-list-iterator $path))
       (when (equal "" path)
         (setf path "."))
       (vector-push-extend (executables-in-directory path) result-vector))
     (concatenate-iterable-collection result-vector)))
 
 (defmethod completion-suggestions concatenate-iterables
-    ((desired (eql (find-class 'shcl/core/lexer:simple-word)))
-     (token shcl/core/lexer:simple-word)
+    ((desired (eql (find-class 'simple-word)))
+     (token simple-word)
      context)
   (unless *command-words*
     (return-from completion-suggestions))
@@ -223,10 +249,10 @@
   (when (equal 0 (fset:size *command-words*))
     (labels
         ((compatible-p (command)
-           (starts-with-p command (shcl/core/lexer:simple-word-text token))))
+           (starts-with-p command (simple-word-text token))))
       (filter-iterator (all-binary-commands) #'compatible-p))))
 
-(defvar *empty-token* (make-instance 'shcl/core/lexer:simple-word :text ""))
+(defvar *empty-token* (make-instance 'simple-word :text ""))
 
 (defun make-unique-table ()
   (make-hash-table :test 'equal))
@@ -251,7 +277,7 @@
   (concatenate-iterables
    (list type)
    (concatmap-iterator
-    (closer-mop:class-direct-subclasses type)
+    (class-direct-subclasses type)
     (lambda (subclass)
       (expand-type subclass unique-table)))))
 
@@ -261,19 +287,18 @@
 (defclass sigil-token ()
   ())
 
-(defmethod shcl/core/lexer:token-value ((sigil sigil-token))
+(defmethod token-value ((sigil sigil-token))
   nil)
 
 (defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
   (let* ((*collect-tab-complete-info* t)
          (sigil-token (make-instance 'sigil-token))
-         (command-iterator (shcl/core/shell-grammar:command-iterator
+         (command-iterator (command-iterator
                             (lookahead-iterator-wrapper
                              (concatenate-iterables
                               leading-tokens
                               (list sigil-token)))))
-         (shcl/core/shell-grammar:*intermediate-parse-error-hook*
-          shcl/core/shell-grammar:*intermediate-parse-error-hook*)
+         (*intermediate-parse-error-hook* *intermediate-parse-error-hook*)
          (seen-errors (make-hash-table :test 'eq))
          (suggestions (fset:empty-set)))
     (labels
@@ -290,16 +315,14 @@
                ;; the dynamic context where the error was produced
                (do-iterator (suggestion err-suggestions)
                  (fset:adjoinf suggestions suggestion))))))
-      (add-hook
-       'shcl/core/shell-grammar:*intermediate-parse-error-hook*
-       #'add-error)
+      (add-hook '*intermediate-parse-error-hook* #'add-error)
       (handler-case
           (do-iterator (command command-iterator)
             (declare (ignore command)))
-        (shcl/core/parser:parse-failure (err)
+        (parse-failure (err)
           ;; This really should have already been handled, but just in
           ;; case...
-          (add-error (shcl/core/parser:parse-failure-error-object err))))
+          (add-error (parse-failure-error-object err))))
       suggestions)))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
@@ -316,16 +339,15 @@ then new text will be inserted after the last character.
 
 This function returns an iterator of strings.  Each string represents
 text that could replace the token under point."
-  (let ((token-iterator (shcl/core/lexer:token-iterator
-                         (make-instance 'shcl/core/positional-stream:positional-input-stream
+  (let ((token-iterator (token-iterator
+                         (make-instance 'positional-input-stream
                                         :underlying-stream (make-string-input-stream input-text))
                          :readtable readtable))
         (tokens (make-extensible-vector))
         end-found)
     (do-iterator (token token-iterator)
-      (let* ((token-start (shcl/core/positional-stream:position-record-offset
-                           (shcl/core/lexer:token-position token)))
-             (token-end (+ token-start (length (shcl/core/lexer:token-value token)))))
+      (let* ((token-start (position-record-offset (token-position token)))
+             (token-end (+ token-start (length (token-value token)))))
         (when (<= token-start cursor-point)
           (vector-push-extend token tokens))
         (when (>= token-end cursor-point)
