@@ -165,7 +165,7 @@
 
 (defclass completion-context ()
   ((cursor-point
-    :reader cursor-point
+    :reader completion-context-cursor-point
     :initarg :cursor-point
     :initform (required))))
 
