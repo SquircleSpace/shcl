@@ -33,6 +33,7 @@
   (:import-from :shcl/shell/prompt
    #:with-history #:history-enter #:history-set-size #:make-editline-stream
    #:interpret-prompt-string)
+  (:import-from :shcl/shell/complete #:completion-suggestions-for-input)
   (:import-from :uiop)
   (:import-from :swank)
   (:import-from :fset)
@@ -96,6 +97,9 @@ See `*fresh-prompt*'."
   (let ((result (funcall *prompt-function*)))
     (setf *fresh-prompt* nil)
     result))
+
+(defun main-complete (input-string cursor-position)
+  (completion-suggestions-for-input input-string cursor-position *shell-readtable*))
 
 (defun logging-token-iterator (stream)
   "Return an iterator that produces the tokens found in `stream'.
@@ -220,7 +224,8 @@ example, that...
 
       (with-history (h)
         (history-set-size h 800)
-        (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h))
+        (let ((stream (make-editline-stream :prompt-fn 'main-prompt :history h
+                                            :complete-fn 'main-complete))
               (*package* (find-package :shcl-user))
               (startup-file (probe-file "~/.shclrc.lisp")))
           (when startup-file
