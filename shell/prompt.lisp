@@ -30,7 +30,8 @@
    #:with-history #:history-set-size #:get-line
    #:interpret-prompt-string #:make-editline-stream
    #:completion-suggestion-display-text #:completion-suggestion-replacement-text
-   #:completion-suggestion-replacement-range))
+   #:completion-suggestion-replacement-range
+   #:apply-completion-suggestion-to-text))
 (in-package :shcl/shell/prompt)
 
 (optimization-settings)
@@ -389,6 +390,12 @@ The editline instance has dynamic extent."
               ,@body)
          (destroy-editline ,editline)))))
 
+(defun editline-reset (e)
+  (el-reset (slot-value e 'ptr)))
+
+(defun editline-insertstr (e str)
+  (el-insertstr (slot-value e 'ptr) str))
+
 (defun editline-prompt (e)
   "Retrieve the prompt string associated with the given `editline'.
 
@@ -559,14 +566,38 @@ half-open interval."))
 
 (defvar *tab-complete-fn* nil)
 
+(defun apply-completion-suggestion-to-text (input-text suggestion)
+  "Compose a string where the given completion suggestion has been
+applied to some text.
+
+See `completion-suggestion-replacement-text' and
+`completion-suggestion-replacement-range'."
+  (with-output-to-string (str)
+    (write-string input-text str :end (car (completion-suggestion-replacement-range suggestion)))
+    (write-string (completion-suggestion-replacement-text suggestion) str)
+    (write-string " " str)
+    (write-string input-text str :start (cdr (completion-suggestion-replacement-range suggestion)))))
+
 (defun tab-complete (editline char)
   (declare (ignore char))
   (let* ((line (editline-line editline))
-         (suggestions (funcall *tab-complete-fn* (lineinfo-text line)
-                               (lineinfo-cursor-index line))))
-    (format t "~%")
-    (shcl/core/iterator:do-iterator (suggestion suggestions)
-      (format t "~A~%" (completion-suggestion-display-text suggestion))))
+         (line-text (lineinfo-text line))
+         (suggestions (shcl/core/iterator:iterator-values
+                       (funcall *tab-complete-fn* line-text
+                                (lineinfo-cursor-index line)))))
+    (cond
+      ((equal 1 (length suggestions))
+       (editline-reset editline)
+       (let ((new-text (apply-completion-suggestion-to-text
+                        line-text
+                        (aref suggestions 0))))
+         (editline-insertstr editline new-text)))
+
+      ((not (zerop (length suggestions)))
+       (setf suggestions (sort suggestions 'string< :key 'completion-suggestion-display-text))
+       (format t "~%")
+       (loop :for suggestion :across suggestions :do
+          (format t "~A~%" (completion-suggestion-display-text suggestion))))))
   +cc-redisplay+)
 
 (define-editline-trampoline tab-complete)
