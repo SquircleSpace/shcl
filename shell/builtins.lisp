@@ -17,6 +17,9 @@
   (:import-from :shcl/shell/complete #:completion-suggestions-for-input)
   (:import-from :shcl/core/iterator #:do-iterator)
   (:import-from :shcl/core/lexer)
+  (:import-from :shcl/shell/prompt
+   #:completion-suggestion-display-text #:completion-suggestion-replacement-text
+   #:completion-suggestion-replacement-range)
   (:import-from :fset))
 (in-package :shcl/shell/builtins)
 
@@ -43,7 +46,7 @@
       (terpri)))
   0)
 
-(define-builtin -shcl-complete (&option point &required input-string)
+(define-builtin -shcl-complete (&flag show-result &option point &required input-string)
   (cond
     ((< 1 (length point))
      (error 'command-error :message "point option must not be specified more than once."))
@@ -53,7 +56,15 @@
     ((equal 0 (length point))
      (setf point (length input-string))))
 
+  (setf show-result (not (zerop (length show-result))))
+
   (let ((readtable (shcl/core/lexer:standard-shell-readtable)))
     (do-iterator (value (completion-suggestions-for-input input-string point readtable))
-      (format t "~A~%" value)))
+      (format t "~A~%" (completion-suggestion-display-text value))
+      (when show-result
+        (write-string "    => ")
+        (write-string input-string *standard-output* :end (car (completion-suggestion-replacement-range value)))
+        (write-string (completion-suggestion-replacement-text value))
+        (write-string input-string *standard-output* :start (cdr (completion-suggestion-replacement-range value)))
+        (format t "~%"))))
   0)
