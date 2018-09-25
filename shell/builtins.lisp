@@ -19,7 +19,8 @@
   (:import-from :shcl/core/lexer)
   (:import-from :shcl/shell/prompt
    #:completion-suggestion-display-text #:completion-suggestion-replacement-text
-   #:completion-suggestion-replacement-range)
+   #:completion-suggestion-replacement-range
+   #:apply-completion-suggestion-to-text)
   (:import-from :fset))
 (in-package :shcl/shell/builtins)
 
@@ -62,9 +63,5 @@
     (do-iterator (value (completion-suggestions-for-input input-string point readtable))
       (format t "~A~%" (completion-suggestion-display-text value))
       (when show-result
-        (write-string "    => ")
-        (write-string input-string *standard-output* :end (car (completion-suggestion-replacement-range value)))
-        (write-string (completion-suggestion-replacement-text value))
-        (write-string input-string *standard-output* :start (cdr (completion-suggestion-replacement-range value)))
-        (format t "~%"))))
+        (format t "    => ~A~%" (apply-completion-suggestion-to-text input-string value)))))
   0)
