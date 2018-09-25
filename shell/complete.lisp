@@ -18,7 +18,7 @@
   (:import-from :shcl/core/shell-grammar
    #:parse-simple-command #:parse-simple-command-word #:command-iterator
    #:*intermediate-parse-error-hook*)
-  (:import-from :shcl/core/data #:clone)
+  (:import-from :shcl/core/data #:clone #:define-data)
   (:import-from :shcl/core/lexer
    #:reserved-word #:literal-token-class #:literal-token-string #:token-value
    #:simple-word #:simple-word-text #:token-iterator #:token-position)
@@ -38,6 +38,9 @@
   (:import-from :shcl/core/positional-stream
    #:positional-input-stream #:position-record-offset)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
+  (:import-from :shcl/shell/prompt
+   #:completion-suggestion-display-text #:completion-suggestion-replacement-text
+   #:completion-suggestion-replacement-range)
   (:import-from :closer-mop #:class-direct-subclasses)
   (:import-from :fset)
   ;;  (:nicknames :shcl/shell/sisyphus)
@@ -163,7 +166,7 @@
    (choice-errors-iterator err :recursive-p t)
    'parse-error-expected-types))
 
-(defclass completion-context ()
+(define-data completion-context ()
   ((cursor-point
     :reader completion-context-cursor-point
     :initarg :cursor-point
@@ -171,6 +174,10 @@
    (readtable
     :reader completion-context-readtable
     :initarg :readtable
+    :initform (required))
+   (token-range
+    :reader completion-context-token-range
+    :initarg :token-range
     :initform (required))))
 
 (defgeneric completion-suggestions (desired-token-type token-fragment context)
@@ -294,6 +301,25 @@
 (defmethod token-value ((sigil sigil-token))
   nil)
 
+(define-data completion-suggestion ()
+  ((display-text
+    :initarg :display-text
+    :reader completion-suggestion-display-text
+    :initform (required))
+   (replacement-text
+    :initarg :replacement-text
+    :reader completion-suggestion-replacement-text
+    :initform (required))
+   (replacement-range
+    :initarg :replacement-range
+    :reader completion-suggestion-replacement-range
+    :initform (required))))
+
+(defun package-suggestion (suggestion-text context)
+  (make-instance 'completion-suggestion :display-text suggestion-text
+                 :replacement-text suggestion-text
+                 :replacement-range (completion-context-token-range context)))
+
 (defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
   (let* ((*collect-tab-complete-info* t)
          (sigil-token (make-instance 'sigil-token))
@@ -327,7 +353,7 @@
           ;; This really should have already been handled, but just in
           ;; case...
           (add-error (parse-failure-error-object err))))
-      suggestions)))
+      (map-iterator (iterator suggestions) (lambda (s) (package-suggestion s context))))))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.
@@ -357,8 +383,16 @@ text that could replace the token under point."
         (when (>= token-end cursor-point)
           (setf end-found t)
           (return))))
-    (completion-suggestions-for-tokens
-     tokens
-     (if end-found (vector-pop tokens) *empty-token*)
-     (make-instance 'completion-context :cursor-point cursor-point
-                    :readtable readtable))))
+    (let* ((token-to-complete (if end-found (vector-pop tokens) *empty-token*))
+           (token-start (if end-found
+                            (position-record-offset (token-position token-to-complete))
+                            (length input-text)))
+           (token-end (if end-found
+                          (+ token-start (length (token-value token-to-complete)))
+                          token-start))
+           (token-range (cons token-start token-end)))
+      (completion-suggestions-for-tokens
+       tokens
+       token-to-complete
+       (make-instance 'completion-context :cursor-point cursor-point
+                      :readtable readtable :token-range token-range)))))

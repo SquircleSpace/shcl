@@ -28,7 +28,9 @@
   (:import-from :osicat-posix)
   (:export
    #:with-history #:history-set-size #:get-line
-   #:interpret-prompt-string #:make-editline-stream))
+   #:interpret-prompt-string #:make-editline-stream
+   #:completion-suggestion-display-text #:completion-suggestion-replacement-text
+   #:completion-suggestion-replacement-range))
 (in-package :shcl/shell/prompt)
 
 (optimization-settings)
@@ -515,11 +517,73 @@ Returns a `lineinfo' instance."
   (with-slots (ptr) e
     (convert-lineinfo (el-line ptr))))
 
-(defun get-line (prompt &key history)
+(defgeneric completion-suggestion-display-text (suggestion)
+  (:documentation
+   "Retrieve a string that describes this completion suggestion in a
+way the user can understand.
+
+Usually, this is the same as the actual replacement text.  In fact, a
+method is provided that calls `completion-suggestion-replacement-text'
+as a fallback.
+
+The display text is used when a set of possible completions are shown
+to the user."))
+
+(defmethod completion-suggestion-display-text (suggestion)
+  (completion-suggestion-replacement-text suggestion))
+
+(defgeneric completion-suggestion-replacement-text (suggestion)
+  (:documentation
+   "Retrieve the replacement string this completion suggestion is
+suggesting.
+
+If this suggestion is accepted by the user, the string that this
+function returns should replace the characters in the range specified
+by `completion-suggestion-replacement-range'."))
+
+(defgeneric completion-suggestion-replacement-range (suggestion)
+  (:documentation
+   "Retrieve the range of characters that should be replaced if this
+suggestion is accepted.
+
+Completion suggestions may not change the entire input text.  This
+function returns a range describing which characters in the user's
+input text should be replaced.  Text in the replacement range will be
+replaced with the return value of
+`completion-suggestion-replacement-text'.
+
+The return value is a `cons' cell.  The `car' is the index of first
+character that should be replaced, and the `cdr' is one plus the index
+of the last character to replace.  So, the range represents a
+half-open interval."))
+
+(defvar *tab-complete-fn* nil)
+
+(defun tab-complete (editline char)
+  (declare (ignore char))
+  (let* ((line (editline-line editline))
+         (suggestions (funcall *tab-complete-fn* (lineinfo-text line)
+                               (lineinfo-cursor-index line))))
+    (format t "~%")
+    (shcl/core/iterator:do-iterator (suggestion suggestions)
+      (format t "~A~%" (completion-suggestion-display-text suggestion))))
+  +cc-redisplay+)
+
+(define-editline-trampoline tab-complete)
+
+(defun get-line (prompt &key history complete-fn)
   "This is intended to be the super-high-level auto-magic way to get
 input from the user.
 
-This interacts with the user on symbolic fds 0, 1, and 2."
+This interacts with the user on symbolic fds 0, 1, and 2.
+
+If `complete-fn' is non-nil, then it should contain a function which
+should be called to handle tab completion requests. This function
+should accept two arguments: the input string and the index of the
+cursor's position.  Index 0 indicates the cursor (i.e. the point where
+new characters would get inserted) is before the first character.  The
+completer function should return an iterable sequence of completion
+suggestions."
   (let ((stdin-fd (fd-wrapper-value (get-fd-binding 0 :if-unbound :unmanaged)))
         (stdout-fd (fd-wrapper-value (get-fd-binding 1 :if-unbound :unmanaged)))
         (stderr-fd (fd-wrapper-value (get-fd-binding 2 :if-unbound :unmanaged))))
@@ -527,7 +591,11 @@ This interacts with the user on symbolic fds 0, 1, and 2."
       (setf (editline-prompt e) prompt)
       (when history
         (editline-set-history e history))
-      (editline-gets e))))
+      (let ((*tab-complete-fn* complete-fn))
+        (when complete-fn
+          (editline-set-addfn e "-shcl-tab-complete" "Complete input" 'tab-complete)
+          (editline-set-bind e (string #\tab) "-shcl-tab-complete"))
+        (editline-gets e)))))
 
 (define-builtin -shcl-eval-editline (&rest args)
   "Pass the given arguments to el_parse."
@@ -555,7 +623,13 @@ which the user sees when input is needed.")
     :initarg :history
     :documentation
     "The object which will provide history tracking for this
-stream."))
+stream.")
+   (complete-fn
+    :initform nil
+    :initarg :complete-fn
+    :documentation
+    "This object corresponds to the `complete-fn' argument to the
+`get-line' function."))
   (:documentation
    "An `editline-stream' is an input stream which retrieves its
 contents from the user (using `get-line').
@@ -585,12 +659,12 @@ The prompt the user sees is decided by the `prompt-fn'."))
 
 (defun extend-editline-stream (stream)
   "Add another line of content to an `editline-stream'."
-  (with-slots (text prompt-fn history) stream
+  (with-slots (text prompt-fn history complete-fn) stream
     (unless (open-stream-p stream)
       (error "Stream is closed"))
     (unless (zerop (fset:size text))
       (error "Stream isn't empty yet"))
-    (let ((next-line (get-line (funcall prompt-fn) :history history)))
+    (let ((next-line (get-line (funcall prompt-fn) :history history :complete-fn complete-fn)))
       (cond
         (next-line
          (assert (plusp (length next-line)))
@@ -638,10 +712,11 @@ The prompt the user sees is decided by the `prompt-fn'."))
   (with-slots (text) s
     (setf text (fset:empty-seq))))
 
-(defun make-editline-stream (&key prompt-fn history)
+(defun make-editline-stream (&key prompt-fn history complete-fn)
   "Create a stream whose contents are retrieved from the user using
 the editline library."
-  (make-instance 'editline-stream :prompt-fn prompt-fn :history history))
+  (make-instance 'editline-stream :prompt-fn prompt-fn :history history
+                 :complete-fn complete-fn))
 
 
 (defgeneric escape-sequence (shell char)
