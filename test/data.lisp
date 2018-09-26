@@ -137,6 +137,12 @@
 (define-cloning-setf-expander numbers-d
     unsafe-set-numbers-d)
 
+(define-data unset-slots ()
+  ((a
+    :initarg :a)
+   (b
+    :initarg :b)))
+
 (define-test ordering
   (let ((a (make-instance 'numbers :a 123 :b 123))
         (b (make-instance 'numbers :a 123 :b 123)))
@@ -167,7 +173,20 @@
         "Different derived classes are unequal")
     (setf (numbers-a a) 124)
     (is (fset:compare a b) :greater
-        "Different direved clases can be ordered")))
+        "Different direved clases can be ordered")
+
+    (setf a (make-instance 'unset-slots :a 123 :b 123))
+    (setf b (make-instance 'unset-slots :b 456))
+    (is (fset:compare a b) :greater
+        "Unbound slots are always less than bound slots")
+    (setf a (make-instance 'unset-slots :b 456))
+    (setf b (make-instance 'unset-slots :a 123 :b 123))
+    (is (fset:compare a b) :less
+        "Unbound slots are always less than bound slots")
+    (setf a (make-instance 'unset-slots :b 456))
+    (setf b (make-instance 'unset-slots :b 456))
+    (is (fset:compare a b) :equal
+        "Unbound slots are equal to bound slots")))
 
 (defvar *clone-test-class-a-counter* 0)
 (defvar *clone-test-class-b-counter* 0)

@@ -186,14 +186,29 @@ initialized according to the class's initforms."
        (compare-slots (slots)
          (let ((result :equal))
            (dolist (slot slots)
-             (ecase (fset:compare (slot-value first slot) (slot-value second slot))
-               (:less
-                (return-from compare-slots :less))
-               (:greater
-                (return-from compare-slots :greater))
-               (:unequal
-                (setf result :unequal))
-               (:equal)))
+             (let ((first-boundp (slot-boundp first slot))
+                   (second-boundp (slot-boundp second slot)))
+               (cond
+                 ((and (not first-boundp)
+                       (not second-boundp)))
+
+                 ((and first-boundp
+                       (not second-boundp))
+                  (return-from compare-slots :greater))
+
+                 ((and (not first-boundp)
+                       second-boundp)
+                  (return-from compare-slots :less))
+
+                 (t ;; Both are bound
+                  (ecase (fset:compare (slot-value first slot) (slot-value second slot))
+                    (:less
+                     (return-from compare-slots :less))
+                    (:greater
+                     (return-from compare-slots :greater))
+                    (:unequal
+                     (setf result :unequal))
+                    (:equal))))))
            result)))
     (declare (dynamic-extent #'compare-slots #'slot-names))
 
