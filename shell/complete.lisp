@@ -247,6 +247,7 @@
   (let ((result-vector (make-extensible-vector)))
     (do-iterator (path (colon-list-iterator $path))
       (when (equal "" path)
+        ;; POSIX says we need to do this...
         (setf path "."))
       (vector-push-extend (executables-in-directory path) result-vector))
     (concatenate-iterable-collection result-vector)))
