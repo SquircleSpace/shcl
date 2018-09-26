@@ -194,7 +194,7 @@
   (let ((desired-string (literal-token-string desired))
         (token-value (token-value token)))
     (if (starts-with-p desired-string token-value)
-        (list-iterator (list desired-string))
+        (list-iterator (list (make-simple-completion-suggestion desired-string context)))
         *empty-iterator*)))
 
 (defun directory-p (at-fd path)
@@ -263,7 +263,9 @@
     (labels
         ((compatible-p (command)
            (starts-with-p command (simple-word-text token))))
-      (filter-iterator (all-binary-commands) #'compatible-p))))
+      (map-iterator (filter-iterator (all-binary-commands) #'compatible-p)
+                    (lambda (str)
+                      (make-simple-completion-suggestion str context))))))
 
 (defvar *empty-token* (make-instance 'simple-word :text ""))
 
@@ -360,9 +362,7 @@
           ;; This really should have already been handled, but just in
           ;; case...
           (add-error (parse-failure-error-object err))))
-      (map-iterator (iterator suggestions)
-                    (lambda (s)
-                      (make-simple-completion-suggestion s context))))))
+      (iterator suggestions))))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.
