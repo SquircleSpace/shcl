@@ -21,6 +21,6 @@
    #:+el-prompt+ #:+el-rprompt+ #:+el-editor+ #:+el-bind+ #:+el-addfn+
    #:+el-hist+ #:+el-prompt-esc+
    #:+cc-norm+ #:+cc-newline+ #:+cc-eof+ #:+cc-arghack+ #:+cc-refresh+
-   #:+cc-refresh_beep+ #:+cc-cursor+ #:+cc-redisplay+ #:+cc-error+
+   #:+cc-refresh-beep+ #:+cc-cursor+ #:+cc-redisplay+ #:+cc-error+
    #:+cc-fatal+
    #:+h-setsize+ #:+h-enter+))
