@@ -31,6 +31,7 @@
    #:interpret-prompt-string #:make-editline-stream
    #:completion-suggestion-display-text #:completion-suggestion-replacement-text
    #:completion-suggestion-replacement-range
+   #:completion-suggestion-wants-trailing-space-p
    #:apply-completion-suggestion-to-text))
 (in-package :shcl/shell/prompt)
 
@@ -390,11 +391,17 @@ The editline instance has dynamic extent."
               ,@body)
          (destroy-editline ,editline)))))
 
+(defun editline-cursor (e count)
+  (el-cursor (slot-value e 'ptr) count))
+
 (defun editline-reset (e)
   (el-reset (slot-value e 'ptr)))
 
 (defun editline-insertstr (e str)
   (el-insertstr (slot-value e 'ptr) str))
+
+(defun editline-deletestr (e count)
+  (el-deletestr (slot-value e 'ptr) count))
 
 (defun editline-prompt (e)
   "Retrieve the prompt string associated with the given `editline'.
@@ -564,7 +571,22 @@ character that should be replaced, and the `cdr' is one plus the index
 of the last character to replace.  So, the range represents a
 half-open interval."))
 
+(defgeneric completion-suggestion-wants-trailing-space-p (suggestion)
+  (:documentation
+   "Returns non-nil if a space character should come after this
+suggestion in the resulting text.
+
+This should return nil when the user is expected to continue adding to
+the current token.  It should return non-nil if the user is expected
+to want to move on to the next token."))
+
 (defvar *tab-complete-fn* nil)
+
+(defun text-has-trailing-space (text position)
+  (and (< position (length text))
+       (equal #\space (aref text position))
+       (or (>= (1+ position) (length text))
+           (equal #\space (aref text (1+ position))))))
 
 (defun apply-completion-suggestion-to-text (input-text suggestion)
   "Compose a string where the given completion suggestion has been
@@ -573,32 +595,48 @@ applied to some text.
 See `completion-suggestion-replacement-text' and
 `completion-suggestion-replacement-range'."
   (with-output-to-string (str)
-    (write-string input-text str :end (car (completion-suggestion-replacement-range suggestion)))
-    (write-string (completion-suggestion-replacement-text suggestion) str)
-    (write-string " " str)
-    (write-string input-text str :start (cdr (completion-suggestion-replacement-range suggestion)))))
+    (let* ((range (completion-suggestion-replacement-range suggestion))
+           (range-end (cdr range)))
+      (write-string input-text str :end range-end)
+      (write-string (completion-suggestion-replacement-text suggestion) str)
+      (when (and (completion-suggestion-wants-trailing-space-p suggestion)
+                 (not (text-has-trailing-space input-text range-end)))
+        (write-string " " str))
+      (write-string input-text str :start range-end))))
 
 (defun tab-complete (editline char)
   (declare (ignore char))
   (let* ((line (editline-line editline))
+         (cursor-index (lineinfo-cursor-index line))
          (line-text (lineinfo-text line))
          (suggestions (shcl/core/iterator:iterator-values
                        (funcall *tab-complete-fn* line-text
-                                (lineinfo-cursor-index line)))))
+                                (lineinfo-cursor-index line))))
+         (return-value +cc-redisplay+))
     (cond
-      ((equal 1 (length suggestions))
-       (editline-reset editline)
-       (let ((new-text (apply-completion-suggestion-to-text
-                        line-text
-                        (aref suggestions 0))))
-         (editline-insertstr editline new-text)))
+      ((equal 0 (length suggestions))
+       (setf return-value +cc-refresh-beep+))
 
-      ((not (zerop (length suggestions)))
+      ((equal 1 (length suggestions))
+       (let* ((suggestion (aref suggestions 0))
+              (suggestion-range (completion-suggestion-replacement-range suggestion))
+              (desired-cursor-position (cdr suggestion-range))
+              (cursor-movement (- desired-cursor-position cursor-index))
+              (char-deletion-count (- (cdr suggestion-range) (car suggestion-range))))
+         (editline-cursor editline cursor-movement)
+         (editline-deletestr editline char-deletion-count)
+         (editline-insertstr editline (completion-suggestion-replacement-text suggestion))
+         (when (completion-suggestion-wants-trailing-space-p suggestion)
+           (if (text-has-trailing-space line-text desired-cursor-position)
+               (editline-cursor editline 1)
+               (editline-insertstr editline " ")))))
+
+      (t
        (setf suggestions (sort suggestions 'string< :key 'completion-suggestion-display-text))
        (format t "~%")
        (loop :for suggestion :across suggestions :do
-          (format t "~A~%" (completion-suggestion-display-text suggestion))))))
-  +cc-redisplay+)
+          (format t "~A~%" (completion-suggestion-display-text suggestion)))))
+    return-value))
 
 (define-editline-trampoline tab-complete)
 

@@ -40,7 +40,7 @@
 (constant (+cc-eof+ "CC_EOF"))
 (constant (+cc-arghack+ "CC_ARGHACK"))
 (constant (+cc-refresh+ "CC_REFRESH"))
-(constant (+cc-refresh_beep+ "CC_REFRESH_BEEP"))
+(constant (+cc-refresh-beep+ "CC_REFRESH_BEEP"))
 (constant (+cc-cursor+ "CC_CURSOR"))
 (constant (+cc-redisplay+ "CC_REDISPLAY"))
 (constant (+cc-error+ "CC_ERROR"))

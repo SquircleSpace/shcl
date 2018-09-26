@@ -40,7 +40,8 @@
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
   (:import-from :shcl/shell/prompt
    #:completion-suggestion-display-text #:completion-suggestion-replacement-text
-   #:completion-suggestion-replacement-range)
+   #:completion-suggestion-replacement-range
+   #:completion-suggestion-wants-trailing-space-p)
   (:import-from :closer-mop #:class-direct-subclasses)
   (:import-from :fset)
   ;;  (:nicknames :shcl/shell/sisyphus)
@@ -313,12 +314,17 @@
    (replacement-range
     :initarg :replacement-range
     :reader completion-suggestion-replacement-range
+    :initform (required))
+   (wants-trailing-space-p
+    :initarg :wants-trailing-space-p
+    :reader completion-suggestion-wants-trailing-space-p
     :initform (required))))
 
-(defun package-suggestion (suggestion-text context)
+(defun make-simple-completion-suggestion (suggestion-text completion-context)
   (make-instance 'completion-suggestion :display-text suggestion-text
                  :replacement-text suggestion-text
-                 :replacement-range (completion-context-token-range context)))
+                 :replacement-range (completion-context-token-range completion-context)
+                 :wants-trailing-space-p t))
 
 (defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
   (let* ((*collect-tab-complete-info* t)
@@ -353,7 +359,9 @@
           ;; This really should have already been handled, but just in
           ;; case...
           (add-error (parse-failure-error-object err))))
-      (map-iterator (iterator suggestions) (lambda (s) (package-suggestion s context))))))
+      (map-iterator (iterator suggestions)
+                    (lambda (s)
+                      (make-simple-completion-suggestion s context))))))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.
