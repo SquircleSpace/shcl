@@ -204,6 +204,39 @@ environment.
     (fset:seq
      value)))
 
+(defun expand-token-sequence (token-sequence)
+  (let ((result (fset:empty-seq))
+        (exit-infos (fset:empty-seq)))
+    (fset:do-seq (token token-sequence)
+      (multiple-value-bind (value exit-info) (expand-token token)
+        (fset:appendf result value)
+        (fset:appendf exit-infos exit-info)))
+    (values result exit-infos)))
+
+(defun expand-token (token)
+  (multiple-value-bind (expansion-fragments exit-info) (expand token)
+    (let ((result (fset:empty-seq))
+          next-word)
+      (labels
+          ((observe (fragment)
+             (unless next-word
+               (setf next-word (fset:empty-seq)))
+             (fset:push-last next-word fragment))
+           (boundary (value)
+             (when (and (not next-word) (soft-word-boundary-p value))
+               (return-from boundary))
+             (when (not next-word)
+               (observe (make-string-fragment "")))
+
+             (fset:push-last result next-word)
+             (setf next-word nil)))
+        (fset:do-seq (fragment expansion-fragments)
+          (if (word-boundary-p fragment)
+              (boundary fragment)
+              (observe fragment)))
+        (boundary +soft-word-boundary+)
+        (values result (ensure-exit-info-seq exit-info))))))
+
 (defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
   "Perform expansion on a sequence of tokens.
 
@@ -228,51 +261,22 @@ to understand how it impacts expansion."
   (when (equal 0 (fset:size things))
     (return-from expansion-for-words (fset:empty-seq)))
 
-  (let* ((*split-fields* split-fields)
-         (result (fset:empty-seq))
-         (seqs (if expand-aliases
-                   (expand-aliases things)
-                   things))
-         (exit-infos (fset:empty-seq))
-         next-word)
+  (let ((*split-fields* split-fields))
+    (when expand-aliases
+      (setf things (expand-aliases things)))
 
-    (let ((new-seqs (fset:empty-seq)))
-      (fset:do-seq (seq seqs)
-        (multiple-value-bind (value exit-info) (expand seq)
-          (setf new-seqs (fset:with-last new-seqs value))
-          (fset:appendf exit-infos (ensure-exit-info-seq exit-info))))
-      (setf seqs new-seqs))
+    (multiple-value-bind (seqs exit-infos) (expand-token-sequence things)
 
-    (labels
-        ((observe (fragment)
-           (unless next-word
-             (setf next-word (fset:empty-seq)))
-           (fset:push-last next-word fragment))
-         (boundary (value)
-           (when (and (not next-word) (soft-word-boundary-p value))
-             (return-from boundary))
-           (when (not next-word)
-             (observe (make-string-fragment "")))
+      (unless expand-pathname
+        (return-from expansion-for-words
+          (values (fset:image #'concat-fragments seqs)
+                  exit-infos)))
 
-           (fset:push-last result next-word)
-           (setf next-word nil)))
-      (fset:do-seq (sub-seq seqs)
-        (fset:do-seq (fragment sub-seq)
-          (if (word-boundary-p fragment)
-              (boundary fragment)
-              (observe fragment)))
-        (boundary +soft-word-boundary+)))
-
-    (unless expand-pathname
-      (return-from expansion-for-words
-        (values (fset:image #'concat-fragments result)
-                exit-infos)))
-
-    (let ((pathname-expansion-results (fset:empty-seq)))
-      (fset:do-seq (fragments result)
-        (fset:appendf pathname-expansion-results (expand-pathname fragments)))
-      (values pathname-expansion-results
-              exit-infos))))
+      (let ((pathname-expansion-results (fset:empty-seq)))
+        (fset:do-seq (fragments seqs)
+          (fset:appendf pathname-expansion-results (expand-pathname fragments)))
+        (values pathname-expansion-results
+                exit-infos)))))
 
 (defstruct wild-path
   "This struct represents a path which may have components which
