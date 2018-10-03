@@ -536,21 +536,25 @@ directory."
 (defun %expand-wild-path (directories index file-name)
   "The brains of `expand-wild-path'."
   (let (next as-directory-p)
+    ;; Figure out what we're looking for and whether it needs to be a
+    ;; directory or not.
     (cond
       ((>= index (length directories))
+       (unless file-name
+         (return-from %expand-wild-path (fset:seq (fset:empty-seq))))
        (setf next file-name)
        (setf as-directory-p nil))
       (t
        (setf next (aref directories index))
        (setf as-directory-p t)))
 
-    (unless next
-      (return-from %expand-wild-path (fset:seq (fset:empty-seq))))
-
     (labels
         ((recurse ()
            (%expand-wild-path directories (1+ index) file-name))
          (recurse-and-prefix (string slash-p)
+           ;; Recurse and add `string' (optionally followed by a #\/
+           ;; character) to the start of all results produced by the
+           ;; recursion.
            (let ((rest (recurse)))
              (unless rest
                (return-from recurse-and-prefix))
@@ -558,7 +562,13 @@ directory."
                    (slash (if slash-p (fset:seq #\/) (fset:empty-seq))))
                (fset:image (lambda (seq) (fset:concat s slash seq)) rest)))))
       (declare (dynamic-extent #'recurse #'recurse-and-prefix))
+      ;; For each invocation of this function, we're only concerned
+      ;; with finding matches in the current directory.
+
       (cond
+        ;; Handle absolute paths.  Remember, wild paths represent
+        ;; absolute paths by having the first directory component
+        ;; contain nothing but slash characters.
         ((and (zerop index)
               (stringp next)
               (not (find-if-not (lambda (c) (equal #\/ c)) next)))
@@ -566,28 +576,30 @@ directory."
          (with-directory-or-nil (next)
            (recurse-and-prefix next nil)))
 
+        ;; Handle empty directory components (i.e. adjacent,
+        ;; non-leading slash characters).
         ((equal next "")
          (assert as-directory-p)
          (recurse-and-prefix "/" nil))
 
+        ;; Handle specifically named directories
         ((and (stringp next) as-directory-p)
          (with-directory-or-nil (next)
            (recurse-and-prefix next t)))
 
+        ;; Handle specifically named files
         ((stringp next)
          (assert (not as-directory-p))
-         (let (fd)
-           (unwind-protect
-                (handler-case
-                    (progn
-                      (setf fd (retained-fd-openat (get-fd-current-working-directory) next 0))
-                      (fset:seq (fset:convert 'fset:seq next)))
-                  (syscall-error (e)
-                    (declare (ignore e))
-                    nil))
-             (when fd
-               (fd-wrapper-release fd)))))
+         (handler-case
+             (shcl/core/fd-table:receive-ref-counted-fd
+                 (fd (retained-fd-openat (get-fd-current-working-directory) next 0))
+               (declare (ignore fd))
+               (fset:seq (fset:convert 'fset:seq next)))
+           (syscall-error ())))
 
+        ;; Oooh.  Exciting.  A scanner.  Iterate the contents of the
+        ;; current directory and look for things that match the given
+        ;; name.
         ((not (stringp next))
          (let ((matches (fset:empty-seq)))
            (with-dir-ptr-for-fd (dir-ptr (get-fd-current-working-directory))
@@ -599,10 +611,9 @@ directory."
                        (let ((rest (recurse-and-prefix file t)))
                          (when rest
                            (fset:appendf matches rest))))
-                     (setf matches (fset:with-last matches (fset:convert 'fset:seq file)))))))
-           (if (zerop (fset:size matches))
-               nil
-               matches)))))))
+                     (fset:push-last matches (fset:convert 'fset:seq file))))))
+           (unless (zerop (fset:size matches))
+             matches)))))))
 
 (defun expand-wild-path (wild-path)
   "Given a `wild-path', produce an `fset:seq' of strings representing
