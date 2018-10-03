@@ -97,6 +97,7 @@ lisp form and turns each element into a separate word."))
          ,value))))
 
 (defmethod expand ((token lisp-form))
+  (check-side-effects-allowed)
   (funcall (slot-value token 'function)))
 
 (defun read-lisp-form (stream initiation-sequence)
@@ -351,6 +352,7 @@ string.
        ,token-sym)))
 
 (defmethod expand ((command-word command-word))
+  (check-side-effects-allowed)
   (let* ((fn (or (command-word-evaluate-fn command-word)
                  (error "command-word is missing its fn ~A" command-word))))
     (multiple-value-bind (expansion exit-info) (funcall fn)

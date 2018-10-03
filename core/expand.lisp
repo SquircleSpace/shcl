@@ -26,7 +26,9 @@
   (:import-from :shcl/core/environment #:env #:$ifs #:$home)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
-   #:word-boundary #:*split-fields* #:split))
+   #:word-boundary #:*split-fields* #:split #:*allow-side-effects*
+   #:side-effect-violation #:check-side-effects-allowed
+   #:permit-side-effects-once))
 (in-package :shcl/core/expand)
 
 (optimization-settings)
@@ -68,6 +70,18 @@ variable is non-nil, methods on `expand' are permitted to split their
 expanded strings into multiple strings by inserting word boundary
 markers into their return value.  If appropriate, they are encouraged
 to use the `split' function to do this.")
+
+(defvar *allow-side-effects* nil
+  "This variable controls whether `expand' methods are permitted to
+have side effects.
+
+Methods on `expand' are expected to consult this variable and act
+accordingly.  Sometimes expansion will be performed speculatively.
+When that happens, it is inappropriate to expand tokens that have side
+effects.  If you are writing a method on `expand' that has side
+effects, you should ensure that your method consults this variable.
+If your method requires the ability to have side effects, you should
+call `check-side-effects-allowed'.")
 
 (defconstant +soft-word-boundary+ '+soft-word-boundary+
   "A weaker version of `+hard-word-boundary+'.
@@ -237,7 +251,8 @@ environment.
         (boundary +soft-word-boundary+)
         (values result (ensure-exit-info-seq exit-info))))))
 
-(defun expansion-for-words (things &key expand-aliases expand-pathname (split-fields t))
+(defun expansion-for-words (things &key expand-aliases expand-pathname
+                                     (split-fields t) (allow-side-effects t))
   "Perform expansion on a sequence of tokens.
 
 This always performs the expansion done by the `expand' generic
@@ -256,12 +271,17 @@ could produce the following return values.
 
 The value of the `split-fields' keyword argument is bound to the
 `*split-fields*' special variable.  See that variable's documentation
-to understand how it impacts expansion."
+to understand how it impacts expansion.
+
+The value of the `allow-side-effects' keyword argument is bound to the
+`*allow-side-effects*' special variable.  See that variable's
+documentation to understand how it impacts expansion."
   (setf things (fset:convert 'fset:seq things))
   (when (equal 0 (fset:size things))
     (return-from expansion-for-words (fset:empty-seq)))
 
-  (let ((*split-fields* split-fields))
+  (let ((*split-fields* split-fields)
+        (*allow-side-effects* allow-side-effects))
     (when expand-aliases
       (setf things (expand-aliases things)))
 
@@ -638,6 +658,38 @@ represented as a sequence of string fragments)."
     (fset:do-seq (f fragments)
       (write-string (string-fragment-string f) stream))
     (get-output-stream-string stream)))
+
+(define-condition side-effect-violation (error)
+  ()
+  (:report
+   (lambda (c s)
+     (declare (ignore c))
+     (format s "A token expansion was requested that would cause side
+effects.  Side effects are currently not permitted.  The value of
+`*allow-side-effects*' controls whether this error is signaled or
+not.")))
+  (:documentation
+   "A condition to represent the case where a token expansion wishes
+to have side effects, but side effects are currently disallowed by
+`*allow-side-effects*'."))
+
+(defun permit-side-effects-once (&optional condition)
+  "Invoke the `permit-side-effects-once' restart associated with
+`condition'.
+
+The restart is expected to ignore a `side-effect-violation' that
+occurred."
+  (let ((restart (find-restart 'permit-side-effects-once condition)))
+    (when restart
+      (invoke-restart restart))))
+
+(defun check-side-effects-allowed ()
+  "Signal `side-effect-violation' if side effects are disallowed by
+`*allow-side-effects*'."
+  (unless *allow-side-effects*
+    (restart-case
+        (error 'side-effect-violation)
+      (permit-side-effects-once ()))))
 
 (defgeneric expand (thing)
   (:documentation
