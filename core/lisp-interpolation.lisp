@@ -67,7 +67,7 @@ This token always expands to one word."))
                  (fset:seq
                   (make-string-fragment
                    (format nil "~A" ,form)
-                   :quoted t))))
+                   :quoted-p t))))
          ,value))))
 
 (define-data lisp-splice-form (lisp-form)
@@ -90,7 +90,7 @@ lisp form and turns each element into a separate word."))
                  (let ((,seq ,form)
                        (,result (fset:empty-seq)))
                    (do-iterator (,thing (iterator ,seq))
-                     (fset:push-last ,result (make-string-fragment (format nil "~A" ,thing) :quoted t))
+                     (fset:push-last ,result (make-string-fragment (format nil "~A" ,thing) :quoted-p t))
                      (fset:push-last ,result (word-boundary)))
                    (setf ,result (fset:less-last ,result))
                    ,result)))
