@@ -24,8 +24,11 @@
   (:import-from :shcl/core/fd-table #:with-dir-ptr-for-fd #:retained-fd-openat #:fd-wrapper-release)
   (:import-from :shcl/core/exit-info #:exit-info)
   (:import-from :shcl/core/environment #:env #:$ifs #:$home)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
+   #:string-fragment-string #:string-fragment-quoted-p
+   #:string-fragment-literal-p #:string-fragment
    #:word-boundary #:*split-fields* #:split #:*allow-side-effects*
    #:side-effect-violation #:check-side-effects-allowed
    #:permit-side-effects-once))
@@ -33,31 +36,66 @@
 
 (optimization-settings)
 
-(defstruct (string-fragment
-             (:constructor %make-string-fragment))
-  "This struct represents a part of a word.
+(defgeneric string-fragment-string (fragment)
+  (:documentation
+   "Retrieve the sequence of characters that the given string fragment
+carries."))
 
-`string-fragment-string' stores the characters associated with this
-fragment.
+(defgeneric string-fragment-quoted-p (fragment)
+  (:documentation
+   "Return non-nil iff the given string fragment is representing
+quoted characters.
 
-`string-fragment-quoted' is a boolean value indicating whether the
-characters should be treated as though they were quoted.  This impacts
-how the characters are interpreted in some expansion contexts.  For
-example, a #\~ appearing in a quoted string fragment will not expand
-to the user's home directory.
+This impacts how the characters are interpreted in some contexts.  For
+example, a #\~ appearing in a quoted string fragment should not expand
+to the user's home directory."))
 
-`string-fragment-literal' is a boolean value indicating whether the
-characters should be treated as though they were typed by the user
-directly.  Tokens like `shcl/core/lexer:variable-expansion-word'
-should expand to non-literal string fragments.  Tokens like
-`shcl/core/lexer:if-word' should expand to a literal string fragment."
-  string
-  quoted
-  literal)
+(defgeneric string-fragment-literal-p (fragment)
+  (:documentation
+   "Return non-nil iff the given string fragment is representing
+characters that appeared literally in the input text.
 
-(defun make-string-fragment (string &key quoted literal)
+Tokens like `shcl/core/lexer:variable-expansion-word' should expand to
+non-literal string fragments.  Tokens like `shcl/core/lexer:if-word'
+should expand to a literal string fragment."))
+
+(define-data string-fragment ()
+  ((string
+    :initarg :string
+    :initform (required)
+    :type string
+    :reader string-fragment-string
+    :writer unsafe-set-string-fragment-string)
+   (quoted-p
+    :initarg :quoted-p
+    :initform nil
+    :type boolean
+    :reader string-fragment-quoted-p
+    :writer unsafe-set-string-fragment-quoted-p)
+   (literal-p
+    :initarg :literal-p
+    :initform nil
+    :type boolean
+    :reader string-fragment-literal-p
+    :writer unsafe-set-string-fragment-literal-p))
+  (:documentation
+   "This class represents a part of a string."))
+
+(defmethod print-object ((fragment string-fragment) stream)
+  (print-unreadable-object (fragment stream :type t)
+    (format stream "~W" (string-fragment-string fragment))
+    (when (string-fragment-quoted-p fragment)
+      (format stream " :quoted-p t"))
+    (when (string-fragment-literal-p fragment)
+      (format stream " :literal-p t"))))
+
+(define-cloning-setf-expander string-fragment-string unsafe-set-string-fragment-string)
+(define-cloning-setf-expander string-fragment-quoted-p unsafe-set-string-fragment-quoted-p)
+(define-cloning-setf-expander string-fragment-literal-p unsafe-set-string-fragment-literal-p)
+
+(defun make-string-fragment (string &key quoted-p literal-p)
   "Create a `string-fragment'."
-  (%make-string-fragment :string string :quoted quoted :literal literal))
+  (make-instance 'string-fragment :string string :quoted-p quoted-p :literal-p literal-p))
 
 (defparameter *split-fields* t
   "Non-nil if field splitting should be performed after expansion
@@ -353,20 +391,20 @@ represents the empty file name."
 
            (t
             (unless (zerop position)
-              (let ((f (copy-string-fragment fragment)))
-                (setf (string-fragment-string f)
+              (let ((new-fragment fragment))
+                (setf (string-fragment-string new-fragment)
                       (make-array position :element-type (array-element-type s)
                                   :displaced-to s :displaced-index-offset 0))
-                (fset:push-last part f)))
+                (fset:push-last part new-fragment)))
             (fset:push-last result part)
             (setf part (fset:empty-seq))
             (unless (equal (1+ position) (length s))
-              (let ((f (copy-string-fragment fragment)))
-                (setf (string-fragment-string f)
+              (let ((new-fragment fragment))
+                (setf (string-fragment-string new-fragment)
                       (make-array (- (length s) (1+ position))
                                   :element-type (array-element-type s)
                                   :displaced-to s :displaced-index-offset (1+ position)))
-                (fset:push-first fragments f)))))))
+                (fset:push-first fragments new-fragment)))))))
     (fset:push-last result part)
     result))
 
@@ -413,14 +451,15 @@ Returns nil on EOF."
       fragment-stream
     (tagbody
      again
-       (let ((fragment (fset:first fragments)))
-         (unless fragment
-           (return-from fragment-stream-read))
-         (when (>= index (length (string-fragment-string fragment)))
+       (let* ((fragment (fset:first fragments))
+              (string (if fragment
+                          (string-fragment-string fragment)
+                          (return-from fragment-stream-read))))
+         (when (>= index (length string))
            (fset:pop-first fragments)
            (setf index 0)
            (go again))
-         (let ((char (aref (string-fragment-string fragment) index)))
+         (let ((char (aref string index)))
            (incf index)
            (return-from fragment-stream-read (values char fragment)))))))
 
@@ -469,7 +508,7 @@ The return value is appropriate for storing in a `wild-path'."
                      (unless future-char
                        (return))
                      (when (and (equal #\] future-char)
-                                (not (string-fragment-quoted fragment)))
+                                (not (string-fragment-quoted-p fragment)))
                        (setf fragment-stream lookahead-stream)
                        (vector-push-extend (parse-char-class-glob char-class first-p) result)
                        (return-from ingest))
@@ -483,7 +522,7 @@ The return value is appropriate for storing in a `wild-path'."
            (unless char
              (return))
            (assert (not (equal #\/ char)))
-           (let ((quoted-p (string-fragment-quoted fragment))
+           (let ((quoted-p (string-fragment-quoted-p fragment))
                  (first-p (equal 1 (fragment-stream-index fragment-stream))))
              (ingest char first-p quoted-p)))))
     (when (zerop (length result))
@@ -641,19 +680,20 @@ fragments."
   (when (zerop (fset:size fragments))
     (return-from tilde-expansion fragments))
 
-  (let ((first (fset:first fragments)))
-    (when (zerop (length (string-fragment-string first)))
+  (let* ((first (fset:first fragments))
+         (string (string-fragment-string first)))
+    (when (zerop (length string))
       (return-from tilde-expansion fragments))
 
-    (unless (and (string-fragment-literal first)
-                 (equal #\~ (aref (string-fragment-string first) 0)))
+    (unless (and (string-fragment-literal-p first)
+                 (equal #\~ (aref string 0)))
       (return-from tilde-expansion fragments))
 
     (let* ((less-first (fset:less-first fragments))
-           (previous (string-fragment-string first))
+           (previous string)
            (shortened (make-array (1- (length previous)) :element-type 'character :displaced-to previous :displaced-index-offset 1))
-           (replacement-fragment (copy-string-fragment first))
-           (new-first (make-string-fragment $home :quoted t :literal nil)))
+           (replacement-fragment first)
+           (new-first (make-string-fragment $home :quoted-p t :literal-p nil)))
       (unless (or (zerop (length shortened))
                   (equal #\/ (aref shortened 0)))
         (error 'not-implemented :feature "~~name/"))
@@ -744,7 +784,7 @@ On the other hand, the following return values could produce different
 end results.
 
     (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\"))
-    (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\" :literal t))
+    (fset:seq (make-string-fragment \"foo\") (make-string-fragment \"bar\" :literal-p t))
 
 Use word boundaries responsibly.  Check with `*split-fields*' before
 you insert them into your return value.
@@ -754,10 +794,10 @@ If the expansion process involves running a command, you may return an
 value."))
 
 (defmethod expand ((thing string))
-  (fset:seq (make-string-fragment thing :literal t)))
+  (fset:seq (make-string-fragment thing :literal-p t)))
 
 (defmethod expand ((thing simple-word))
-  (fset:seq (make-string-fragment (simple-word-text thing) :literal t)))
+  (fset:seq (make-string-fragment (simple-word-text thing) :literal-p t)))
 
 (defmethod expand ((thing compound-word))
   (let* ((parts (compound-word-parts thing))
@@ -789,10 +829,10 @@ value."))
       (values result result-exit-infos))))
 
 (defmethod expand ((thing literal-token))
-  (fset:seq (make-string-fragment (literal-token-string thing) :literal t)))
+  (fset:seq (make-string-fragment (literal-token-string thing) :literal-p t)))
 
 (defmethod expand ((thing single-quote))
-  (fset:seq (make-string-fragment (single-quote-contents thing) :quoted t :literal t)))
+  (fset:seq (make-string-fragment (single-quote-contents thing) :quoted-p t :literal-p t)))
 
 (defmethod expand ((thing double-quote))
   (let ((*split-fields* nil))
@@ -805,9 +845,8 @@ value."))
            (fset:do-seq (sub-part expansion)
              (unless (word-boundary-p sub-part)
                ;; Mark the fragment as quoted
-               (unless (string-fragment-quoted sub-part)
-                 (setf sub-part (copy-string-fragment sub-part))
-                 (setf (string-fragment-quoted sub-part) t))
+               (unless (string-fragment-quoted-p sub-part)
+                 (setf (string-fragment-quoted-p sub-part) t))
                ;; Add it to the result sequence
                (setf result (fset:with-last result sub-part))))))
       result)))
@@ -830,7 +869,7 @@ value."))
          (fragments (expand-variable variable))
          (length 0))
     (fset:do-seq (fragment fragments)
-      (when (string-fragment-p fragment)
+      (when (typep fragment 'string-fragment)
         (incf length (length (string-fragment-string fragment)))))
     (fset:seq (make-string-fragment (format nil "~A" length)))))
 
