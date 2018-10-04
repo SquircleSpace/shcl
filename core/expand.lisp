@@ -178,7 +178,8 @@ environment.
   (setf *aliases* (fset:less *aliases* name)))
 
 (defun expand-aliases (tokens)
-  "Perform alias expansion on the given token sequence."
+  "Perform alias expansion on the given token sequence and return an
+iterable sequence of alternate tokens."
   (unless (typep tokens 'fset:seq)
     (setf tokens (fset:convert 'fset:seq tokens)))
 
