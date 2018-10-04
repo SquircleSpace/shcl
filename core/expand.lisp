@@ -295,7 +295,8 @@ documentation to understand how it impacts expansion."
 
       (let ((pathname-expansion-results (fset:empty-seq)))
         (fset:do-seq (fragments seqs)
-          (fset:appendf pathname-expansion-results (expand-pathname fragments)))
+          (fset:do-seq (expanded-path-fragments (expand-pathname fragments))
+            (fset:push-last pathname-expansion-results (concat-fragments expanded-path-fragments))))
         (values pathname-expansion-results
                 exit-infos)))))
 
@@ -628,7 +629,11 @@ Returns nil if no matches were found."
          (with-local-working-directory (".")
            (%expand-wild-path (wild-path-directories wild-path) 0 (wild-path-file-name wild-path)))))
     (when matches
-      (fset:image (lambda (s) (fset:convert 'string s)) matches))))
+      (labels
+          ((prepare-match (match)
+             (fset:seq (make-string-fragment (fset:convert 'string match) :quoted-p t))))
+        (declare (dynamic-extent #'prepare-match))
+        (fset:image #'prepare-match matches)))))
 
 (defun tilde-expansion (fragments)
   "Attempt to expand leading ~s in the given sequence of string
@@ -669,14 +674,17 @@ variable is non-nil, then a glob failure aborts the command.")
 
 (defun expand-pathname (fragments)
   "Perform path-related expansions on the given word (which is
-represented as a sequence of string fragments)."
+represented as a sequence of string fragments).
+
+Returns a sequence of expansions.  Each expansion is represented as a
+sequence of string fragments."
   (setf fragments (tilde-expansion fragments))
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
           (expand-wild-path wild-path))
         (when *error-on-failed-glob*
           (error "Glob pattern didn't match anything: ~A" (concat-fragments fragments)))
-        (fset:seq (concat-fragments fragments)))))
+        (fset:seq fragments))))
 
 (defun concat-fragments (fragments)
   "Concatenate the given string fragments into a normal string."
