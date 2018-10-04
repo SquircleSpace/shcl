@@ -654,6 +654,18 @@ fragments."
       (setf (string-fragment-string replacement-fragment) shortened)
       (fset:with-first (fset:with-first less-first replacement-fragment) new-first))))
 
+(defvar *error-on-failed-glob* nil
+  "If this variable is non-nil, then an error will be signaled when
+pathname expansion cannot find any matches for a glob pattern.
+
+POSIX says that if a glob doesn't match any files then pathname
+expansion should simply produce the string the user typed.  So, if the
+user runs
+    rm [fb]oo
+in a directory where neither foo nor boo exist, then rm will receive
+the string '[fb]oo' as its argument.  That's a bit whacky.  If this
+variable is non-nil, then a glob failure aborts the command.")
+
 (defun expand-pathname (fragments)
   "Perform path-related expansions on the given word (which is
 represented as a sequence of string fragments)."
@@ -661,6 +673,8 @@ represented as a sequence of string fragments)."
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
           (expand-wild-path wild-path))
+        (when *error-on-failed-glob*
+          (error "Glob pattern didn't match anything: ~A" (concat-fragments fragments)))
         (fset:seq (concat-fragments fragments)))))
 
 (defun concat-fragments (fragments)
