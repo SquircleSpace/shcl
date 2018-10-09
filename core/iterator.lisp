@@ -22,7 +22,7 @@
    #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
    #:filter-iterator #:concatenate-iterables #:concatenate-iterable-collection
    #:concatmap-iterator #:iterator-values #:lookahead-iterator-wrapper
-   #:set-iterator #:lookahead-iterator-position-token
+   #:set-iterator #:lookahead-iterator-position-token #:builder-for-type
 
    ;; High-level sequence functions
    #:starts-with-p))
@@ -217,12 +217,66 @@ This is like a generic version of the `nconc' method combination.
 Instead of returning lists that are then destructively modified, you
 may return any type that can be iterated with `iterator'.")
 
-(defun iterator-values (iter)
+(defgeneric builder-for-type (type)
+  (:documentation
+   "Return a function which can be repeatedly invoked to build a
+sequence of the given type.
+
+The returned function should accept one argument: the next item to add
+to the sequence.  The returned function should return the constructed
+sequence.  If the builder function is invoked without arguments, it
+should return the current value of the sequence without modifying
+it."))
+
+(defmethod builder-for-type ((type (eql 'vector)))
+  (let ((result (make-extensible-vector)))
+    (lambda (&optional (item nil item-p))
+      (when item-p
+        (vector-push-extend item result))
+      result)))
+
+(defmethod builder-for-type ((type (eql 'list)))
+  (let (result
+        last-cell)
+    (lambda (&optional (item nil item-p))
+      (when item-p
+        (cond
+          ((null last-cell)
+           (setf result (cons item nil))
+           (setf last-cell result))
+
+          (t
+           (setf (cdr last-cell) (cons item nil)))))
+      result)))
+
+(defmethod builder-for-type ((type (eql 'fset:seq)))
+  (let ((result (fset:empty-seq)))
+    (lambda (&optional (item nil item-p))
+      (when item-p
+        (fset:push-last result item))
+      result)))
+
+(defmethod builder-for-type ((type (eql 'fset:set)))
+  (let ((result (fset:empty-set)))
+    (lambda (&optional (item nil item-p))
+      (when item-p
+        (fset:adjoinf result item))
+      result)))
+
+(defun iterator-values (iter &optional (output-type 'vector))
   "Extract all remaining values from the given iterator and return
-them in an array."
-  (let ((vector (make-extensible-vector)))
-    (do-iterator (value iter :result vector)
-      (vector-push-extend value vector))))
+them in a sequence of the given type.
+
+This function uses `builder-for-type' to aquire a builder function for
+the given `output-type'.  It then iterates over `iter' and repeatedly
+invokes the builder on the values produced by `iter'.  At the end, it
+returns the sequence produced by the builder."
+  (when (typep iter output-type)
+    (return-from iterator-values iter))
+  (let* ((builder (builder-for-type output-type))
+         (result (funcall builder)))
+    (do-iterator (value iter :result result)
+      (setf result (funcall builder value)))))
 
 (defclass lookahead-iterator (iterator)
   ((buffer

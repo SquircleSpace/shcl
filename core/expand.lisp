@@ -218,10 +218,7 @@ environment.
 (defun expand-aliases (tokens)
   "Perform alias expansion on the given token sequence and return an
 iterable sequence of alternate tokens."
-  (unless (typep tokens 'fset:seq)
-    (setf tokens (fset:convert 'fset:seq tokens)))
-
-  (let* ((remaining tokens)
+  (let* ((remaining (iterator-values tokens 'fset:seq))
          (*aliases* *aliases*))
     (labels
         ((finish ()
@@ -260,7 +257,7 @@ iterable sequence of alternate tokens."
 (defun expand-token-sequence (token-sequence)
   (let ((result (fset:empty-seq))
         (exit-infos (fset:empty-seq)))
-    (fset:do-seq (token token-sequence)
+    (do-iterator (token token-sequence)
       (multiple-value-bind (value exit-info) (expand-token token)
         (fset:appendf result value)
         (fset:appendf exit-infos exit-info)))
@@ -290,8 +287,42 @@ iterable sequence of alternate tokens."
         (boundary +soft-word-boundary+)
         (values result (ensure-exit-info-seq exit-info))))))
 
+(defun run-expansion-pipeline (things pipeline)
+  (let ((last-result things)
+        (exit-infos (make-extensible-vector)))
+    (loop :for fn :across pipeline :do
+       (multiple-value-bind
+             (this-result this-exit-infos)
+           (funcall fn last-result)
+         (setf last-result this-result)
+         (vector-push-extend this-exit-infos exit-infos)))
+    (values last-result (concatenate-iterable-collection exit-infos))))
+
+(defun compute-expansion-pipeline (&key start-at end-at
+                                     (expand-aliases t)
+                                     (expand-token-sequence t)
+                                     (expand-pathname t)
+                                     (concatenate-fragments-for-words t))
+  (let ((pipeline (make-extensible-vector))
+        (started (unless start-at t)))
+    (macrolet
+        ((consider (name)
+           `(progn
+              (when (and (not started) (eq start-at ',name))
+                (setf started t))
+              (when (eq end-at ',name)
+                (return-from compute-expansion-pipeline pipeline))
+              (when (and started ,name)
+                (vector-push-extend ',name pipeline)))))
+      (consider expand-aliases)
+      (consider expand-token-sequence)
+      (consider expand-pathname)
+      (consider concatenate-fragments-for-words)
+      pipeline)))
+
 (defun expansion-for-words (things &key expand-aliases expand-pathname
-                                     (split-fields t) (allow-side-effects t))
+                                     pipeline (split-fields t)
+                                     (allow-side-effects t))
   "Perform expansion on a sequence of tokens.
 
 This always performs the expansion done by the `expand' generic
@@ -315,28 +346,15 @@ to understand how it impacts expansion.
 The value of the `allow-side-effects' keyword argument is bound to the
 `*allow-side-effects*' special variable.  See that variable's
 documentation to understand how it impacts expansion."
-  (setf things (fset:convert 'fset:seq things))
-  (when (equal 0 (fset:size things))
-    (return-from expansion-for-words (fset:empty-seq)))
-
   (let ((*split-fields* split-fields)
-        (*allow-side-effects* allow-side-effects))
-    (when expand-aliases
-      (setf things (expand-aliases things)))
-
-    (multiple-value-bind (seqs exit-infos) (expand-token-sequence things)
-
-      (unless expand-pathname
-        (return-from expansion-for-words
-          (values (fset:image #'concat-fragments seqs)
-                  exit-infos)))
-
-      (let ((pathname-expansion-results (fset:empty-seq)))
-        (fset:do-seq (fragments seqs)
-          (fset:do-seq (expanded-path-fragments (expand-pathname fragments))
-            (fset:push-last pathname-expansion-results (concat-fragments expanded-path-fragments))))
-        (values pathname-expansion-results
-                exit-infos)))))
+        (*allow-side-effects* allow-side-effects)
+        (pipeline (or pipeline
+                      (compute-expansion-pipeline
+                       :expand-aliases expand-aliases
+                       :expand-token-sequence t
+                       :expand-pathname expand-pathname
+                       :concatenate-fragments-for-words t))))
+    (run-expansion-pipeline things pipeline)))
 
 (defstruct wild-path
   "This struct represents a path which may have components which
@@ -370,7 +388,7 @@ fragments which contain no #\/ characters.
 The sequences of fragments are known as segments.  Each segment
 represents a directory component.  The final segment always represents
 the file name at the end of the path.  If the file name segment is
-empty, then the fragments ended in a #\
+empty, then the fragments ended in a #\/.
 
 Ignoring the final segment, empty segments indicate the presence of
 consecutive slashes.  Empty segments at the start of the sequence of
@@ -381,32 +399,37 @@ The first two represent the leading slashes and the last one
 represents the empty file name."
   (let ((result (fset:empty-seq))
         (part (fset:empty-seq)))
-    (loop :while (not (zerop (fset:size fragments))) :do
-       (let* ((fragment (fset:pop-first fragments))
-              (s (string-fragment-string fragment))
-              (position (position #\/ s)))
-         (cond
-           ((not position)
-            (fset:push-last part fragment))
+    (labels
+        ((consume-fragment (fragment)
+           (let* ((s (string-fragment-string fragment))
+                  (position (position #\/ s)))
+             (cond
+               ((not position)
+                (fset:push-last part fragment))
 
-           (t
-            (unless (zerop position)
-              (let ((new-fragment fragment))
-                (setf (string-fragment-string new-fragment)
-                      (make-array position :element-type (array-element-type s)
-                                  :displaced-to s :displaced-index-offset 0))
-                (fset:push-last part new-fragment)))
-            (fset:push-last result part)
-            (setf part (fset:empty-seq))
-            (unless (equal (1+ position) (length s))
-              (let ((new-fragment fragment))
-                (setf (string-fragment-string new-fragment)
-                      (make-array (- (length s) (1+ position))
-                                  :element-type (array-element-type s)
-                                  :displaced-to s :displaced-index-offset (1+ position)))
-                (fset:push-first fragments new-fragment)))))))
-    (fset:push-last result part)
-    result))
+               (t
+                (unless (zerop position)
+                  (let ((new-fragment fragment))
+                    (setf (string-fragment-string new-fragment)
+                          (make-array position :element-type (array-element-type s)
+                                      :displaced-to s :displaced-index-offset 0))
+                    (fset:push-last part new-fragment)))
+
+                (fset:push-last result part)
+                (setf part (fset:empty-seq))
+
+                (unless (equal (1+ position) (length s))
+                  (let* ((new-string (make-array (- (length s) (1+ position))
+                                                 :element-type (array-element-type s)
+                                                 :displaced-to s
+                                                 :displaced-index-offset (1+ position)))
+                         (new-fragment (shcl/core/data:clone fragment :string new-string)))
+                    (consume-fragment new-fragment))))))))
+
+      (do-iterator (fragment fragments)
+        (consume-fragment fragment))
+      (fset:push-last result part)
+      result)))
 
 (defun handle-leading-slashes (segments)
   "Strip off empty segments from the start of the segment sequence.
@@ -677,28 +700,41 @@ Returns nil if no matches were found."
 (defun tilde-expansion (fragments)
   "Attempt to expand leading ~s in the given sequence of string
 fragments."
-  (when (zerop (fset:size fragments))
-    (return-from tilde-expansion fragments))
+  (setf fragments (lookahead-iterator-wrapper (iterator fragments)))
+  (let ((untouched-fragments (fork-lookahead-iterator fragments))
+        tilde-seen)
+    (do-iterator (fragment untouched-fragments)
+        (unless (string-fragment-literal-p fragment)
+          (return-from tilde-expansion fragments))
+        (loop :with string = (string-fragment-string fragment)
+           :for index :below (length string)
+           :for char = (aref string index) :do
+           (cond
 
-  (let* ((first (fset:first fragments))
-         (string (string-fragment-string first)))
-    (when (zerop (length string))
-      (return-from tilde-expansion fragments))
+             ((and tilde-seen (not (equal char #\/)))
+              ;; This might be a little overly strict, but...
+              (error 'not-implemented :feature "~name expansion"))
 
-    (unless (and (string-fragment-literal-p first)
-                 (equal #\~ (aref string 0)))
-      (return-from tilde-expansion fragments))
+             (tilde-seen
+              (assert (equal char #\/))
+              (let* ((new-string (make-array (- (length string) index)
+                                             :element-type 'character
+                                             :displaced-to string
+                                             :displaced-index-offset index))
+                     (new-fragment (shcl/core/data:clone fragment :string new-string)))
+                (return-from tilde-expansion
+                  (concatenate-iterables
+                   (list (make-string-fragment $home :quoted-p t) new-fragment)
+                   untouched-fragments))))
 
-    (let* ((less-first (fset:less-first fragments))
-           (previous string)
-           (shortened (make-array (1- (length previous)) :element-type 'character :displaced-to previous :displaced-index-offset 1))
-           (replacement-fragment first)
-           (new-first (make-string-fragment $home :quoted-p t :literal-p nil)))
-      (unless (or (zerop (length shortened))
-                  (equal #\/ (aref shortened 0)))
-        (error 'not-implemented :feature "~~name/"))
-      (setf (string-fragment-string replacement-fragment) shortened)
-      (fset:with-first (fset:with-first less-first replacement-fragment) new-first))))
+             ((equal char #\~)
+              (setf tilde-seen t))
+
+             (t
+              (return-from tilde-expansion fragments)))))
+    (if tilde-seen
+        (list-iterator (list (make-string-fragment $home :quoted-p t)))
+        fragments)))
 
 (defvar *error-on-failed-glob* nil
   "If this variable is non-nil, then an error will be signaled when
@@ -712,24 +748,30 @@ in a directory where neither foo nor boo exist, then rm will receive
 the string '[fb]oo' as its argument.  That's a bit whacky.  If this
 variable is non-nil, then a glob failure aborts the command.")
 
-(defun expand-pathname (fragments)
+(defun expand-pathname (fragment-seqs)
+  (concatmap-iterator fragment-seqs 'expand-one-pathname))
+
+(defun expand-one-pathname (fragments)
   "Perform path-related expansions on the given word (which is
 represented as a sequence of string fragments).
 
 Returns a sequence of expansions.  Each expansion is represented as a
 sequence of string fragments."
-  (setf fragments (tilde-expansion fragments))
+  (setf fragments (iterator-values (tilde-expansion fragments)))
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
           (expand-wild-path wild-path))
         (when *error-on-failed-glob*
-          (error "Glob pattern didn't match anything: ~A" (concat-fragments fragments)))
+          (error "Glob pattern didn't match anything: ~A" (concatenate-fragments fragments)))
         (fset:seq fragments))))
 
-(defun concat-fragments (fragments)
+(defun concatenate-fragments-for-words (word-fragment-sequences)
+  (map-iterator word-fragment-sequences 'concatenate-fragments))
+
+(defun concatenate-fragments (fragments)
   "Concatenate the given string fragments into a normal string."
   (let ((stream (make-string-output-stream)))
-    (fset:do-seq (f fragments)
+    (do-iterator (f fragments)
       (write-string (string-fragment-string f) stream))
     (get-output-stream-string stream)))
 
