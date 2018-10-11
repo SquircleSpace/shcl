@@ -301,7 +301,8 @@ iterable sequence of alternate tokens."
 (defun compute-expansion-pipeline (&key start-at end-at
                                      (expand-aliases t)
                                      (expand-token-sequence t)
-                                     (expand-pathname t)
+                                     (expand-tilde-words t)
+                                     (expand-pathname-words t)
                                      (concatenate-fragments-for-words t))
   (let ((pipeline (make-extensible-vector))
         (started (unless start-at t)))
@@ -316,11 +317,12 @@ iterable sequence of alternate tokens."
                 (vector-push-extend ',name pipeline)))))
       (consider expand-aliases)
       (consider expand-token-sequence)
-      (consider expand-pathname)
+      (consider expand-tilde-words)
+      (consider expand-pathname-words)
       (consider concatenate-fragments-for-words)
       pipeline)))
 
-(defun expansion-for-words (things &key expand-aliases expand-pathname
+(defun expansion-for-words (things &key expand-aliases expand-pathname-words
                                      pipeline (split-fields t)
                                      (allow-side-effects t))
   "Perform expansion on a sequence of tokens.
@@ -352,7 +354,7 @@ documentation to understand how it impacts expansion."
                       (compute-expansion-pipeline
                        :expand-aliases expand-aliases
                        :expand-token-sequence t
-                       :expand-pathname expand-pathname
+                       :expand-pathname-words expand-pathname-words
                        :concatenate-fragments-for-words t))))
     (run-expansion-pipeline things pipeline)))
 
@@ -697,7 +699,10 @@ Returns nil if no matches were found."
         (declare (dynamic-extent #'prepare-match))
         (fset:image #'prepare-match matches)))))
 
-(defun tilde-expansion (fragments)
+(defun expand-tilde-words (fragment-seqs)
+  (sequence-map fragment-seqs 'expand-tilde))
+
+(defun expand-tilde (fragments)
   "Attempt to expand leading ~s in the given sequence of string
 fragments."
   (setf fragments (forkable-wrapper-iterator (iterator fragments)))
@@ -705,7 +710,7 @@ fragments."
         tilde-seen)
     (do-sequence (fragment untouched-fragments)
         (unless (string-fragment-literal-p fragment)
-          (return-from tilde-expansion fragments))
+          (return-from expand-tilde fragments))
         (loop :with string = (string-fragment-string fragment)
            :for index :below (length string)
            :for char = (aref string index) :do
@@ -722,7 +727,7 @@ fragments."
                                              :displaced-to string
                                              :displaced-index-offset index))
                      (new-fragment (shcl/core/data:clone fragment :string new-string)))
-                (return-from tilde-expansion
+                (return-from expand-tilde
                   (concatenate-iterables
                    (list (make-string-fragment $home :quoted-p t) new-fragment)
                    untouched-fragments))))
@@ -731,7 +736,7 @@ fragments."
               (setf tilde-seen t))
 
              (t
-              (return-from tilde-expansion fragments)))))
+              (return-from expand-tilde fragments)))))
     (if tilde-seen
         (list-iterator (list (make-string-fragment $home :quoted-p t)))
         fragments)))
@@ -748,7 +753,7 @@ in a directory where neither foo nor boo exist, then rm will receive
 the string '[fb]oo' as its argument.  That's a bit whacky.  If this
 variable is non-nil, then a glob failure aborts the command.")
 
-(defun expand-pathname (fragment-seqs)
+(defun expand-pathname-words (fragment-seqs)
   (concatmapped-iterator fragment-seqs 'expand-one-pathname))
 
 (defun expand-one-pathname (fragments)
@@ -757,7 +762,7 @@ represented as a sequence of string fragments).
 
 Returns a sequence of expansions.  Each expansion is represented as a
 sequence of string fragments."
-  (setf fragments (iterable-values (tilde-expansion fragments)))
+  (setf fragments (iterable-values fragments))
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
           (expand-wild-path wild-path))

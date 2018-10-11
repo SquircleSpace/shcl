@@ -87,7 +87,7 @@ This just maps `evaluation-form' onto every value produced by the
 given iterator."
   (mapped-iterator command-iterator 'translate))
 
-(defun expansion-form-for-tokens (tokens &key expand-aliases expand-pathname split-fields)
+(defun expansion-form-for-tokens (tokens &key expand-aliases expand-pathname-words split-fields)
   (let ((prepared (mapcar 'expansion-preparation-form tokens))
         (words (gensym "WORDS"))
         (exit-infos (gensym "EXIT-INFOS")))
@@ -95,7 +95,7 @@ given iterator."
        (multiple-value-bind (,words ,exit-infos)
            (expansion-for-words (list ,@prepared)
                                 :expand-aliases ,(not (not expand-aliases))
-                                :expand-pathname ,(not (not expand-pathname))
+                                :expand-pathname-words ,(not (not expand-pathname-words))
                                 :split-fields ,(not (not split-fields)))
          (values (iterable-values ,words)
                  (iterable-values ,exit-infos))))))
@@ -225,7 +225,7 @@ for the given redirect."))
     (labels
         ((filename-expansion-form ()
            (let ((expansion (gensym "EXPANSION")))
-             `(let ((,expansion ,(expansion-form-for-tokens (list filename) :expand-pathname t :split-fields nil)))
+             `(let ((,expansion ,(expansion-form-for-tokens (list filename) :expand-pathname-words t :split-fields nil)))
                 (unless (equal 1 (length ,expansion))
                   (error 'not-implemented :feature "file name expanding to multiple words"))
                 (aref ,expansion 0))))
@@ -334,7 +334,7 @@ for the given redirect."))
              (t
               (slot-value for-clause-range 'words)))))
       `(shell-for (,name ,(expansion-form-for-tokens (coerce words 'list)
-                                                     :expand-pathname t))
+                                                     :expand-pathname-words t))
          ,@(bodyify (translate body))))))
 
 (defmethod translate ((sy else-part))
@@ -437,7 +437,7 @@ and io redirects."
     `(,(simple-word-text (assignment-word-name assignment))
        (multiple-value-bind (,result-words ,result-exit-infos)
            ,(expansion-form-for-tokens (list (assignment-word-value-word assignment))
-                                       :expand-pathname t
+                                       :expand-pathname-words t
                                        :split-fields nil)
          (values (unless (zerop (length ,result-words))
                    (aref ,result-words 0))
@@ -448,5 +448,5 @@ and io redirects."
   (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
     (let* ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
            (assignments (mapcar 'translate-assignment raw-assignments))
-           (arguments `(coerce ,(expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname t) 'list)))
+           (arguments `(coerce ,(expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname-words t) 'list)))
       `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects))))
