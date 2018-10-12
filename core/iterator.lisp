@@ -15,149 +15,587 @@
 (defpackage :shcl/core/iterator
   (:use :common-lisp)
   (:import-from :shcl/core/utility #:make-extensible-vector #:optimization-settings #:required)
+  (:import-from :shcl/core/data #:trivially-clonable #:clone)
   (:import-from :fset)
   (:export
-   #:make-iterator #:emit #:stop #:next #:iterator #:lookahead-iterator
-   #:fork-lookahead-iterator #:vector-iterator #:list-iterator #:seq-iterator
-   #:do-iterator #:peek-lookahead-iterator #:move-lookahead-to #:map-iterator
-   #:filter-iterator #:concatenate-iterables #:concatenate-iterable-collection
-   #:concatmap-iterator #:iterator-values #:lookahead-iterator-wrapper
-   #:set-iterator #:lookahead-iterator-position-token #:builder-for-type
+   ;; Generic functions
+   #:iterator #:next #:previous #:skip #:fork
 
-   ;; High-level sequence functions
-   #:starts-with-p))
+   ;; Useful type tags for subclasses
+   #:forkable-iterator #:fork-with-clone #:forward-iterator
+   #:backward-iterator #:bidirectional-iterator
+   #:forward-skip-iterator #:backward-skip-iterator
+   #:bidirectional-skip-iterator
+
+   ;; Fundamental iterator classes
+   #:list-iterator #:vector-iterator #:seq-iterator #:set-iterator
+   #:computed-iterator
+
+   ;; Higher order iterators
+   #:iterator-transformation #:mapped-iterator #:filtered-iterator
+   #:concatenated-iterator #:forkable-wrapper-iterator
+
+   ;; Sequence operations
+   #:do-sequence #:sequence-starts-with-p #:builder-for-type #:sequence-map
+
+   ;; Other
+   #:emit #:stop #:move-forkable-wrapper-iterator-to
+   #:forkable-wrapper-iterator-position-token
+   #:concatmapped-iterator #:make-computed-iterator
+   #:do-iterator :concatenate-iterables
+   #:concatenate-iterable-collection
+   #:iterable-values))
 (in-package :shcl/core/iterator)
 
 (optimization-settings)
 
+(defgeneric iterator (object)
+  (:documentation
+   "Produce an iterator that traverses the given sequence.
+
+This may return the given object unmodified if it is already an
+iterator."))
+
+(defgeneric next (iterator)
+  (:documentation
+   "Advance an iterator forward.
+
+If a class supports this method, it should inherit from the
+`forward-iterator' class.
+
+This function returns two values: the value produced by the iterator
+and a boolean.  If the iterator has no values left to produce, it
+should return nil for the second return value.  The first return value
+should be ignored in that case.  If the iterator successfully produced
+a value it should return a non-nil second value."))
+
+(defgeneric previous (iterator)
+  (:documentation
+   "Move an iterator backward.
+
+If a class supports this method, it should inherit from the
+`backward-iterator' class.
+
+Like `next', this function returns two values.  However, instead of
+advancing the iterator forward through the sequence, it should move
+the iterator backward through the sequence."))
+
+(defgeneric skip (iterator count)
+  (:documentation
+   "Move an iterator quickly, ignoring intermediate values.
+
+If a class supports an efficient implementation of this method, it
+should inherit from one of the following classes.
+- `forward-skip-iterator'
+- `backward-skip-iterator'
+- `bidirectional-skip-iterator'
+
+A method is provided that simply calls `next' and `previous'
+repeatedly."))
+
+(defmethod skip (iterator (count integer))
+  (dotimes (i (abs count))
+    (multiple-value-bind (value eof-p)
+        (if (minusp count)
+            (previous iterator)
+            (next iterator))
+      (declare (ignore value))
+      (unless eof-p
+        (return))))
+  (values))
+
+(defgeneric fork (iterator)
+  (:documentation
+   "Create an iterator that traverses the same sequence as
+`iterator'.
+
+If a class supports forking, it should inherit from
+`forkable-iterator'.
+
+The returned iterator has independent state.  That is, the returned
+iterator can be advanced independently of `iterator'.  However, they
+share the same sequence.  So, advancing the original iterator will not
+modify the output of the new iterator.
+
+When applicable, you are encouraged to implement a `clone' method and
+then call `clone' from `fork'.  You can also just inherit from
+`fork-with-clone'.  You should only do this if `clone' will achieve
+the semantics described above.  Its possible that an iterator might be
+clonable without being forkable."))
+
 (defclass iterator ()
-  ((compute
-    :initform (required)
-    :initarg :compute
-    :documentation
-    "A function that returns the next value."))
+  ()
   (:documentation
-   "This represents the most basic sort of iterator.  It can only go
-forward.  Unless otherwise specified, assume that iterators are not
-thread safe.")
-  (:metaclass closer-mop:funcallable-standard-class))
+   "A base class to represent iterators.
 
-(defgeneric iterate-function (iterator)
+On its own, this class means nothing.  You should probably inherit
+from `forward-iterator' or `backward-iterator' instead."))
+
+(defmethod iterator ((iterator iterator))
+  iterator)
+
+(defclass forkable-iterator (iterator)
+  ()
   (:documentation
-   "The function that should handle iteration for the given
-iterator.
+   "A base class to represent iterators that can be forked with `fork'.
 
-This generic function is called when initializing an iterator.  It is
-not called every time the iterator advances."))
+If a class inherits from `forkable-iterator' then it must have a
+method for the `fork' generic function.
 
-(defmethod initialize-instance :after ((i iterator) &key)
-  (let ((fn (iterate-function i)))
-    (closer-mop:set-funcallable-instance-function
-     i
-     (lambda ()
-       (funcall fn i)))))
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
 
-(defmacro emit (value)
-  "Within the body of `make-iterator', cause the iterator to produce a
-value.
+(defclass fork-with-clone (forkable-iterator)
+  ()
+  (:documentation
+   "A mix-in class that provides a `fork' method which calls
+`clone'."))
 
-It is an error for this macro to be used outside of `make-iterator'."
-  (declare (ignore value))
-  (error "This macro can only be used within the body of `make-iterator'."))
+(defmethod fork ((iterator fork-with-clone))
+  (clone iterator))
 
-(defmacro stop ()
-  "Within the body of `make-iterator', signal that the iterator has no
-values left to produce.
+(defclass forward-iterator (iterator)
+  ()
+  (:documentation
+   "A base class to represent iterators that can be advanced with
+`next'.
 
-It is an error for this macro to be used outside of `make-iterator'."
-  (error "This macro can only be used within the body of `make-iterator'."))
+If a class inherits from `forward-iterator' then it must have a method
+for the `next' generic function.
 
-(defmacro make-iterator ((&key type) &body body)
-  "Create an iterator.
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
 
-The body of this macro will be executed each time the iterator needs
-to produce a new value.  The body is evaluated in the lexical
-environment in which the `make-iterator' form appears.  Within the
-body, the local macros `stop' and `emit' can be used to indicate end
-of sequence or return a value.  After `stop' is evaluated, the
-iterator will not be called again.  Both `stop' and `emit' cause a
-control transfer out of the body of `make-iterator'."
-  (let ((stop-value (gensym "STOP-VALUE"))
-        (compute (gensym "COMPUTE"))
-        (compute-block (gensym "COMPUTE-BLOCK"))
-        (value (gensym "VALUE"))
-        (type-sym (gensym "TYPE-SYM")))
-    `(let* ((,type-sym ,type))
-       (macrolet ((emit (value)
-                    (list 'return-from ',compute-block value))
-                  (stop ()
-                    '(return-from ,compute-block ',stop-value)))
-         (labels ((,compute ()
-                    (let ((,value (block ,compute-block ,@body)))
-                      (cond ((eq ,value ',stop-value)
-                             (values nil nil))
+(defclass backward-iterator (iterator)
+  ()
+  (:documentation
+   "A base class to represent iterators that can be moved with
+`previous'.
 
-                            (t
-                             (values ,value t))))))
-           (make-instance (or ,type-sym 'iterator) :compute #',compute))))))
+If a class inherits from `backward-iterator' then it must have a method
+for the `previous' generic function.
 
-(defun iterate-iterator (iter)
-  "Advance an iterator of type `iterator'"
-  (with-slots (compute) iter
-    (when (not (slot-boundp iter 'compute))
-      (return-from iterate-iterator (values nil nil)))
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
 
-    (multiple-value-bind (value more) (funcall compute)
-      (unless more
-        (slot-makunbound iter 'compute))
-      (values value more))))
+(defclass bidirectional-iterator (forward-iterator backward-iterator)
+  ()
+  (:documentation
+   "A base class to represent iterators that can be moved with
+`next' and `previous'.
 
-(defmethod iterate-function ((iter iterator))
-  #'iterate-iterator)
+If a class inherits from `bidirectional-iterator' then it must have a method
+for the `next' and `previous' generic functions.
 
-(defun next (iter)
-  "Advance an iterator"
-  (funcall iter))
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
 
-(defmacro do-iterator ((value-sym iter &key result) &body body)
-  "Iterate across the values produced by an iterator"
+(defclass forward-skip-iterator (forward-iterator)
+  ()
+  (:documentation
+   "A base class to represent iterators that can be moved forward with
+`skip'.
+
+If a class inherits from `forward-skip-iterator' then it must have a
+method for the `skip' generic function that handles non-negative
+integer movements.
+
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
+
+(defclass backward-skip-iterator (backward-iterator)
+  ()
+  (:documentation
+   "A base class to represent iterators that can be moved backward
+with `skip'.
+
+If a class inherits from `backward-skip-iterator' then it must have a
+method for the `skip' generic function that handles negative integer
+movements.
+
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
+
+(defclass bidirectional-skip-iterator (forward-skip-iterator backward-skip-iterator bidirectional-iterator)
+  ()
+  (:documentation
+   "A base class to represent iterators that can be moved forward or
+backward with `skip'.
+
+If a class inherits from `backward-skip-iterator' then it must have a
+method for the `skip' generic function that handles integer movements.
+
+This class only exists to describe the capabilities of its subclasses.
+It is intended to allow you to specialize methods on iterators with
+specific capabilities."))
+
+(defmacro do-iterator ((value-sym iterator &key result) &body body)
+  "Iterate across the values produced by an iterator.
+
+This macro repeatedly calls `next' on `iterator' until it indicates
+end-of-file by returning nil for its second value.  Each produced
+value is bound to `value-sym' and then `body' is evaluated."
   (let ((iter-sym (gensym "ITER-SYM"))
         (more-sym (gensym "MORE-SYM"))
-        (iter-fun (gensym "ITER-FUN"))
         (internal-value-sym (gensym "INTERNAL-VALUE-SYM")))
-    `(let* ((,iter-sym (iterator ,iter))
-            (,iter-fun (iterate-function ,iter-sym)))
+    `(let ((,iter-sym ,iterator))
        (loop
-          (multiple-value-bind (,internal-value-sym ,more-sym) (funcall ,iter-fun ,iter-sym)
+          (multiple-value-bind (,internal-value-sym ,more-sym) (next ,iter-sym)
             (unless ,more-sym
               (return ,result))
             (let ((,value-sym ,internal-value-sym))
               ,@body))))))
 
-(defun map-iterator (iter function)
+(defmacro do-sequence ((value-sym iterable &key result) &body body)
+  "Iterate across the values in an iterable sequence.
+
+This macro produces an iterator by calling `iterator' on `iterable'.
+Then, it uses `do-iterator' to traverse the sequence."
+  `(do-iterator (,value-sym (iterator ,iterable) :result ,result)
+     ,@body))
+
+(defclass list-iterator (forward-iterator fork-with-clone trivially-clonable)
+  ((list
+    :initarg :list
+    :initform nil
+    :type list))
+  (:documentation
+   "This class represents an iterator that can traverse a list."))
+
+(defmethod iterator ((list list))
+  (list-iterator list))
+
+(defun list-iterator (list)
+  "Produce a `list-iterator' for the given list."
+  (make-instance 'list-iterator :list list))
+
+(defmethod print-object ((iter list-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (format stream "(~W~{ ~W~})" 'list
+            (slot-value iter 'list))))
+
+(defmethod next ((iterator list-iterator))
+  (with-slots (list) iterator
+    (if list
+        (values (pop list) t)
+        (values nil nil))))
+
+(defclass vector-iterator (bidirectional-skip-iterator fork-with-clone trivially-clonable)
+  ((sequence
+    :initarg :vector
+    :initform #()
+    :type vector)
+   (next-offset
+    :initarg :first-offset
+    :initform 0
+    :type (integer 0)))
+  (:documentation
+   "This class represents an iterator that can traverse a vector."))
+
+(defmethod iterator ((vector vector))
+  (vector-iterator vector))
+
+(defun vector-iterator (vector)
+  "Produce a `vector-iterator' for the given vector."
+  (make-instance 'vector-iterator :vector vector))
+
+(defmethod print-object ((iter vector-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (format stream "(~W" 'vector)
+    (do-sequence (value (fork iter))
+      (format stream " ~W" value))
+    (format stream ")")))
+
+(defmacro define-random-access-methods (class-name access-fn-name size-fn-name)
+  (let ((iterator (gensym "ITERATOR"))
+        (sequence (gensym "SEQUENCE"))
+        (length (gensym "LENGTH"))
+        (old-offset (gensym "OLD-OFFSET"))
+        (offset (gensym "OFFSET"))
+        (count (gensym "COUNT")))
+    `(progn
+       (defmethod next ((,iterator ,class-name))
+         (let* ((,sequence (slot-value ,iterator 'sequence))
+                (,length (,size-fn-name ,sequence))
+                (,old-offset (slot-value ,iterator 'next-offset)))
+           (setf (slot-value ,iterator 'next-offset) (min (1+ ,old-offset) ,length))
+           (if (>= ,old-offset ,length)
+               (values nil nil)
+               (values (,access-fn-name ,sequence ,old-offset) t))))
+
+       (defmethod previous ((,iterator ,class-name))
+         (let ((,offset (slot-value ,iterator 'next-offset)))
+           (cond
+             ((plusp ,offset)
+              (decf ,offset)
+              (setf (slot-value ,iterator 'next-offset) ,offset)
+              (values (,access-fn-name (slot-value ,iterator 'sequence) ,offset) t))
+             (t
+              (assert (zerop ,offset))
+              (values nil nil)))))
+
+       (defmethod skip ((,iterator ,class-name) (,count integer))
+         (setf (slot-value ,iterator 'next-offset)
+               (max 0 (min (+ (slot-value ,iterator 'next-offset) ,count)
+                           (,size-fn-name (slot-value ,iterator 'sequence)))))
+         (values)))))
+
+(define-random-access-methods vector-iterator aref length)
+
+(defclass seq-iterator (bidirectional-skip-iterator fork-with-clone trivially-clonable)
+  ((sequence
+    :initarg :seq
+    :initform (fset:empty-seq)
+    :type fset:seq)
+   (next-offset
+    :initarg :first-offset
+    :initform 0
+    :type (integer 0)))
+  (:documentation
+   "This class represents an iterator that can traverse a `fset:seq'."))
+
+(defmethod iterator ((seq fset:seq))
+  (seq-iterator seq))
+
+(defun seq-iterator (seq)
+  "Produce an iterator that traverses the given `fset:seq'."
+  (make-instance 'seq-iterator :seq seq))
+
+(defmethod print-object ((iter seq-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (format stream "(~W" 'fset:seq)
+    (do-sequence (value (fork iter))
+      (format stream " ~W" value))
+    (format stream ")")))
+
+(define-random-access-methods seq-iterator fset:lookup fset:size)
+
+(defclass set-iterator (bidirectional-skip-iterator fork-with-clone trivially-clonable)
+  ((sequence
+    :initarg :set
+    :initform (fset:empty-set)
+    :type fset:set)
+   (next-offset
+    :initarg :first-offset
+    :initform 0
+    :type (integer 0)))
+  (:documentation
+   "This class represents an iterator that can traverse a `fset:set'."))
+
+(defmethod iterator ((set fset:set))
+  (set-iterator set))
+
+(defun set-iterator (set)
+  "Produce an iterator that traverses the given `fset:set'."
+  (make-instance 'set-iterator :set set))
+
+(defmethod print-object ((iter set-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (format stream "(~W" 'fset:set)
+    (do-sequence (value (fork iter))
+      (format stream " ~W" value))
+    (format stream ")")))
+
+(define-random-access-methods set-iterator fset:at-rank fset:size)
+
+(defclass computed-iterator (forward-iterator)
+  ((function
+    :initarg :function
+    :initform (required)
+    :type (or symbol function)))
+  (:documentation
+   "This class represents an iterator that simply calls a function.
+
+The `next' method for this class will simply call the function stored
+in the `function' slot.  If the function indicates it has no more
+values (i.e. returns a nil second return value), then the `function'
+will not be called again."))
+
+(defun dead-computation ()
+  (values nil nil))
+
+(defmethod next ((iterator computed-iterator))
+  (with-slots (function) iterator
+    (multiple-value-bind (value valid-p) (funcall function)
+      (unless valid-p
+        (setf function 'dead-computation)
+        (return-from next (values nil nil)))
+      (values value t))))
+
+(defun computed-iterator (function)
+  "Produce an iterator that simply calls the given function to produce
+values."
+  (make-instance 'computed-iterator :function function))
+
+(defmethod print-object ((iter computed-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (format stream "~W" (slot-value iter 'function))))
+
+(defmacro make-computed-iterator (&body body)
+  "Create an iterator.
+
+The body of this macro will be executed each time the iterator needs
+to produce a new value.  The body is evaluated in the lexical
+environment in which the `make-computed-iterator' form appears.
+Within the body, the local macros `stop' and `emit' can be used to
+indicate end of sequence or return a value.  After `stop' is
+evaluated, the iterator will not be called again.  Both `stop' and
+`emit' cause a control transfer out of the body of
+`make-computed-iterator'."
+  (let ((compute (gensym "COMPUTE"))
+        (value (gensym "VALUE")))
+    `(labels ((,compute ()
+                (macrolet
+                    ((emit (,value)
+                       `(return-from ,',compute (values ,,value t)))
+                     (stop ()
+                       '(return-from ,compute (values nil nil))))
+                  (emit (progn ,@body)))))
+           (make-instance 'computed-iterator :function #',compute))))
+
+(defmacro emit (value)
+  "Within the body of `make-computed-iterator', cause the iterator to produce a
+value.
+
+It is an error for this macro to be used outside of `make-computed-iterator'."
+  (declare (ignore value))
+  (error "This macro can only be used within the body of `make-computed-iterator'."))
+
+(defmacro stop ()
+  "Within the body of `make-computed-iterator', signal that the iterator has no
+values left to produce.
+
+It is an error for this macro to be used outside of `make-computed-iterator'."
+  (error "This macro can only be used within the body of `make-computed-iterator'."))
+
+(defclass iterator-transformation (forward-iterator)
+  ((underlying-iterator
+    :initarg :underlying-iterator
+    :initform (required)
+    :type forward-iterator))
+  (:documentation
+   "This class represents an iterator that consumes and transforms the
+values of another iterator.
+
+The `next' method for this class simply calls `next' on its underlying
+iterator.  You should rely on this in any `next' methods you write for
+classes which inherit from `iterator-transformation'.  This allows
+transformation subclasses to be layered via inheritance.  For example,
+you could create a iterator that maps and then filters by creating a
+class that inherits from `mapped-iterator' and `filtered-iterator'.
+Naturally, layering in this way has limits, and its often better to
+achieve the same result using composition rather than inheritance."))
+
+(defmethod next ((iter iterator-transformation))
+  (next (slot-value iter 'underlying-iterator)))
+
+(defclass mapped-iterator (iterator-transformation)
+  ((map-function
+    :initarg :map-function
+    :initform (required)
+    :type (or symbol function)))
+  (:documentation
+   "This class applies a function to every value produced by another
+iterator.
+
+This is the iterator equivalent of `mapcar'."))
+
+(defun mapped-iterator (iterator function)
   "Create a new iterator that applies the given function to each value
 produced by the given iterator."
-  (make-iterator ()
-    (multiple-value-bind (value more) (next iter)
-      (unless more
-        (stop))
-      (emit (funcall function value)))))
+  (make-instance 'mapped-iterator :underlying-iterator iterator :map-function function))
 
-(defun filter-iterator (iter function)
+(defmethod next ((iterator mapped-iterator))
+  (multiple-value-bind (value valid-p) (call-next-method)
+    (unless valid-p
+      (return-from next
+        (values nil nil)))
+
+    (values (funcall (slot-value iterator 'map-function) value) t)))
+
+(defmethod print-object ((iter mapped-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (format stream "~W ~W" (slot-value iter 'map-function)
+            (slot-value iter 'underlying-iterator))))
+
+(defclass filtered-iterator (iterator-transformation)
+  ((filter-function
+    :initarg :filter-function
+    :initform (required)
+    :type (or symbol function)))
+  (:documentation
+   "This class filters traverses an iterator and removes elements that
+don't satisfy some predicate.
+
+This is the iterator equivalent of `remove-if-not'."))
+
+(defmethod next ((iterator filtered-iterator))
+  (let ((function (slot-value iterator 'filter-function)))
+    (loop
+       (multiple-value-bind (value valid-p) (call-next-method)
+         (unless valid-p
+           (return-from next
+             (values nil nil)))
+
+         (when (funcall function value)
+           (return-from next (values value t)))))))
+
+(defun filtered-iterator (iter function)
   "Create a new iterator that only contains the elements produced by
 `iter' where `function' returns non-nil.
 
 For example,
- (iterator-values (filter-iterator (list-iterator '(1 2 3 4) #'oddp)))
+ (iterable-values (filtered-iterator (list-iterator '(1 2 3 4) #'oddp)))
 will return
  #(1 3)"
-  (make-iterator ()
+  (make-instance 'filtered-iterator :underlying-iterator iter
+                 :filter-function function))
+
+(defclass concatenated-iterator (iterator-transformation)
+  ((current-iterator
+    :initform nil))
+  (:documentation
+   "This class traverses the sequences returned by an iterator.
+
+This class can be used to traverse a homogeneous collection of
+sequences.  For example,
+    (let* ((sequences (list #(1 2 3) '(4 5 6)))
+           (sequences-iter (list-iterator sequences))
+           (iter (make-instance 'concatenated-iterator :underlying-iterator sequences-iter)))
+      (iterable-values iter 'list))
+    ; => (1 2 3 4 5 6)
+
+See also `concatenate-iterable-collection'."))
+
+(defmethod next ((iterator concatenated-iterator))
+  (with-slots (current-iterator) iterator
     (loop
-       (multiple-value-bind (value more) (next iter)
-         (unless more
-           (stop))
-         (when (funcall function value)
-           (emit value))))))
+       (cond
+         ((null current-iterator)
+          (multiple-value-bind (next-iterator valid-p) (call-next-method)
+            (unless valid-p
+              (return-from next
+                (values nil nil)))
+            (setf current-iterator (iterator next-iterator))))
+
+         (t
+          (multiple-value-bind (next-value valid-p) (next current-iterator)
+            (if valid-p
+                (return-from next
+                  (values next-value t))
+                (setf current-iterator nil))))))))
+
+(defmethod print-object ((iter concatenated-iterator) stream)
+  (print-unreadable-object (iter stream :type t)
+    (when (slot-value iter 'current-iterator)
+      (format stream "~W " (slot-value iter 'current-iterator)))
+    (format stream "~W" (slot-value iter 'underlying-iterator))))
 
 (defun concatenate-iterable-collection (iterable)
   "Concatenate a collection of iterables.
@@ -178,26 +616,16 @@ example, the following is perfectly valid.
      (list (vector-iterator #(1 2 3))
            #(4 5 6)
            '(7 8 9)))"
-  (concatmap-iterator iterable 'identity))
+  (make-instance 'concatenated-iterator :underlying-iterator (iterator iterable)))
 
-(defun concatmap-iterator (iterable function)
+(defun concatmapped-iterator (iterable function)
   "Map `function' onto the elements of `iterable', then concatenate
 the iterable sequences that result.
 
 The following forms are semantically equivalent.
-    (concatenate-iterable-collection (map-iterator iter fn))
-    (concatmap-iterator iter fn)"
-  (let ((iter-iter (iterator iterable))
-        current-iter)
-    (make-iterator ()
-      (when current-iter
-        (do-iterator (value current-iter)
-          (emit value)))
-      (do-iterator (inner-value iter-iter)
-        (setf current-iter (iterator (funcall function inner-value)))
-        (do-iterator (value current-iter)
-          (emit value)))
-      (stop))))
+    (concatenate-iterable-collection (mapped-iterator (iterator iter) fn))
+    (concatmapped-iterator iter fn)"
+  (concatenate-iterable-collection (mapped-iterator (iterator iterable) function)))
 
 (defun concatenate-iterables (&rest iterables)
   "Produce an iterator that traverses the values contained in the
@@ -263,34 +691,47 @@ it."))
         (fset:adjoinf result item))
       result)))
 
-(defun iterator-values (iter &optional (output-type 'vector))
-  "Extract all remaining values from the given iterator and return
+(defun iterable-values (iter &optional (output-type 'vector))
+  "Extract all remaining values from the given iterable and return
 them in a sequence of the given type.
 
 This function uses `builder-for-type' to aquire a builder function for
 the given `output-type'.  It then iterates over `iter' and repeatedly
 invokes the builder on the values produced by `iter'.  At the end, it
-returns the sequence produced by the builder."
+returns the sequence produced by the builder.
+
+Although this function is intended to extract values from an iterator,
+you can actually use it to convert from any iterable type to any
+buildable type.  If the `iter' already conforms to `output-type' then
+`iter' is returned unmodified."
   (when (typep iter output-type)
-    (return-from iterator-values iter))
+    (return-from iterable-values iter))
   (let* ((builder (builder-for-type output-type))
          (result (funcall builder)))
-    (do-iterator (value iter :result result)
+    (do-sequence (value iter :result result)
       (setf result (funcall builder value)))))
 
-(defclass lookahead-iterator (iterator)
+(defclass forkable-wrapper-iterator (forward-iterator fork-with-clone trivially-clonable)
   ((buffer
     :initform (cons 'tail 'tail)
-    :initarg :buffer
-    :type cons))
+    :type cons)
+   (underlying-iterator
+    :initform (required)
+    :initarg :underlying-iterator
+    :type forward-iterator))
   (:documentation
-   "A `lookahead-iterator' permits peeking at values without consuming
-them.  Using the `peek-lookahead-iterator' function, you can see what
-the next value will be.  Using `fork-lookahead-iterator', you can peek
-arbitrarily far into the future of the sequence.")
-  (:metaclass closer-mop:funcallable-standard-class))
+   "This class wraps another iterator and supports being forked.
 
-(defun lookahead-iterator-position-token (iter)
+If you have an iterator that isn't forkable (or has unknown
+forkability), you can use this class to create an iterator that
+definitely supports `fork'."))
+
+(defmethod print-object ((iterator forkable-wrapper-iterator) stream)
+  (print-unreadable-object (iterator stream :type t)
+    (with-slots (buffer underlying-iterator) iterator
+      (format stream "~W ~W" buffer underlying-iterator))))
+
+(defun forkable-wrapper-iterator-position-token (iter)
   "Returns a value representing the position of the iterator.
 
 This is an opaque value that can be compared to other position tokens
@@ -300,26 +741,14 @@ tokens then they are at the same place in the same stream."
   (with-slots (buffer) iter
     buffer))
 
-(defun fork-lookahead-iterator (iter)
-  "Create a `lookahead-iterator' that shares the same future as the
-given iterator.
-
-That is, the returned iterator will produce the exact same sequence of
-values as the given iterator.  The returned iterator shall be
-considered part of the same \"family\" as the given iterator."
-  (check-type iter lookahead-iterator)
-  (with-slots (compute buffer) iter
-    (make-instance (class-of iter) :compute compute :buffer buffer)))
-
-(defun iterate-lookahead-iterator (iter)
-  "Produce the next value for an iterator of type `lookahead-iterator'"
-  (with-slots (buffer compute) iter
+(defmethod next ((iterator forkable-wrapper-iterator))
+  (with-slots (buffer underlying-iterator) iterator
     (when (eq (cdr buffer) 'eof)
-      (return-from iterate-lookahead-iterator (values nil nil)))
+      (return-from next (values nil nil)))
 
     (cond ((eq (cdr buffer) 'tail)
            ;; Buffer is empty.  Add something to the back
-           (multiple-value-bind (value more) (funcall compute)
+           (multiple-value-bind (value more) (next underlying-iterator)
              (cond (more
                     (let ((new-tail (cons 'tail 'tail)))
                       (setf (car buffer) value
@@ -328,109 +757,39 @@ considered part of the same \"family\" as the given iterator."
 
                    (t
                     (setf (cdr buffer) 'eof)))
-             (values value more)))
+             (values value (not (not more)))))
 
           (t
            (let ((value (car buffer)))
              (setf buffer (cdr buffer))
              (values value t))))))
 
-(defmethod iterate-function ((iter lookahead-iterator))
-  (declare (ignore iter))
-  #'iterate-lookahead-iterator)
-
-(defun peek-lookahead-iterator (iter)
-  "Produce (but don't consume) the next value that the given
-`lookahead-iterator' will return."
-  (next (fork-lookahead-iterator iter)))
-
-(defun move-lookahead-to (iter-to-change model-iter)
-  "Change the future of a `lookahead-iterator' to match that of a
-different `lookahead-iterator'.
+(defun move-forkable-wrapper-iterator-to (iter-to-change model-iter)
+  "Change the future of a `forkable-wrapper-iterator' to match that of
+a different `forkable-wrapper-iterator'.
 
 After this function returns, the first argument (`iter-to-change')
 shall produce the exact same sequence of values as the second
 argument (`model-iter').  The given iterators must be in the same
-family.  The `fork-lookahead-iterator' function can be used to produce
-a new iterator in a given family."
-  (with-slots ((b-compute compute)
+family.  The `fork' function can be used to produce a new iterator in
+a given family."
+  (with-slots ((b-underlying-iterator underlying-iterator)
                (b-buffer buffer))
       iter-to-change
-    (with-slots ((a-compute compute)
+    (with-slots ((a-underlying-iterator underlying-iterator)
                  (a-buffer buffer))
         model-iter
-      (unless (eq a-compute b-compute)
+      (unless (eq a-underlying-iterator b-underlying-iterator)
         (error "These iterators aren't in the same family"))
       (setf b-buffer a-buffer)))
   (values))
 
-(defun lookahead-iterator-wrapper (iter)
-  "Produce a `lookahead-iterator' that emits the same values as
+(defun forkable-wrapper-iterator (iter)
+  "Produce a `forkable-wrapper-iterator' that emits the same values as
 `iter'."
-  (make-iterator (:type 'lookahead-iterator)
-    (multiple-value-bind (value more) (next iter)
-      (unless more
-        (stop))
-      (emit value))))
+  (make-instance 'forkable-wrapper-iterator :underlying-iterator iter))
 
-(defun vector-iterator (vector)
-  "Produce an iterator that traverses a vector."
-  (let ((index 0))
-    (make-iterator ()
-      (when (>= index (length vector))
-        (stop))
-      (let ((value (aref vector index)))
-        (incf index)
-        (emit value)))))
-
-(defun list-iterator (list)
-  "Produce an iterator that traverses a list."
-  (let ((cons list))
-    (make-iterator ()
-      (when (eq nil cons)
-        (stop))
-      (let ((value (car cons)))
-        (setf cons (cdr cons))
-        (emit value)))))
-
-(defun seq-iterator (seq)
-  "Produce an iterator that traverses an `fset:seq'"
-  (make-iterator ()
-    (when (equal 0 (fset:size seq))
-      (stop))
-    (let ((element (fset:first seq)))
-      (setf seq (fset:less-first seq))
-      (emit element))))
-
-(defun set-iterator (set)
-  "Produce an iterator that traverses an `fset:set'"
-  (make-iterator ()
-    (when (equal 0 (fset:size set))
-      (stop))
-    (let ((element (fset:least set)))
-      (setf set (fset:less set element))
-      (emit element))))
-
-(defgeneric iterator (thing)
-  (:documentation
-   "Produce an iterator that traverses the given thing."))
-
-(defmethod iterator ((list list))
-  (list-iterator list))
-
-(defmethod iterator ((vector vector))
-  (vector-iterator vector))
-
-(defmethod iterator ((seq fset:seq))
-  (seq-iterator seq))
-
-(defmethod iterator ((seq fset:set))
-  (set-iterator seq))
-
-(defmethod iterator ((iter iterator))
-  iter)
-
-(defun starts-with-p (iterable iterable-prefix &key (test 'eql))
+(defun sequence-starts-with-p (iterable iterable-prefix &key (test 'eql))
   "Returns non-nil if the first elements of `iterable' match the
 first elements of `iterable-prefix'.
 
@@ -445,15 +804,32 @@ elements than `iterable-prefix', this function returns nil."
         ((next-expected ()
            (multiple-value-bind (value valid-p) (next prefix)
              (unless valid-p
-               (return-from starts-with-p t))
+               (return-from sequence-starts-with-p t))
              value))
          (next-found ()
            (multiple-value-bind (value valid-p) (next seq)
              (unless valid-p
-               (return-from starts-with-p nil))
+               (return-from sequence-starts-with-p nil))
              value)))
       (loop :for expected = (next-expected)
          :for found = (next-found) :do
          (unless (funcall test found expected)
-           (return-from starts-with-p nil)))
+           (return-from sequence-starts-with-p nil)))
       (assert nil nil "This function doesn't return normally"))))
+
+(defun sequence-map (sequence function &optional (output-type 'iterator))
+  "Apply `function' to the elements of `sequence' and return a
+sequence containing the results.
+
+This is the iterator version of `map'.  This function is just a
+trivial combination of `iterable-values' and `mapped-iterator'."
+  (iterable-values (mapped-iterator (iterator sequence) function) output-type))
+
+(defun sequence-filter (sequence function &optional (output-type 'iterator))
+  "Produce a sequence that contains elements of `sequence' for which
+`function' returned a non-nil value.
+
+This is the iterator version of `remove-if-not' (except you get to
+choose the output format).  This function is just a trivial
+combination of `iterable-values' and `filtered-iterator'."
+  (iterable-values (filtered-iterator (iterator sequence) function) output-type))

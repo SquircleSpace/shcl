@@ -165,14 +165,14 @@ It looks for an expression of the form
   (let ((*proper-end-found* nil))
     (let* ((raw-token-iter (token-iterator stream :readtable *interpolation-table*))
            (token-iter
-            (make-iterator ()
+            (make-computed-iterator
               (when *proper-end-found*
                 (stop))
               (multiple-value-bind (value more) (next raw-token-iter)
                 (if more
                     (emit value)
                     (stop)))))
-           (tokens (iterator-values token-iter)))
+           (tokens (iterable-values token-iter)))
       (unless *proper-end-found*
         (error "Expected #$ before EOF"))
       `(parse-token-sequence ,(coerce tokens 'list)))))
@@ -220,9 +220,9 @@ evauluated in the null lexical environment."
   "This macro is responsible for parsing (at macro expansion time) a
 sequence of tokens and producing code which evaulates the shell
 command they describe."
-  (let* ((token-iter (lookahead-iterator-wrapper (list-iterator tokens)))
+  (let* ((token-iter (forkable-wrapper-iterator (list-iterator tokens)))
          (commands (command-iterator token-iter))
-         (evaluates (iterator-values (evaluation-form-iterator commands))))
+         (evaluates (iterable-values (evaluation-form-iterator commands))))
     (do-iterator (value token-iter)
       (assert nil nil "Unconsumed token ~A found" value))
     (when (zerop (length evaluates))

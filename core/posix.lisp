@@ -45,7 +45,7 @@ This function assumes that the process environment will not change
 during iteration."
   (let ((environment-pointer environ)
         (index 0))
-    (make-iterator ()
+    (make-computed-iterator
       (when (null-pointer-p (mem-aref environment-pointer :pointer index))
         (stop))
 

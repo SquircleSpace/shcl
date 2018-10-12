@@ -15,7 +15,7 @@
 (defpackage :shcl/test/shell-form
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/shell-form
         :shcl/test/foundation)
-  (:import-from :shcl/core/iterator #:make-iterator #:emit)
+  (:import-from :shcl/core/iterator #:make-computed-iterator #:emit)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/core/fd-table #:with-fd-streams)
   (:import-from :shcl/core/exit-info
@@ -179,7 +179,7 @@
       "While loops return true exit status if body never runs"))
 
 (defun forever (value)
-  (make-iterator ()
+  (make-computed-iterator
     (emit value)))
 
 (define-test shell-for

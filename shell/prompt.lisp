@@ -609,7 +609,7 @@ See `completion-suggestion-replacement-text' and
   (let* ((line (editline-line editline))
          (cursor-index (lineinfo-cursor-index line))
          (line-text (lineinfo-text line))
-         (suggestions (shcl/core/iterator:iterator-values
+         (suggestions (shcl/core/iterator:iterable-values
                        (funcall *tab-complete-fn* line-text
                                 (lineinfo-cursor-index line))))
          (return-value +cc-redisplay+))

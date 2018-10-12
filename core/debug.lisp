@@ -156,12 +156,12 @@ Strictly speaking, there may be more forms of documentation than this.
 However, this is a good enough approximation for our purposes: finding
 undocumented symbols."
   (let* ((methods (list-iterator (closer-mop:generic-function-methods #'documentation)))
-         (specializers (map-iterator methods 'closer-mop:method-specializers))
-         (symbol-methods (filter-iterator specializers (lambda (x) (eq (find-class 'symbol) (first x)))))
-         (eql-methods (filter-iterator symbol-methods (lambda (x) (typep (second x) 'closer-mop:eql-specializer))))
-         (eql-specializers (map-iterator eql-methods 'second))
-         (values (map-iterator eql-specializers 'closer-mop:eql-specializer-object)))
-    (iterator-values values)))
+         (specializers (mapped-iterator methods 'closer-mop:method-specializers))
+         (symbol-methods (filtered-iterator specializers (lambda (x) (eq (find-class 'symbol) (first x)))))
+         (eql-methods (filtered-iterator symbol-methods (lambda (x) (typep (second x) 'closer-mop:eql-specializer))))
+         (eql-specializers (mapped-iterator eql-methods 'second))
+         (values (mapped-iterator eql-specializers 'closer-mop:eql-specializer-object)))
+    (iterable-values values)))
 
 (defparameter *symbol-documentation-types* (symbol-documentation-types)
   "An array of types of documentation a symbol can have.
@@ -187,7 +187,7 @@ See `symbol-documentation-types'.")
 (defun undocumented-symbols (&key (package-predicate 'documented-shcl-package-p))
   "Returns an array of all shcl symbols that are undocumented."
   (let* ((all-packages (list-iterator (list-all-packages)))
-         (shcl-packages (filter-iterator all-packages package-predicate))
+         (shcl-packages (filtered-iterator all-packages package-predicate))
          (syms (fset:empty-set)))
     (do-iterator (package shcl-packages)
       (fset:unionf syms (undocumented-symbols-in-package package)))

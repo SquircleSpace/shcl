@@ -254,7 +254,7 @@ value associated with the variable will signal an error."
 returns an iterator which produces the elements of that list."
   (let ((part (make-string-output-stream))
         (iterator (vector-iterator string)))
-    (make-iterator ()
+    (make-computed-iterator
       (do-iterator (c iterator)
         (case c
           (#\:

@@ -32,7 +32,7 @@
         (string-iterator (vector-iterator path))
         (first-p t)
         (slash-count 0))
-    (make-iterator ()
+    (make-computed-iterator
       (labels
           ((emit-slash ()
              (cond
@@ -70,7 +70,7 @@
               (emit part)))))))
 
 (defun path-parts (path)
-  (iterator-values (path-iterator path)))
+  (iterable-values (path-iterator path)))
 
 (defun combine-path-parts (parts)
   (let ((result (make-string-output-stream)))
