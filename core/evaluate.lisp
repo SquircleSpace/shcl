@@ -85,7 +85,7 @@ command.
 
 This just maps `evaluation-form' onto every value produced by the
 given iterator."
-  (map-iterator command-iterator 'translate))
+  (mapped-iterator command-iterator 'translate))
 
 (defun expansion-form-for-tokens (tokens &key expand-aliases expand-pathname split-fields)
   (let ((prepared (mapcar 'expansion-preparation-form tokens))
@@ -97,8 +97,8 @@ given iterator."
                                 :expand-aliases ,(not (not expand-aliases))
                                 :expand-pathname ,(not (not expand-pathname))
                                 :split-fields ,(not (not split-fields)))
-         (values (iterator-values ,words)
-                 (iterator-values ,exit-infos))))))
+         (values (iterable-values ,words)
+                 (iterable-values ,exit-infos))))))
 
 (defparameter *umask*
   (logior s-irusr s-iwusr s-irgrp s-iroth)

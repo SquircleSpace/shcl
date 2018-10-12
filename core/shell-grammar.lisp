@@ -390,10 +390,10 @@ represent times when the parser chose a bad branch.")
   (newline-list))
 
 (defun command-iterator (token-iterator)
-  "Given a `lookahead-iterator' that produces tokens, return an
+  "Given a `forkable-wrapper-iterator' that produces tokens, return an
 iterator that produces shell syntax tree objects."
   (let ((iter (syntax-iterator #'parse-start token-iterator)))
-    (make-iterator ()
+    (make-computed-iterator
       (do-iterator (value iter)
         (when (eq value :eof)
           (stop))
@@ -406,7 +406,7 @@ iterator that produces shell syntax tree objects."
   (parse-shell (make-string-input-stream s)))
 
 (defmethod parse-shell ((s stream))
-  (parse-shell (lookahead-iterator-wrapper (token-iterator s))))
+  (parse-shell (forkable-wrapper-iterator (token-iterator s))))
 
-(defmethod parse-shell ((iter lookahead-iterator))
+(defmethod parse-shell ((iter forkable-wrapper-iterator))
   (next (command-iterator iter)))

@@ -1008,7 +1008,7 @@ iterator that produces the tokens found in the stream.
 
 The value of `readtable-sym' will be re-read every time a new token is
 needed."
-  (make-iterator ()
+  (make-computed-iterator
     (let ((token (next-token stream :readtable (symbol-value readtable-sym))))
       (when (typep token 'eof)
         (stop))
@@ -1017,7 +1017,7 @@ needed."
 (defun token-iterator (stream &key (readtable (standard-shell-readtable)))
   "Given a stream and a readtable, return an iterator that produces
 the tokens found in the stream."
-  (make-iterator ()
+  (make-computed-iterator
     (let ((token (next-token stream :readtable readtable)))
       (when (typep token 'eof)
         (stop))
@@ -1036,7 +1036,7 @@ See `next-token'."
   "Return a vector containing the tokens present in the given stream.
 
 See `next-token'."
-  (iterator-values (token-iterator stream :readtable readtable)))
+  (iterable-values (token-iterator stream :readtable readtable)))
 
 (defgeneric lexer-context-first-consumed-character-position (context))
 

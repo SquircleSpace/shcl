@@ -105,35 +105,35 @@ See `*fresh-prompt*'."
   "Return an iterator that produces the tokens found in `stream'.
 
 Tokens are read using `*shell-readtable*'."
-  (map-iterator (token-iterator-symbolic-readtable stream '*shell-readtable*)
-                (lambda (token)
-                  (debug-log status "TOKEN: ~A" token)
-                  token)))
+  (mapped-iterator (token-iterator-symbolic-readtable stream '*shell-readtable*)
+                   (lambda (token)
+                     (debug-log status "TOKEN: ~A" token)
+                     token)))
 
 (defun logging-command-iterator (token-iterator)
-  (map-iterator (command-iterator (lookahead-iterator-wrapper token-iterator))
-                (lambda (command)
-                  (debug-log status "COMMAND: ~A" command)
-                  command)))
+  (mapped-iterator (command-iterator (forkable-wrapper-iterator token-iterator))
+                   (lambda (command)
+                     (debug-log status "COMMAND: ~A" command)
+                     command)))
 
 (defun logging-evaluation-form-iterator (command-iterator)
-  (map-iterator (evaluation-form-iterator command-iterator)
-                (lambda (form)
-                  (debug-log status "EVAL: ~A" form)
-                  form)))
+  (mapped-iterator (evaluation-form-iterator command-iterator)
+                   (lambda (form)
+                     (debug-log status "EVAL: ~A" form)
+                     form)))
 
 (defun logging-result-iterator (form-iterator)
-  (map-iterator form-iterator
-                (lambda (form)
-                  (let ((values (multiple-value-list (eval form))))
-                    (debug-log status "RESULT: ~A" values)
-                    values))))
+  (mapped-iterator form-iterator
+                   (lambda (form)
+                     (let ((values (multiple-value-list (eval form))))
+                       (debug-log status "RESULT: ~A" values)
+                       values))))
 
 (defun main-iterator (stream &key history)
   (let* ((captured-input (when history (make-string-output-stream)))
          (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
          results)
-    (make-iterator ()
+    (make-computed-iterator
       (let ((*fresh-prompt* t))
         (labels
             ((record-history ()
@@ -160,7 +160,7 @@ Tokens are read using `*shell-readtable*'."
                      (record-history)
                      (emit value))
                    (stop))
-               (ignore ()
+               (ignore-command ()
                  (reset-token-iterator)
                  (go start))
                (die ()
@@ -233,7 +233,7 @@ example, that...
           (handler-bind
               ((parse-failure
                 (lambda (e)
-                  (when-let ((restart (find-restart 'ignore)))
+                  (when-let ((restart (find-restart 'ignore-command)))
                     (format *error-output* "Parse error: ~A~%" e)
                     (invoke-restart restart)))))
             (let ((result (truthy-exit-info)))

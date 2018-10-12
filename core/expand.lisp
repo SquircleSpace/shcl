@@ -218,7 +218,7 @@ environment.
 (defun expand-aliases (tokens)
   "Perform alias expansion on the given token sequence and return an
 iterable sequence of alternate tokens."
-  (let* ((remaining (iterator-values tokens 'fset:seq))
+  (let* ((remaining (iterable-values tokens 'fset:seq))
          (*aliases* *aliases*))
     (labels
         ((finish ()
@@ -257,7 +257,7 @@ iterable sequence of alternate tokens."
 (defun expand-token-sequence (token-sequence)
   (let ((result (fset:empty-seq))
         (exit-infos (fset:empty-seq)))
-    (do-iterator (token token-sequence)
+    (do-sequence (token token-sequence)
       (multiple-value-bind (value exit-info) (expand-token token)
         (fset:appendf result value)
         (fset:appendf exit-infos exit-info)))
@@ -426,7 +426,7 @@ represents the empty file name."
                          (new-fragment (shcl/core/data:clone fragment :string new-string)))
                     (consume-fragment new-fragment))))))))
 
-      (do-iterator (fragment fragments)
+      (do-sequence (fragment fragments)
         (consume-fragment fragment))
       (fset:push-last result part)
       result)))
@@ -700,10 +700,10 @@ Returns nil if no matches were found."
 (defun tilde-expansion (fragments)
   "Attempt to expand leading ~s in the given sequence of string
 fragments."
-  (setf fragments (lookahead-iterator-wrapper (iterator fragments)))
-  (let ((untouched-fragments (fork-lookahead-iterator fragments))
+  (setf fragments (forkable-wrapper-iterator (iterator fragments)))
+  (let ((untouched-fragments (fork fragments))
         tilde-seen)
-    (do-iterator (fragment untouched-fragments)
+    (do-sequence (fragment untouched-fragments)
         (unless (string-fragment-literal-p fragment)
           (return-from tilde-expansion fragments))
         (loop :with string = (string-fragment-string fragment)
@@ -749,7 +749,7 @@ the string '[fb]oo' as its argument.  That's a bit whacky.  If this
 variable is non-nil, then a glob failure aborts the command.")
 
 (defun expand-pathname (fragment-seqs)
-  (concatmap-iterator fragment-seqs 'expand-one-pathname))
+  (concatmapped-iterator fragment-seqs 'expand-one-pathname))
 
 (defun expand-one-pathname (fragments)
   "Perform path-related expansions on the given word (which is
@@ -757,7 +757,7 @@ represented as a sequence of string fragments).
 
 Returns a sequence of expansions.  Each expansion is represented as a
 sequence of string fragments."
-  (setf fragments (iterator-values (tilde-expansion fragments)))
+  (setf fragments (iterable-values (tilde-expansion fragments)))
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
           (expand-wild-path wild-path))
@@ -766,12 +766,12 @@ sequence of string fragments."
         (fset:seq fragments))))
 
 (defun concatenate-fragments-for-words (word-fragment-sequences)
-  (map-iterator word-fragment-sequences 'concatenate-fragments))
+  (mapped-iterator word-fragment-sequences 'concatenate-fragments))
 
 (defun concatenate-fragments (fragments)
   "Concatenate the given string fragments into a normal string."
   (let ((stream (make-string-output-stream)))
-    (do-iterator (f fragments)
+    (do-sequence (f fragments)
       (write-string (string-fragment-string f) stream))
     (get-output-stream-string stream)))
 

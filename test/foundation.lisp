@@ -151,7 +151,7 @@ end in an unspecified order."
         (vector-push-extend package sorted-packages))
 
       (shcl/core/iterator:concatenate-iterable-collection
-       (shcl/core/iterator:map-iterator
+       (shcl/core/iterator:mapped-iterator
         (iterator sorted-packages)
         (lambda (package)
           (iterator (fset:lookup *package-tests* package))))))))

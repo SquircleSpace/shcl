@@ -172,7 +172,7 @@ object."
 
   (let ((stack (make-extensible-vector)))
     (vector-push-extend (vector-iterator (choice-errors choice)) stack)
-    (make-iterator ()
+    (make-computed-iterator
       (loop :while (not (zerop (length stack))) :do
          (block again
            (do-iterator (err (aref stack (1- (length stack))))
@@ -260,7 +260,7 @@ output.
 
 If a parse error occurs this function signals a `parse-failure'
 error."
-  (make-iterator ()
+  (make-computed-iterator
     (parser-bind (value error-p) (funcall parser-function token-iterator)
       (when error-p
         (error 'parse-failure :error-object value))
@@ -406,14 +406,14 @@ manipulated as described earlier."
         (value (gensym "VALUE"))
         (err (gensym "ERR")))
     `(let* ((,original-iter ,iter)
-            (,fork (fork-lookahead-iterator ,original-iter)))
+            (,fork (fork ,original-iter)))
        (parser-bind (,value ,err) (progn ,@body)
          (cond
            (,err
             (parser-error ,value))
 
            (t
-            (move-lookahead-to ,original-iter ,fork)
+            (move-forkable-wrapper-iterator-to ,original-iter ,fork)
             (parser-value ,value)))))))
 
 (defmacro parser-try (iter &body body)
@@ -429,11 +429,11 @@ position it had prior to this form being evaluated."
         (value (gensym "VALUE"))
         (err (gensym "ERR")))
     `(let* ((,original-iter ,iter)
-            (,fork (fork-lookahead-iterator ,original-iter)))
+            (,fork (fork ,original-iter)))
        (parser-bind (,value ,err) (progn ,@body)
          (cond
            (,err
-            (move-lookahead-to ,original-iter ,fork)
+            (move-forkable-wrapper-iterator-to ,original-iter ,fork)
             (parser-error ,value))
 
            (t
@@ -466,7 +466,7 @@ This is effectively the parser equivalent of `or'."
                 (return-from ,choice-block
                   (parser-value ,value)))
 
-              (unless (eq (lookahead-iterator-position-token ,original-iter)
+              (unless (eq (forkable-wrapper-iterator-position-token ,original-iter)
                           ,position)
                 ;; Sad day :(
                 (return-from ,choice-block
@@ -486,7 +486,7 @@ This is effectively the parser equivalent of `or'."
         (t
          `(block ,choice-block
             (let* ((,original-iter ,iter)
-                   (,position (lookahead-iterator-position-token ,original-iter))
+                   (,position (forkable-wrapper-iterator-position-token ,original-iter))
                    (,errors (make-extensible-vector)))
               ,@(mapcar #'option-handler options)
               (parser-error (make-instance 'choice :errors ,errors)))))))))
@@ -518,12 +518,12 @@ The clauses in `clauses' are evaluated just like in `handler-case'."
                  `(,type
                    ,@forms)))))
       `(let* ((,original-iter ,iter)
-              (,position (lookahead-iterator-position-token ,original-iter)))
+              (,position (forkable-wrapper-iterator-position-token ,original-iter)))
          (parser-bind (,value ,err) ,parser-form
            (cond
              ((not ,err)
               (parser-value ,value))
-             ((eq ,position (lookahead-iterator-position-token ,original-iter))
+             ((eq ,position (forkable-wrapper-iterator-position-token ,original-iter))
               (typecase ,value
                 ,@(mapcar #'transform-clause clauses)
                 (t

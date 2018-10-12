@@ -100,7 +100,7 @@
       (unless (eq class (find-class 'reserved-word))
         (concatenate-iterables
          (list class)
-         (concatmap-iterator
+         (concatmapped-iterator
           (class-direct-subclasses class)
           (lambda (subclass)
             (expand-type `(command-word ,subclass) unique-table))))))))
@@ -131,12 +131,12 @@
        (parser-value value)))))
 
 (defvar *empty-iterator*
-  (make-iterator ()
+  (make-computed-iterator
     (stop)))
 
 (defun iterator-without-duplicates (iter)
   (let ((seen-values (make-hash-table :test 'equal)))
-    (filter-iterator
+    (filtered-iterator
      iter
      (lambda (obj)
        (unless (gethash obj seen-values)
@@ -163,7 +163,7 @@
   (list (type-mismatch-expected-type err)))
 
 (defmethod parse-error-expected-types ((err choice))
-  (concatmap-iterator
+  (concatmapped-iterator
    (choice-errors-iterator err :recursive-p t)
    'parse-error-expected-types))
 
@@ -193,7 +193,7 @@
     ((desired literal-token-class) token context)
   (let ((desired-string (literal-token-string desired))
         (token-value (token-value token)))
-    (if (starts-with-p desired-string token-value)
+    (if (sequence-starts-with-p desired-string token-value)
         (list-iterator (list (make-simple-completion-suggestion desired-string context)))
         *empty-iterator*)))
 
@@ -262,7 +262,7 @@
   (when (equal 0 (fset:size *command-words*))
     (labels
         ((compatible-p (command)
-           (starts-with-p command (simple-word-text token))))
+           (sequence-starts-with-p command (simple-word-text token))))
       (map-iterator (filter-iterator (all-binary-commands) #'compatible-p)
                     (lambda (str)
                       (make-simple-completion-suggestion str context))))))
@@ -291,13 +291,13 @@
 (defmethod expand-type ((type standard-class) unique-table)
   (concatenate-iterables
    (list type)
-   (concatmap-iterator
+   (concatmapped-iterator
     (class-direct-subclasses type)
     (lambda (subclass)
       (expand-type subclass unique-table)))))
 
 (defmethod expand-compound-type ((type-car (eql 'or)) type-cdr unique-table)
-  (concatmap-iterator type-cdr (lambda (type) (expand-type type unique-table))))
+  (concatmapped-iterator type-cdr (lambda (type) (expand-type type unique-table))))
 
 (defclass sigil-token ()
   ())
@@ -333,7 +333,7 @@
   (let* ((*collect-tab-complete-info* t)
          (sigil-token (make-instance 'sigil-token))
          (command-iterator (command-iterator
-                            (lookahead-iterator-wrapper
+                            (forkable-wrapper-iterator
                              (concatenate-iterables
                               leading-tokens
                               (list sigil-token)))))
@@ -346,10 +346,10 @@
                       (not (nth-value 1 (gethash err seen-errors))))
              (setf (gethash err seen-errors) t)
              (let* ((expected-types (parse-error-expected-types err))
-                    (all-expected-types (concatmap-iterator expected-types (type-expander)))
+                    (all-expected-types (concatmapped-iterator expected-types (type-expander)))
                     (suggestion-producer (lambda (type)
                                            (completion-suggestions type token-to-complete context)))
-                    (err-suggestions (concatmap-iterator all-expected-types suggestion-producer)))
+                    (err-suggestions (concatmapped-iterator all-expected-types suggestion-producer)))
                ;; Consume suggestions eagerly so they are computed in
                ;; the dynamic context where the error was produced
                (do-iterator (suggestion err-suggestions)

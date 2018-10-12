@@ -18,7 +18,7 @@
   (:import-from :fset)
   (:export
    #:define-data #:define-cloning-setf-expander #:clone #:data-class #:data
-   #:define-clone-method #:clone-object))
+   #:define-clone-method #:clone-object #:trivially-clonable))
 (in-package :shcl/core/data)
 
 (optimization-settings)
@@ -84,6 +84,8 @@ So, this generic function has a method for `data' that simply calls
 `clone-object'.  If you think that `clone-object' is safe to use with
 a class, you should define a method on `clone' that calls
 `clone-object'.  The `define-clone-method' macro will do this for you.
+You can also inherit from `trivially-clonable' to achieve the same
+result.
 
 If `object' isn't an instance of some `standard-class' class (e.g. a
 builtin or struct type), then the initialization flow and meaning of
@@ -113,6 +115,18 @@ calls `clone-object'.
         (initargs (gensym "INITARGS")))
     `(defmethod clone ((,object ,class-name) &rest ,initargs &key &allow-other-keys)
        (apply 'clone-object ,object ,initargs))))
+
+(defclass trivially-clonable ()
+  ()
+  (:documentation
+   "This mixin superclass provides a `clone' method that simply copies
+slot values.
+
+If you think that it is safe to clone your subclass using
+`clone-object', then you can safely inherit from this class.  You can
+also use `define-clone-method' to achieve the same result."))
+
+(define-clone-method trivially-clonable)
 
 (defmethod clone ((cons cons) &key (car (car cons)) (cdr (cdr cons)))
   (cons car cdr))
