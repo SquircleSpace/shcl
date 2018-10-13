@@ -31,7 +31,12 @@
    #:string-fragment-literal-p #:string-fragment
    #:word-boundary #:*split-fields* #:split #:*allow-side-effects*
    #:side-effect-violation #:check-side-effects-allowed
-   #:permit-side-effects-once))
+   #:permit-side-effects-once
+
+   ;; Pipeline
+   #:compute-expansion-pipeline #:expand-aliases #:expand-token-sequence
+   #:expand-tilde-words #:expand-pathname-words #:concatenate-fragmented-words
+   #:expand-token #:expand-tilde #:expand-pathname #:concatenate-fragments))
 (in-package :shcl/core/expand)
 
 (optimization-settings)
@@ -255,6 +260,8 @@ iterable sequence of alternate tokens."
      value)))
 
 (defun expand-token-sequence (token-sequence)
+  "Given a sequence of tokens, run `expand-token' on each each token
+and collect the results."
   (let ((result (fset:empty-seq))
         (exit-infos (fset:empty-seq)))
     (do-sequence (token token-sequence)
@@ -264,6 +271,15 @@ iterable sequence of alternate tokens."
     (values result exit-infos)))
 
 (defun expand-token (token)
+  "Run `expand' on the given token and process the result into a
+sequence of fragment sequences.
+
+`expand' returns a sequence of string fragments and word boundaries.
+Two consecutive string fragments are understood to be parts of the
+same word.  This function groups consecutive string fragments and
+removes word boundaries from the result.  So, the return value of this
+function is a sequence of sequences of string fragments.  Each
+sequence of string fragments represents a word."
   (multiple-value-bind (expansion-fragments exit-info) (expand token)
     (let ((result (fset:empty-seq))
           next-word)
@@ -290,12 +306,12 @@ iterable sequence of alternate tokens."
 (defun run-expansion-pipeline (things pipeline)
   (let ((last-result things)
         (exit-infos (make-extensible-vector)))
-    (loop :for fn :across pipeline :do
-       (multiple-value-bind
-             (this-result this-exit-infos)
-           (funcall fn last-result)
-         (setf last-result this-result)
-         (vector-push-extend this-exit-infos exit-infos)))
+    (do-sequence (fn pipeline)
+      (multiple-value-bind
+            (this-result this-exit-infos)
+          (funcall fn last-result)
+        (setf last-result this-result)
+        (vector-push-extend this-exit-infos exit-infos)))
     (values last-result (concatenate-iterable-collection exit-infos))))
 
 (defun compute-expansion-pipeline (&key start-at end-at
@@ -303,7 +319,13 @@ iterable sequence of alternate tokens."
                                      (expand-token-sequence t)
                                      (expand-tilde-words t)
                                      (expand-pathname-words t)
-                                     (concatenate-fragments-for-words t))
+                                     (concatenate-fragmented-words t))
+  "Produce a sequence representing an expansion sequence.
+
+You generally don't want to use this function.  You probably want to
+use `expansion-for-words'.  This function is useful if you need to
+exercise a great deal of control over what phases of expansion take
+place.  To run the pipeline, use `run-expansion-pipeline'."
   (let ((pipeline (make-extensible-vector))
         (started (unless start-at t)))
     (macrolet
@@ -312,6 +334,8 @@ iterable sequence of alternate tokens."
               (when (and (not started) (eq start-at ',name))
                 (setf started t))
               (when (eq end-at ',name)
+                (unless started
+                  (error "Invalid start point ~A" start-at))
                 (return-from compute-expansion-pipeline pipeline))
               (when (and started ,name)
                 (vector-push-extend ',name pipeline)))))
@@ -319,7 +343,11 @@ iterable sequence of alternate tokens."
       (consider expand-token-sequence)
       (consider expand-tilde-words)
       (consider expand-pathname-words)
-      (consider concatenate-fragments-for-words)
+      (consider concatenate-fragmented-words)
+      (when (and start-at (not started))
+        (error "Invalid start point ~A" start-at))
+      (when end-at
+        (error "Invalid end point ~A" end-at))
       pipeline)))
 
 (defun expansion-for-words (things &key expand-aliases expand-pathname-words
@@ -355,7 +383,7 @@ documentation to understand how it impacts expansion."
                        :expand-aliases expand-aliases
                        :expand-token-sequence t
                        :expand-pathname-words expand-pathname-words
-                       :concatenate-fragments-for-words t))))
+                       :concatenate-fragmented-words t))))
     (run-expansion-pipeline things pipeline)))
 
 (defstruct wild-path
@@ -700,6 +728,18 @@ Returns nil if no matches were found."
         (fset:image #'prepare-match matches)))))
 
 (defun expand-tilde-words (fragment-seqs)
+  "Perform tilde expansion on the given sequence of fragment
+sequences.
+
+`fragment-seqs' is a sequence of fragment sequences.  A fragment
+sequence represents a single word (but broken up into several string
+fragments).
+
+This function takes each fragment sequence and performs tilde
+expansion on it.  Tilde expansion is the process of replacing an
+unquoted #\~ character with the user's home directory.  If the tilde
+is followed by a username, that user's home directory will be used
+instead."
   (sequence-map fragment-seqs 'expand-tilde))
 
 (defun expand-tilde (fragments)
@@ -754,9 +794,11 @@ the string '[fb]oo' as its argument.  That's a bit whacky.  If this
 variable is non-nil, then a glob failure aborts the command.")
 
 (defun expand-pathname-words (fragment-seqs)
-  (concatmapped-iterator fragment-seqs 'expand-one-pathname))
+  "Given a sequence of fragment sequences, this function expands
+wildcarded path components in the fragment sequences."
+  (concatmapped-iterator fragment-seqs 'expand-pathname))
 
-(defun expand-one-pathname (fragments)
+(defun expand-pathname (fragments)
   "Perform path-related expansions on the given word (which is
 represented as a sequence of string fragments).
 
@@ -770,7 +812,9 @@ sequence of string fragments."
           (error "Glob pattern didn't match anything: ~A" (concatenate-fragments fragments)))
         (fset:seq fragments))))
 
-(defun concatenate-fragments-for-words (word-fragment-sequences)
+(defun concatenate-fragmented-words (word-fragment-sequences)
+  "Given a sequence of fragment sequences, this function joins the
+fragment sequences and returns a sequence of words."
   (mapped-iterator word-fragment-sequences 'concatenate-fragments))
 
 (defun concatenate-fragments (fragments)
