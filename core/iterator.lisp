@@ -674,7 +674,8 @@ it."))
            (setf last-cell result))
 
           (t
-           (setf (cdr last-cell) (cons item nil)))))
+           (setf (cdr last-cell) (cons item nil))
+           (setf last-cell (cdr last-cell)))))
       result)))
 
 (defmethod builder-for-type ((type (eql 'fset:seq)))
