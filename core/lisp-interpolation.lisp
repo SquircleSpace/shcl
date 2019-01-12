@@ -154,7 +154,8 @@ ensure that use of the #$ reader macro is properly terminated.")
   "Mark the end of a #$ reader macro form."
   (declare (ignore initiation-sequence))
   (close stream)
-  (setf *proper-end-found* t))
+  (setf *proper-end-found* t)
+  nil)
 
 (defun read-shell-command (stream subchar arg)
   "This function implements the #$ reader macro
