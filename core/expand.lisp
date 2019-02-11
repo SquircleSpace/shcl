@@ -32,12 +32,13 @@
    #:string-fragment-literal-p #:string-fragment
    #:word-boundary #:*split-fields* #:split #:*allow-side-effects*
    #:side-effect-violation #:check-side-effects-allowed
-   #:permit-side-effects-once
+   #:permit-side-effects-once #:wild-path-has-wild-component-p
 
    ;; Pipeline
    #:compute-expansion-pipeline #:expand-aliases #:expand-token-sequence
-   #:expand-tilde-words #:expand-pathname-words #:concatenate-fragmented-words
-   #:expand-token #:expand-tilde #:expand-pathname #:concatenate-fragments))
+   #:expand-tilde-words #:concatenate-fragmented-words
+   #:expand-token #:expand-tilde #:concatenate-fragments
+   #:run-expansion-pipeline))
 (in-package :shcl/core/expand)
 
 (optimization-settings)
@@ -304,8 +305,22 @@ sequence of string fragments represents a word."
         (boundary +soft-word-boundary+)
         (values result (ensure-exit-info-seq exit-info))))))
 
-(defun run-expansion-pipeline (things pipeline)
-  (let ((last-result things)
+(defvar *split-fields-default* t)
+(defvar *allow-side-effects-default* t)
+
+(defun run-expansion-pipeline (things pipeline
+                               &key (split-fields *split-fields-default*)
+                                 (allow-side-effects *allow-side-effects-default*))
+  "Feed `things' into the given expansion pipeline.
+
+Each phase of the pipeline is expected to produce two return values: a
+result (to be fed to the next pipeline phase) and a sequence of
+`exit-info' objects.  The return value is the first return value of
+the final pipeline phase and the result of concatenating all the
+`exit-info' sequences."
+  (let ((*split-fields* split-fields)
+        (*allow-side-effects* allow-side-effects)
+        (last-result things)
         (exit-infos (fset:empty-seq))
         (pipeline (walk pipeline)))
     (do-while-popf (fn pipeline)
@@ -320,7 +335,8 @@ sequence of string fragments represents a word."
                                      (expand-aliases t)
                                      (expand-token-sequence t)
                                      (expand-tilde-words t)
-                                     (expand-pathname-words t)
+                                     (expand-to-wild-paths t)
+                                     (expand-wild-paths t)
                                      (concatenate-fragmented-words t))
   "Produce a sequence representing an expansion sequence.
 
@@ -332,19 +348,21 @@ place.  To run the pipeline, use `run-expansion-pipeline'."
         (started (unless start-at t)))
     (macrolet
         ((consider (name)
-           `(progn
-              (when (and (not started) (eq start-at ',name))
-                (setf started t))
-              (when (eq end-at ',name)
-                (unless started
-                  (error "Invalid start point ~A" start-at))
-                (return-from compute-expansion-pipeline pipeline))
-              (when (and started ,name)
-                (vector-push-extend ',name pipeline)))))
+           (let ((name-kw (intern (symbol-name name) :keyword)))
+             `(progn
+                (when (and (not started) (eq start-at ,name-kw))
+                  (setf started t))
+                (when (eq end-at ,name-kw)
+                  (unless started
+                    (error "Invalid start point ~A" start-at))
+                  (return-from compute-expansion-pipeline pipeline))
+                (when (and started ,name)
+                  (vector-push-extend ',name pipeline))))))
       (consider expand-aliases)
       (consider expand-token-sequence)
       (consider expand-tilde-words)
-      (consider expand-pathname-words)
+      (consider expand-to-wild-paths)
+      (consider expand-wild-paths)
       (consider concatenate-fragmented-words)
       (when (and start-at (not started))
         (error "Invalid start point ~A" start-at))
@@ -353,8 +371,8 @@ place.  To run the pipeline, use `run-expansion-pipeline'."
       pipeline)))
 
 (defun expansion-for-words (things &key expand-aliases expand-pathname-words
-                                     pipeline (split-fields t)
-                                     (allow-side-effects t))
+                                     (split-fields *split-fields-default*)
+                                     (allow-side-effects *allow-side-effects-default*))
   "Perform expansion on a sequence of tokens.
 
 This always performs the expansion done by the `expand' generic
@@ -378,15 +396,15 @@ to understand how it impacts expansion.
 The value of the `allow-side-effects' keyword argument is bound to the
 `*allow-side-effects*' special variable.  See that variable's
 documentation to understand how it impacts expansion."
-  (let ((*split-fields* split-fields)
-        (*allow-side-effects* allow-side-effects)
-        (pipeline (or pipeline
-                      (compute-expansion-pipeline
-                       :expand-aliases expand-aliases
-                       :expand-token-sequence t
-                       :expand-pathname-words expand-pathname-words
-                       :concatenate-fragmented-words t))))
-    (run-expansion-pipeline things pipeline)))
+  (let ((pipeline (compute-expansion-pipeline
+                   :expand-aliases expand-aliases
+                   :expand-token-sequence t
+                   :expand-to-wild-paths expand-pathname-words
+                   :expand-wild-paths expand-pathname-words
+                   :concatenate-fragmented-words t)))
+    (run-expansion-pipeline things pipeline
+                            :split-fields split-fields
+                            :allow-side-effects allow-side-effects)))
 
 (defstruct wild-path
   "This struct represents a path which may have components which
@@ -402,9 +420,10 @@ A wildcard component of the path is simply a scanner returned by
 
 How wild!"
   file-name
-  (directories (make-extensible-vector)))
+  (directories (make-extensible-vector))
+  original-fragments)
 
-(defun wild-path-wild-p (wild-path)
+(defun wild-path-has-wild-component-p (wild-path)
   "Returns non-nil if the given `wild-path' contains wildcard
 components."
   (with-accessors
@@ -593,7 +612,7 @@ The return value is appropriate for storing in a `wild-path'."
   "Translate a `fset:seq' of fragments into a `wild-path'."
   (multiple-value-bind (absolute-part remaining-segments)
       (handle-leading-slashes (split-fragments-into-directory-segments fragments))
-    (let ((path (make-wild-path)))
+    (let ((path (make-wild-path :original-fragments fragments)))
       (with-accessors
             ((directories wild-path-directories)
              (file-name wild-path-file-name))
@@ -711,23 +730,40 @@ directory."
            (unless (zerop (fset:size matches))
              matches)))))))
 
+(defvar *error-on-failed-glob* nil
+  "If this variable is non-nil, then an error will be signaled when
+pathname expansion cannot find any matches for a glob pattern.
+
+POSIX says that if a glob doesn't match any files then pathname
+expansion should simply produce the string the user typed.  So, if the
+user runs
+    rm [fb]oo
+in a directory where neither foo nor boo exist, then rm will receive
+the string '[fb]oo' as its argument.  That's a bit whacky.  If this
+variable is non-nil, then a glob failure aborts the command.")
+
 (defun expand-wild-path (wild-path)
   "Given a `wild-path', produce an `fset:seq' of strings representing
 the paths that were matched.
 
 Returns nil if no matches were found."
-  (unless (wild-path-wild-p wild-path)
-    (error "Expansion of non-wild wild-paths is not supported"))
+  (unless (wild-path-has-wild-component-p wild-path)
+    (return-from expand-wild-path (fset:seq (wild-path-original-fragments wild-path))))
 
   (let ((matches
-         (with-local-working-directory (".")
-           (%expand-wild-path (wild-path-directories wild-path) 0 (wild-path-file-name wild-path)))))
-    (when matches
-      (labels
-          ((prepare-match (match)
-             (fset:seq (make-string-fragment (fset:convert 'string match) :quoted-p t))))
-        (declare (dynamic-extent #'prepare-match))
-        (fset:image #'prepare-match matches)))))
+          (with-local-working-directory (".")
+            (%expand-wild-path (wild-path-directories wild-path) 0 (wild-path-file-name wild-path)))))
+    (cond
+      (matches
+       (labels
+           ((prepare-match (match)
+              (fset:seq (make-string-fragment (fset:convert 'string match) :quoted-p t))))
+         (declare (dynamic-extent #'prepare-match))
+         (fset:image #'prepare-match matches)))
+      (*error-on-failed-glob*
+       (error "Glob pattern didn't match anything: ~A" (wild-path-original-fragments wild-path)))
+      (t
+       (wild-path-original-fragments wild-path)))))
 
 (defun expand-tilde-words (fragment-seqs)
   "Perform tilde expansion on the given sequence of fragment
@@ -782,35 +818,13 @@ fragments."
         (list (make-string-fragment $home :quoted-p t))
         fragments)))
 
-(defvar *error-on-failed-glob* nil
-  "If this variable is non-nil, then an error will be signaled when
-pathname expansion cannot find any matches for a glob pattern.
-
-POSIX says that if a glob doesn't match any files then pathname
-expansion should simply produce the string the user typed.  So, if the
-user runs
-    rm [fb]oo
-in a directory where neither foo nor boo exist, then rm will receive
-the string '[fb]oo' as its argument.  That's a bit whacky.  If this
-variable is non-nil, then a glob failure aborts the command.")
-
-(defun expand-pathname-words (fragment-seqs)
+(defun expand-to-wild-paths (fragment-seqs)
   "Given a sequence of fragment sequences, this function expands
 wildcarded path components in the fragment sequences."
-  (eager-flatmap-sequence fragment-seqs 'expand-pathname (fset:empty-seq)))
+  (eager-map fragment-seqs 'make-wild-path-from-fragments (fset:empty-seq)))
 
-(defun expand-pathname (fragments)
-  "Perform path-related expansions on the given word (which is
-represented as a sequence of string fragments).
-
-Returns a sequence of expansions.  Each expansion is represented as a
-sequence of string fragments."
-  (let ((wild-path (make-wild-path-from-fragments fragments)))
-    (or (when (wild-path-wild-p wild-path)
-          (expand-wild-path wild-path))
-        (when *error-on-failed-glob*
-          (error "Glob pattern didn't match anything: ~A" (concatenate-fragments fragments)))
-        (fset:seq fragments))))
+(defun expand-wild-paths (wild-paths)
+  (eager-flatmap-sequence wild-paths 'expand-wild-path (fset:empty-seq)))
 
 (defun concatenate-fragmented-words (word-fragment-sequences)
   "Given a sequence of fragment sequences, this function joins the
