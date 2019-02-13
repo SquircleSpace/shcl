@@ -40,6 +40,7 @@ signaled."))
 (define-condition syscall-error (error)
   ((errno
     :initform errno
+    :initarg :errno
     :reader syscall-errno
     :type integer)
    (function

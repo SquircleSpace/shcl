@@ -24,7 +24,8 @@
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:fstatat #:syscall-error #:syscall-errno #:file-ptr #:fdopen
    #:fclose #:fileno #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
-   #:wtermsig #:wstopsig #:faccessat))
+   #:wtermsig #:wstopsig #:faccessat #:gethostname #:sysconf #:get-passwd-for-uid
+   #:getuid))
 (in-package :shcl/core/posix)
 
 (optimization-settings)
@@ -322,3 +323,119 @@ The output parameter is returned as an instance of the `stat' class."
   (path :string)
   (amode :int)
   (flag :int))
+
+(define-c-wrapper (%gethostname "gethostname") (:int #'not-negative-1-p)
+  (name (:pointer :char))
+  (len size-t))
+
+(defun gethostname ()
+  "This is a wrapper around the POSIX gethostname function.
+
+The hostname is returned as a lisp string."
+  (with-foreign-object (name :char (1+ host-name-max))
+    (%gethostname name host-name-max)
+    (foreign-string-to-lisp name :max-chars host-name-max)))
+
+(define-c-wrapper (%sysconf "sysconf") (:long (lambda (val)
+                                                (or (not (equal -1 val))
+                                                    (zerop errno))))
+  (name :int))
+
+(defun sysconf (name)
+  "This is a wrapper around the POSIX sysconf function."
+  (setf errno 0)
+  (%sysconf name))
+
+(define-c-wrapper (%getpwuid-r "getpwuid_r") (:int)
+  (uid uid-t)
+  (pwd (:pointer (:struct passwd)))
+  (buffer (:pointer :char))
+  (bufsize size-t)
+  (result (:pointer (:pointer (:struct passwd)))))
+
+(defun getpwuid-r (uid pwd buffer bufsize result)
+  (loop
+    (let ((return-code (%getpwuid-r uid pwd buffer bufsize result)))
+      (case return-code
+        (0
+         (return-from getpwuid-r return-code))
+        (eintr) ;; Let's try that again
+        (otherwise
+         (error 'syscall-error :errno return-code :function 'getpwuid-r))))))
+
+(defun call-with-getpwuid-r (uid function)
+  (let* ((suggested-size (sysconf -sc-getpw-r-size-max))
+         (buffer-size (if (equal -1 suggested-size)
+                          1024
+                          suggested-size)))
+    (with-foreign-object (passwd '(:struct passwd))
+      (with-foreign-object (passwd-pointer '(:pointer (:struct passwd)))
+        (tagbody
+         again
+           (with-foreign-object (buffer :char buffer-size)
+             (handler-bind
+                 ((syscall-error
+                    (lambda (e)
+                      (when (equal (syscall-errno e) erange)
+                        (setf buffer-size (* buffer-size 2))
+                        (go again)))))
+               (getpwuid-r uid passwd buffer buffer-size passwd-pointer))
+             (let ((returned-passwd (mem-ref passwd-pointer '(:pointer (:struct passwd)))))
+               (assert (or (null-pointer-p returned-passwd)
+                           (pointer-eq passwd returned-passwd)))
+               (return-from call-with-getpwuid-r
+                 (funcall function returned-passwd)))))))))
+
+(defmacro with-getpwuid-r ((passwd-pointer uid) &body body)
+  `(call-with-getpwuid-r ,uid (lambda (,passwd-pointer) ,@body)))
+
+(defclass passwd ()
+  ((pw-name
+    :initarg :pw-name
+    :initform nil
+    :type (or null string)
+    :reader pw-name)
+   (pw-uid
+    :initarg :pw-uid
+    :initform 0
+    :type integer
+    :reader pw-uid)
+   (pw-gid
+    :initarg :pw-gid
+    :initform 0
+    :type integer
+    :reader pw-gid)
+   (pw-dir
+    :initarg :pw-dir
+    :initform nil
+    :type (or null string)
+    :reader pw-dir)
+   (pw-shell
+    :initarg :pw-shell
+    :initform nil
+    :type (or null string)
+    :reader pw-shell)))
+
+(defun get-passwd-for-uid (uid)
+  "Retrieve an instance of the lisp `passwd' class for the given uid.
+
+This function uses POSIX's getpwuid_r function to retrieve a passwd
+struct and then turns it into a lisp object for your consumption."
+  (with-getpwuid-r (passwd-pointer uid)
+    (macrolet
+        ((slot (foreign-slot-name)
+           `(foreign-slot-value passwd-pointer '(:struct passwd) ',foreign-slot-name))
+         (stringify (foreign-slot-name)
+           (let ((pointer (gensym "POINTER")))
+             `(let ((,pointer (foreign-slot-value passwd-pointer '(:struct passwd) ',foreign-slot-name)))
+                (if (null-pointer-p ,pointer)
+                    nil
+                    (foreign-string-to-lisp ,pointer))))))
+      (make-instance 'passwd
+                     :pw-name (stringify pw-name)
+                     :pw-uid (slot pw-uid)
+                     :pw-gid (slot pw-gid)
+                     :pw-dir (stringify pw-dir)
+                     :pw-shell (stringify pw-shell)))))
+
+(define-c-wrapper (getuid "getuid") (uid-t))
