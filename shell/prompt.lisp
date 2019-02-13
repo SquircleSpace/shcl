@@ -45,7 +45,10 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (define-foreign-library libedit
-    (t (:default "libedit"))))
+    #-shcl-nix
+    (t (:default "libedit"))
+    #+shcl-nix
+    (t (:default #.(concatenate 'string (uiop:getenv "libedit") "/lib/libedit")))))
 
 (use-foreign-library libedit)
 
