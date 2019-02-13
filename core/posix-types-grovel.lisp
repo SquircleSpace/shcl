@@ -14,7 +14,7 @@
 
 (in-package :shcl/core/posix-types)
 
-(include "errno.h" "sys/types.h" "sys/stat.h" "fcntl.h" "dirent.h")
+(include "errno.h" "sys/types.h" "sys/stat.h" "fcntl.h" "dirent.h" "pwd.h" "unistd.h")
 
 ;; Types
 (ctype size-t "size_t")
@@ -49,6 +49,13 @@
 (cstruct dirent "struct dirent"
   (d-name "d_name" :type :char :count 1))
 
+(cstruct passwd "struct passwd"
+         (pw-name "pw_name" :type (:pointer :char))
+         (pw-uid "pw_uid" :type uid-t)
+         (pw-gid "pw_gid" :type gid-t)
+         (pw-dir "pw_dir" :type (:pointer :char))
+         (pw-shell "pw_shell" :type (:pointer :char)))
+
 ;; The ever-important errno
 (cvar ("errno" errno) :int)
 
@@ -78,6 +85,7 @@
 (constant (wuntraced "WUNTRACED"))
 (constant (eintr "EINTR"))
 (constant (enoent "ENOENT"))
+(constant (erange "ERANGE"))
 (constant (at-symlink-nofollow "AT_SYMLINK_NOFOLLOW"))
 (constant (path-max "PATH_MAX"))
 
@@ -86,3 +94,7 @@
 (constant (x-ok "X_OK"))
 (constant (f-ok "F_OK"))
 (constant (at-eaccess "AT_EACCESS"))
+
+(constant (host-name-max "HOST_NAME_MAX"))
+
+(constant (-sc-getpw-r-size-max "_SC_GETPW_R_SIZE_MAX"))

@@ -24,4 +24,5 @@
    #:blkcnt-t #:time-t #:stat #:st-dev #:st-ino #:st-mode #:st-nlink #:st-uid
    #:st-gid #:st-rdev #:st-size #:st-blksize #:st-blocks #:st-atime #:st-mtime
    #:st-ctime #:at-symlink-nofollow #:path-max #:r-ok #:w-ok #:x-ok #:f-ok
-   #:at-eaccess))
+   #:at-eaccess #:host-name-max #:-sc-getpw-r-size-max #:passwd #:pw-name #:pw-uid
+   #:pw-gid #:pw-dir #:pw-shell #:erange))

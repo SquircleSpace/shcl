@@ -17,7 +17,10 @@
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
   (:import-from :shcl/core/command #:define-builtin)
-  (:import-from :shcl/core/posix #:file-ptr)
+  (:import-from
+   :shcl/core/posix
+   #:file-ptr #:gethostname #:get-passwd-for-uid #:getuid #:gethostname)
+  (:import-from :shcl/core/posix-types #:pw-dir)
   (:import-from :shcl/shell/directory #:physical-pwd)
   (:import-from
    :shcl/core/fd-table
@@ -25,7 +28,6 @@
    #:close-file-ptr #:fd-wrapper-value)
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
-  (:import-from :osicat-posix)
   (:export
    #:with-history #:history-set-size #:get-line
    #:interpret-prompt-string #:make-editline-stream
@@ -796,11 +798,11 @@ the editline library."
 ;; Hostname and similar
 (defmethod escape-sequence ((shell (eql :bash))
                             (char (eql #\H)))
-  (princ (osicat-posix:gethostname)))
+  (princ (gethostname)))
 
 (defmethod escape-sequence ((shell (eql :bash))
                             (char (eql #\h)))
-  (let* ((hostname (osicat-posix:gethostname))
+  (let* ((hostname (gethostname))
          (dot (position #\. hostname)))
     ;; Not sure whether that is really compatible with a hostname of ".foo"
     (if (and dot
@@ -816,8 +818,7 @@ the editline library."
 
 (defmethod escape-sequence ((shell (eql :bash))
                             (char (eql #\u)))
-  (princ (osicat-posix:getpwuid
-           (osicat-posix:getuid))))
+  (pw-dir (get-passwd-for-uid (getuid))))
 
 
 ;; ANSI color sequences and similar stuff
