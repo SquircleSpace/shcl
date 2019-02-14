@@ -27,10 +27,20 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (define-foreign-library shcl-support
-    (:darwin (:default "libshcl-support") :search-path ".")
-    (:linux (:default "libshcl-support") :search-path ".")))
+    #-shcl-nix ((:or :darwin :linux) (:default "libshcl-support"))
+    #+shcl-nix (t (:default #.(concatenate 'string (uiop:getenv "out") "/lib/libshcl-support")))))
 
-(use-foreign-library shcl-support)
+(defvar *shcl-support-loaded* nil)
+(defvar *shcl-support-loaded-lock* (bordeaux-threads:make-lock))
+(defun ensure-shcl-support-loaded ()
+  ;; Load shcl-support once using double-checked locking.
+  ;; Double-checked locking is generally unsafe.  In the specific
+  ;; instance of storing a word-sized value, it should be safe.
+  (unless *shcl-support-loaded*
+    (bordeaux-threads:with-lock-held (*shcl-support-loaded-lock*)
+      (unless *shcl-support-loaded*
+        (use-foreign-library shcl-support)
+        (setf *shcl-support-loaded* t)))))
 
 (defgeneric syscall-errno (syscall-error)
   (:documentation
@@ -62,7 +72,7 @@ Use `syscall-errno' to access the error code."))
   (declare (ignore value))
   t)
 
-(defmacro define-c-wrapper ((lisp-name c-name &key library) (return-type &optional (error-checker ''pass))
+(defmacro define-c-wrapper ((lisp-name c-name &key library loader) (return-type &optional (error-checker ''pass))
                             &body arg-descriptions)
   "Define a CFFI binding and wrapper function (or macro) which checks
 for errors."
@@ -76,6 +86,8 @@ for errors."
 
 It will signal a `syscall-error' if the following predicate returns nil.
 ~S" c-name error-checker)
+                ,@(when loader
+                    `((,loader)))
                 (let ((,result (,lisp-impl-name ,@args)))
                   (unless (funcall ,error-checker ,result)
                     (error 'syscall-error :function ',lisp-name))
@@ -93,6 +105,8 @@ It will signal a `syscall-error' if the following predicate returns nil.
 It will signal a `syscall-error' if the following predicate returns nil.
 ~S" c-name error-checker)
                 (declare (ignore ,@(remove '&rest args)))
+                ,@(when loader
+                    `((,loader)))
                 `(let ((,',result (,',lisp-impl-name ,@(cdr ,whole))))
                    (unless (funcall ,',error-checker ,',result)
                      (error 'syscall-error :function ',',lisp-name))
@@ -120,43 +134,56 @@ simultaneously")
   (with-lock-held (*strerror-lock*)
     (%strerror err)))
 
-(define-c-wrapper (wifexited "wifexited" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (wifexited "wifexited" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (status :int))
 
-(define-c-wrapper (wifstopped "wifstopped" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (wifstopped "wifstopped" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (status :int))
 
-(define-c-wrapper (wifsignaled "wifsignaled" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (wifsignaled "wifsignaled" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (status :int))
 
-(define-c-wrapper (wexitstatus "wexitstatus" :library shcl-support) (:int)
+(define-c-wrapper (wexitstatus "wexitstatus" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:int)
   (status :int))
 
-(define-c-wrapper (wtermsig "wtermsig" :library shcl-support) (:int)
+(define-c-wrapper (wtermsig "wtermsig" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:int)
   (status :int))
 
-(define-c-wrapper (wstopsig "wstopsig" :library shcl-support) (:int)
+(define-c-wrapper (wstopsig "wstopsig" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:int)
   (status :int))
 
-(define-c-wrapper (s-isreg "s_isreg" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-isreg "s_isreg" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
-(define-c-wrapper (s-isdir "s_isdir" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-isdir "s_isdir" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
-(define-c-wrapper (s-ischr "s_ischr" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-ischr "s_ischr" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
-(define-c-wrapper (s-isblk "s_isblk" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-isblk "s_isblk" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
-(define-c-wrapper (s-isfifo "s_isfifo" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-isfifo "s_isfifo" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
-(define-c-wrapper (s-islnk "s_islnk" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-islnk "s_islnk" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
-(define-c-wrapper (s-issock "s_issock" :library shcl-support) ((:boolean :int))
+(define-c-wrapper (s-issock "s_issock" :library shcl-support :loader ensure-shcl-support-loaded)
+    ((:boolean :int))
   (mode mode-t))
 
 (define-foreign-type string-table ()
@@ -204,13 +231,17 @@ simultaneously")
        (free-converted-object (mem-aref translated '(:pointer :char) index) :string (aref param index))))
   (foreign-free translated))
 
-(define-c-wrapper (%%make-fd-actions "make_shcl_fd_actions") (:pointer))
-(define-c-wrapper (%%destroy-fd-actions "destroy_shcl_fd_actions") (:void)
+(define-c-wrapper (%%make-fd-actions "make_shcl_fd_actions" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:pointer))
+(define-c-wrapper (%%destroy-fd-actions "destroy_shcl_fd_actions" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:void)
   (actions :pointer))
-(define-c-wrapper (%%fd-actions-add-close "shcl_fd_actions_add_close") (:void)
+(define-c-wrapper (%%fd-actions-add-close "shcl_fd_actions_add_close" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:void)
   (actions :pointer)
   (fd :int))
-(define-c-wrapper (%%fd-actions-add-dup2 "shcl_fd_actions_add_dup2") (:void)
+(define-c-wrapper (%%fd-actions-add-dup2 "shcl_fd_actions_add_dup2" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:void)
   (actions :pointer)
   (fd1 :int)
   (fd2 :int))
@@ -266,7 +297,8 @@ descriptors."
 (defun non-zero-p (int)
   (not (zerop int)))
 
-(define-c-wrapper (%shcl-spawn "shcl_spawn" :library shcl-support) (:int 'non-zero-p)
+(define-c-wrapper (%shcl-spawn "shcl_spawn" :library shcl-support :loader ensure-shcl-support-loaded)
+    (:int 'non-zero-p)
   (pid (:pointer pid-t))
   (path :string)
   (search :int)
