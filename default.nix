@@ -41,6 +41,8 @@ pkgs.stdenv.mkDerivation rec {
   installPhase = ''
     mkdir -p $out/bin
     cp shcl $out/bin
+    mkdir -p $out/lib
+    cp libshcl-support.so $out/lib
   '';
   buildPhase = ''
     libedit="${pkgs.libedit}" make LISP="cl-wrapper.sh sbcl --eval '(push :shcl-nix *features*)'"
