@@ -22,7 +22,7 @@
    #:closedir #:dirfd #:readdir
    #:posix-read #:strlen #:posix-write #:exit
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
-   #:pipe #:fstat #:fstatat #:syscall-error #:syscall-errno #:file-ptr #:fdopen
+   #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen
    #:fclose #:fileno #:wifexited #:wifstopped #:wifsignaled #:wexitstatus
    #:wtermsig #:wstopsig #:faccessat #:gethostname #:sysconf #:get-passwd-for-uid
    #:getuid))
@@ -285,20 +285,6 @@ The pipe file descriptors are returned as multiple values."
 The output parameter is returned as an instance of the `stat' class."
   (with-foreign-object (buf '(:struct stat))
     (%fstat fd buf)
-    (make-instance 'stat :pointer buf)))
-
-(define-c-wrapper (%fstatat "fstatat") (:int #'not-negative-1-p)
-  (fd :int)
-  (path :string)
-  (buf (:pointer (:struct stat)))
-  (flag :int))
-
-(defun fstatat (fd path flag)
-  "This is a wrapper around the fstatat C function.
-
-The output parameter is returned as an instance of the `stat' class."
-  (with-foreign-object (buf '(:struct stat))
-    (%fstatat fd path buf flag)
     (make-instance 'stat :pointer buf)))
 
 (define-foreign-type file-ptr ()
