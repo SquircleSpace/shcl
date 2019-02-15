@@ -39,10 +39,7 @@ pkgs.stdenv.mkDerivation rec {
   ];
   LD_LIBRARY_PATH = "${pkgs.stdenv.lib.makeLibraryPath buildInputs}";
   installPhase = ''
-    mkdir -p $out/bin
-    cp shcl $out/bin
-    mkdir -p $out/lib
-    cp libshcl-support.so $out/lib
+    make PREFIX=$out install
   '';
   buildPhase = ''
     libedit="${pkgs.libedit}" make LISP="cl-wrapper.sh sbcl --eval '(push :shcl-nix *features*)'"
