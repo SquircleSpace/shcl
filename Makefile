@@ -25,8 +25,19 @@ endif
 SUPPORT_OBJS= core/support/macros.o core/support/spawn.o
 LISP=sbcl
 BUILD_CONFIG= Makefile build-settings
+PREFIX=/usr/local
 
 all: shcl
+
+install:
+	if [ -f shcl ]; then \
+		mkdir -p "${PREFIX}/bin" && \
+		cp shcl "${PREFIX}/bin"; \
+	fi
+	if [ -f "${LIBSHCL_SUPPORT}" ]; then \
+		mkdir -p "${PREFIX}/"lib && \
+		cp "${LIBSHCL_SUPPORT}" "${PREFIX}/lib"; \
+	fi
 
 include dependencies
 
