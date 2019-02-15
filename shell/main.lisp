@@ -43,6 +43,25 @@
 
 (optimization-settings)
 
+(defun set-cl-fad-tmp ()
+  ;; We use uiop:getenv instead of shcl/core/environment:env because
+  ;; this is called during revival and SHCL's environment might not
+  ;; have been brough up, yet.
+  (let* ((env-tmpdir (uiop:getenv "TMPDIR"))
+         (tmpdir (or (when env-tmpdir
+                       (cl-fad:pathname-as-directory env-tmpdir))
+                     #P"/tmp/")))
+    (setf (logical-pathname-translations "temporary-files") `(("*.*.*" ,tmpdir)))))
+
+(on-revival set-cl-fad-tmp)
+
+(defun clear-cl-fad-tmp ()
+  (setf (logical-pathname-translations "temporary-files") nil))
+
+;; There's no need to retain the tmp directiory used during build
+;; time.
+(on-dump clear-cl-fad-tmp)
+
 (defpackage :shcl-user
   (:use :common-lisp :shcl/shell/lisp-repl)
   (:import-from :shcl/core/environment #:env)
