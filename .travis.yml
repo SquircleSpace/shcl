@@ -5,9 +5,16 @@ os:
   - osx
 
 env:
-  matrix:
-    - LISP=sbcl-bin
-    - LISP=ccl-bin
+  - LISP=sbcl-bin
+  - LISP=ccl-bin
+
+matrix:
+  include:
+    - env: LISP=sbcl/1.4.15
+      os: linux
+  allow_failures:
+    - env: LISP=sbcl-bin
+      os: linux
 
 install:
   - if [ "$TRAVIS_OS_NAME" = linux ]; then sudo apt-get install clang; fi
