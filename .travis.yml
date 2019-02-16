@@ -12,6 +12,11 @@ matrix:
   include:
     - env: LISP=sbcl/1.4.15
       os: linux
+    - language: nix
+      os: linux
+      env:
+      script: nix-build default.nix && echo -shcl-run-tests | ./result/bin/shcl
+      install: true
   allow_failures:
     - env: LISP=sbcl-bin
       os: linux
