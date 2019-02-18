@@ -263,9 +263,9 @@
     (labels
         ((compatible-p (command)
            (sequence-starts-with-p command (simple-word-text token))))
-      (map-iterator (filter-iterator (all-binary-commands) #'compatible-p)
-                    (lambda (str)
-                      (make-simple-completion-suggestion str context))))))
+      (mapped-iterator (filtered-iterator (all-binary-commands) #'compatible-p)
+                       (lambda (str)
+                         (make-simple-completion-suggestion str context))))))
 
 (defvar *empty-token* (make-instance 'simple-word :text ""))
 
