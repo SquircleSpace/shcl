@@ -37,10 +37,13 @@
 
 (optimization-settings)
 
-(shcl/core/command:define-builtin -shcl-run-tests (&option package)
+(shcl/core/command:define-builtin -shcl-run-tests (&flag (color "--no-color" "--color")
+                                                         &option package)
   "Run unit tests."
   (with-subshell
-    (let ((prove:*enable-colors* nil)
+    (let ((prove:*enable-colors* (and (not (zerop (length color)))
+                                      (equal "--color"
+                                             (aref color (1- (length color))))))
           (prove:*test-result-output* *standard-output*)
           (tests
            (cond
