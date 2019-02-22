@@ -20,7 +20,8 @@
   (:import-from :fset)
   (:export
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
-   #:attachf #:popf
+   #:attachf #:popf #:do-walk #:lazy-map #:eager-map #:lazy-filter
+   #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:walk-iterator))
@@ -512,3 +513,126 @@ state with some other unit of code."
 
 (defmethod empty-for-type ((sym (eql 'fset:bag)))
   (fset:empty-bag))
+
+;;; Utilities
+
+(defmacro do-walk ((var walkable &optional result) &body body)
+  "Walk a walkable and bind each successive head to `var' before
+evaluating `body'.
+
+This macro is the walkable version of `dolist'."
+  (let ((walk (gensym "WALK"))
+        (value (gensym "VALUE"))
+        (valid-p (gensym "VALID-P")))
+    `(let ((,walk (walk ,walkable)))
+       (loop
+         (multiple-value-bind (,value ,valid-p) (head ,walk)
+           (unless ,valid-p
+             (return ,result))
+           (setf ,walk (tail ,walk))
+           (let ((,var ,value))
+             ,@body))))))
+
+(defun lazy-map (walkable fn)
+  "Create a lazy sequence that consists of `fn' applied to each
+element in `walkable'."
+  (lazy-sequence
+    (multiple-value-bind (value valid-p) (head walkable)
+      (if valid-p
+          (immutable-cons (funcall fn value) (lazy-map (tail walkable) fn))
+          (empty-immutable-list)))))
+
+(defun eager-map (walkable fn output-sequence)
+  "Create an eagerly-evaluated sequence consisting of `fn' applied to
+each element in `walkable'.
+
+The result of the map operation is attached to `output-sequence'.
+
+If `fn' is the identity function then this is semantically equivalent
+to `pour-from'."
+  (do-walk (value walkable)
+    (attachf output-sequence (funcall fn value)))
+  output-sequence)
+
+(defun lazy-filter (walkable fn)
+  "Create a lazy sequence that consists of the elements of `walkable'
+for which `fn' returns non-nil."
+  (lazy-sequence
+    (multiple-value-bind (value valid-p) (head walkable)
+      (cond
+        ((and valid-p (funcall fn value))
+         (immutable-cons value (lazy-filter (tail walkable) fn)))
+        (valid-p
+         (lazy-filter (tail walkable) fn))
+        (t
+         (empty-immutable-list))))))
+
+(defun eager-filter (walkable fn output-sequence)
+  "Create an eagerly-evaluated sequence consisting of the elements of
+`walkable' for which `fn' returns non-nil.
+
+The result of the filter operation is attached to `output-sequence'.
+
+If `fn' always returns non-nil then this is semantically equivalent to
+`pour-from'."
+  (do-walk (value walkable)
+    (when (funcall fn value)
+      (attachf output-sequence value)))
+  output-sequence)
+
+(defun pour-from (source sink)
+  "Walk through `source' and attach all the values encountered onto
+`sink' and returns the result.
+
+Note: since sequences have inconsistent behaviors regarding where
+`attach' operates, this is NOT a generic way to convert one sequence
+type to another type.  For example, converting an `fset:seq' to an
+`immutable-list' will reverse the order of the elements!"
+  (do-walk (value source)
+    (attachf sink value))
+  sink)
+
+(defstruct concatenated
+  sequences)
+
+(defmethod walk ((concatenated concatenated))
+  concatenated)
+
+(defmethod head ((concatenated concatenated))
+  (do-walk (sequence (concatenated-sequences concatenated))
+    (multiple-value-bind (value valid-p) (head sequence)
+      (when valid-p
+        (return-from head (values value valid-p)))))
+  (values nil nil))
+
+(defvar *empty-concatenated-sequence*
+  (make-concatenated))
+
+(defmethod tail ((concatenated concatenated))
+  (let ((sequences (concatenated-sequences concatenated))
+        popped-p)
+    (loop
+      (multiple-value-bind (sequence valid-p) (popf sequences)
+        (unless valid-p
+          (return-from tail *empty-concatenated-sequence*))
+        (unless popped-p
+          (multiple-value-bind (value valid-p) (popf sequence)
+            (declare (ignore value))
+            (when valid-p
+              (setf popped-p t))))
+        (unless (empty-p sequence)
+          (setf sequences (immutable-cons sequence sequences))
+          (return-from tail (make-concatenated :sequences sequences))))))
+  *empty-concatenated-sequence*)
+
+(defun concatenate-sequences (&rest sequences)
+  "Return a walkable that contains all the elements in the provided
+sequences.
+
+This function is just a trivial wrapper around `flatten-sequence'."
+  (flatten-sequence sequences))
+
+(defun flatten-sequence (sequence-of-sequences)
+  "Return a walkable that traverses the sequences contained within
+`sequence-of-sequences'."
+  (make-concatenated :sequences sequence-of-sequences))

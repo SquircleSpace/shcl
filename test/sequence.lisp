@@ -22,26 +22,136 @@
 
 (link-package-to-system :shcl/core/sequence)
 
-(defmacro do-walk ((var walkable &optional result) &body body)
-  (let ((walk (gensym "WALK"))
-        (value (gensym "VALUE"))
-        (valid-p (gensym "VALID-P")))
-    `(let ((,walk (walk ,walkable)))
-       (loop
-         (multiple-value-bind (,value ,valid-p) (head ,walk)
-           (unless ,valid-p
-             (return ,result))
-           (setf ,walk (tail ,walk))
-           (let ((,var ,value))
-             ,@body))))))
-
-(defun pour-from (source sink)
-  (do-walk (value source)
-    (attachf sink value))
-  sink)
-
 (defparameter *test-sequence*
   '(10 5 15 0 1 2 3 100 101 -3 1 2 3))
+
+(define-test do-walk
+  (let (evaluated-p)
+    (do-walk (var *test-sequence* (setf evaluated-p t))
+      (declare (ignore var))
+      (return))
+    (ok (not evaluated-p)
+        "do-walk doesn't evaluate result form when early returning"))
+  (is (do-walk (var nil (* 1 2 3)) (declare (ignore var)))
+      6
+      "do-walk evaluates result form on normal completion")
+  (let ((sequence *test-sequence*))
+    (do-walk (value sequence (pass "do-walk produced expected values"))
+      (unless (eq value (pop sequence))
+        (return (fail "do-walk produced an unexpected value"))))))
+
+(define-test pour-from
+  (is (fset:compare (pour-from *test-sequence* (fset:empty-seq))
+                    (fset:convert 'fset:seq *test-sequence*))
+      :equal
+      "Pouring into a seq works")
+  (is (fset:compare (pour-from *test-sequence* (fset:empty-set))
+                    (fset:convert 'fset:set *test-sequence*))
+      :equal
+      "Pouring into a set works")
+  (ok (equal (reverse (pour-from *test-sequence* nil))
+             *test-sequence*)
+      "Pouring into a list works")
+  (is (fset:compare (pour-from (fset:empty-map) (fset:empty-bag))
+                    (fset:empty-bag))
+      :equal
+      "Pouring an empty sequence works"))
+
+(define-test concatenate-sequences
+  (is (fset:compare
+       (pour-from (concatenate-sequences '(1 2 3) (fset:empty-map) (fset:bag 3.5)
+                                         (fset:seq 4 5 6) (immutable-list 7 8 9))
+                  (fset:empty-seq))
+       (fset:seq 1 2 3 3.5 4 5 6 7 8 9))
+      :equal
+      "Concatenating some-sequences works")
+  (is (pour-from (concatenate-sequences nil nil nil (immutable-list)) nil)
+      nil
+      "Empty concatenated sequences work"))
+
+(define-test eager-map
+  (ok (equal (reverse (eager-map *test-sequence* (lambda (val) (* val 2)) nil))
+             (mapcar (lambda (val) (* val 2)) *test-sequence*))
+      "eager-map works on non-empty sequences")
+  (ok (null (eager-map nil (lambda (val) (* val 2)) nil))
+      "eager-map works on empty sequences"))
+
+(defun make-lazy-list (&rest values)
+  (lazy-sequence
+    (if values
+        (immutable-cons (car values) (make-lazy-list (cdr values)))
+        (empty-immutable-list))))
+
+(define-test lazy-map
+  (let* (values
+         (functions (list
+                     (lambda () (push 3 values) 3)
+                     (lambda () (push 2 values) 2)
+                     (lambda () (push 1 values) 1)))
+         (evals (lazy-map functions #'funcall))
+         (evals-original evals))
+    (ok (null values)
+        "lazy-map is lazy")
+    (ok (not (empty-p evals))
+        "lazy-map knows that its not empty")
+    (is (popf evals) 3
+        "lazy-map returns the expected value")
+    (ok (equal values '(3))
+        "lazy-map is lazy")
+    (is (popf evals) 2
+        "lazy-map returns the expected value")
+    (ok (equal values '(2 3))
+        "lazy-map is lazy")
+    (is (popf evals) 1
+        "lazy-map returns the expected value")
+    (ok (equal values '(1 2 3))
+        "lazy-map is lazy")
+    (ok (empty-p evals)
+        "lazy-map knows that its empty")
+    (do-walk (value evals-original)
+      (declare (ignore value)))
+    (ok (equal values '(1 2 3))
+        "lazy-map evaluates things only once")))
+
+(define-test lazy-filter
+  (let* (values
+         (input '(3 2 1 0))
+         (evals (lazy-filter input (lambda (val) (push val values) (evenp val))))
+         (evals-original evals))
+    (ok (null values)
+        "lazy-filter is lazy")
+    (ok (not (empty-p evals))
+        "lazy-filter knows that its not empty")
+    (is values '(2 3)
+        "lazy-filter is lazy")
+    (is (popf evals) 2
+        "lazy-filter returns the expected value")
+    (is values '(2 3)
+        "lazy-filter is lazy")
+    (is (popf evals) 0
+        "lazy-filter returns the expected value")
+    (ok (equal values '(0 1 2 3))
+        "lazy-filter is lazy")
+    (ok (empty-p evals)
+        "lazy-filter knows that its empty")
+    (do-walk (value evals-original)
+      (declare (ignore value)))
+    (ok (equal values '(0 1 2 3))
+        "lazy-filter evaluates things only once")))
+
+(define-test eager-filter
+  (is (reverse (eager-filter *test-sequence* #'evenp nil))
+      (remove-if-not #'evenp *test-sequence*)
+      "eager-filter works on non-empty sequences")
+  (ok (null (eager-filter nil #'evenp nil))
+      "eager-filter works on empty sequences"))
+
+(define-test flatten-sequence
+  (is (fset:compare
+       (pour-from (flatten-sequence (fset:set (fset:seq 1 2 3) (fset:seq 4 5 6))) (fset:empty-seq))
+       (fset:seq 1 2 3 4 5 6))
+      :equal
+      "Flattening sequences works"))
 
 (defun test-sequence (sequence-type sequence-order)
   (let ((sequence (empty-for-type sequence-type)))
