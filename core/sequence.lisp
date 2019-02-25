@@ -20,7 +20,7 @@
   (:import-from :fset)
   (:export
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
-   #:attachf #:popf #:do-walk #:lazy-map #:eager-map #:lazy-filter
+   #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
@@ -516,22 +516,32 @@ state with some other unit of code."
 
 ;;; Utilities
 
-(defmacro do-walk ((var walkable &optional result) &body body)
-  "Walk a walkable and bind each successive head to `var' before
-evaluating `body'.
+(defmacro do-while-popf ((var walkable-place &optional result) &body body &environment env)
+  "As long as `walkable-place' contains a non-empty walkable, this
+macro will pop an element off the walkable, bind it to `var', and evaluate
+`body'.
 
-This macro is the walkable version of `dolist'."
-  (let ((walk (gensym "WALK"))
-        (value (gensym "VALUE"))
-        (valid-p (gensym "VALID-P")))
-    `(let ((,walk (walk ,walkable)))
-       (loop
-         (multiple-value-bind (,value ,valid-p) (head ,walk)
-           (unless ,valid-p
-             (return ,result))
-           (setf ,walk (tail ,walk))
-           (let ((,var ,value))
-             ,@body))))))
+This macro is sort of like the walkable version of `dolist'.  However,
+in an effort to avoid retaining the head of the sequence, this macro
+is intentionally destructive.  That is, `walkable-place' will get
+modified each time this macro evaluates `body'."
+  ;; If we actually just used `popf' then we'd evaluate
+  ;; `walkable-place' every time through the loop.
+  (multiple-value-bind
+        (vars vals store-vars writer-form reader-form)
+      (get-setf-expansion walkable-place env)
+    (let ((bindings (mapcar 'list vars vals))
+          (value (gensym "VALUE"))
+          (valid-p (gensym "VALID-P")))
+      `(let ,bindings
+         (loop
+           (multiple-value-bind (,value ,valid-p) (head ,reader-form)
+             (unless ,valid-p
+               (return ,result))
+             (multiple-value-bind ,store-vars (tail ,reader-form)
+               ,writer-form)
+             (let ((,var ,value))
+               ,@body)))))))
 
 (defun lazy-map (walkable fn)
   "Create a lazy sequence that consists of `fn' applied to each
@@ -550,7 +560,7 @@ The result of the map operation is attached to `output-sequence'.
 
 If `fn' is the identity function then this is semantically equivalent
 to `pour-from'."
-  (do-walk (value walkable)
+  (do-while-popf (value walkable)
     (attachf output-sequence (funcall fn value)))
   output-sequence)
 
@@ -575,7 +585,7 @@ The result of the filter operation is attached to `output-sequence'.
 
 If `fn' always returns non-nil then this is semantically equivalent to
 `pour-from'."
-  (do-walk (value walkable)
+  (do-while-popf (value walkable)
     (when (funcall fn value)
       (attachf output-sequence value)))
   output-sequence)
@@ -588,7 +598,7 @@ Note: since sequences have inconsistent behaviors regarding where
 `attach' operates, this is NOT a generic way to convert one sequence
 type to another type.  For example, converting an `fset:seq' to an
 `immutable-list' will reverse the order of the elements!"
-  (do-walk (value source)
+  (do-while-popf (value source)
     (attachf sink value))
   sink)
 
@@ -599,10 +609,11 @@ type to another type.  For example, converting an `fset:seq' to an
   concatenated)
 
 (defmethod head ((concatenated concatenated))
-  (do-walk (sequence (concatenated-sequences concatenated))
-    (multiple-value-bind (value valid-p) (head sequence)
-      (when valid-p
-        (return-from head (values value valid-p)))))
+  (let ((sequences (concatenated-sequences concatenated)))
+    (do-while-popf (sequence sequences)
+      (multiple-value-bind (value valid-p) (head sequence)
+        (when valid-p
+          (return-from head (values value valid-p))))))
   (values nil nil))
 
 (defvar *empty-concatenated-sequence*
