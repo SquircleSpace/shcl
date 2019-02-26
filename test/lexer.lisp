@@ -15,6 +15,7 @@
 (defpackage :shcl/test/lexer
   (:use :common-lisp :prove :shcl/core/utility :shcl/core/lexer
         :shcl/core/dispatch-table :shcl/test/foundation)
+  (:import-from :shcl/core/sequence #:walkable-to-list)
   (:import-from :shcl/core/data #:define-data))
 (in-package :shcl/test/lexer)
 
@@ -23,10 +24,10 @@
 (link-package-to-system :shcl/core/lexer)
 
 (defun lexes-to-token-types (string &rest tokens)
-  (let ((real-tokens (tokens-in-string string)))
+  (let ((real-tokens (walkable-to-list (tokens-in-string string))))
     (unless (equal (length real-tokens) (length tokens))
       (return-from lexes-to-token-types nil))
-    (loop :for token :across real-tokens
+    (loop :for token :in real-tokens
      :for class :in tokens :do
      (unless (typep token class)
        (return-from lexes-to-token-types nil))))

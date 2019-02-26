@@ -192,7 +192,7 @@ where this form appears."
   (let ((table (typecase readtable
                  (symbol (symbol-value readtable))
                  (t readtable))))
-    `(parse-token-sequence ,(coerce (tokens-in-string string :readtable table) 'list))))
+    `(parse-token-sequence ,(walkable-to-list (tokens-in-string string :readtable table)))))
 
 (defun evaluate-shell-string (string &key (readtable *splice-table*))
   "At runtime, parse and execute the given shell command.
