@@ -18,6 +18,7 @@
    :shcl/core/expand
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/dispatch-table)
+  (:import-from :shcl/core/sequence #:walkable-to-list)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :shcl/core/command #:define-special-builtin)
   (:import-from :shcl/core/evaluate #:evaluation-form-iterator #:translate #:expansion-preparation-form)
@@ -31,6 +32,8 @@
    #:evaluate-constant-shell-string #:exit-failure #:check-result #:capture
    #:*splice-table*))
 (in-package :shcl/core/lisp-interpolation)
+
+(optimization-settings)
 
 (define-data lisp-form (a-word)
   ((form
@@ -164,19 +167,12 @@ It looks for an expression of the form
 #$ <shell expression> #$"
   (declare (ignore subchar arg))
   (let ((*proper-end-found* nil))
-    (let* ((raw-token-iter (token-iterator stream :readtable *interpolation-table*))
-           (token-iter
-            (make-computed-iterator
-              (when *proper-end-found*
-                (stop))
-              (multiple-value-bind (value more) (next raw-token-iter)
-                (if more
-                    (emit value)
-                    (stop)))))
-           (tokens (iterable-values token-iter)))
+    (let* ((raw-tokens (tokens-in-stream stream :readtable *interpolation-table*))
+           (tokens (walkable-to-list raw-tokens)))
+
       (unless *proper-end-found*
         (error "Expected #$ before EOF"))
-      `(parse-token-sequence ,(coerce tokens 'list)))))
+      `(parse-token-sequence ,tokens))))
 
 (defun enable-reader-syntax ()
   "Enable use of the #$ reader macro for reading shell commands."
