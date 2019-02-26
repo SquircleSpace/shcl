@@ -16,6 +16,8 @@
   (:use
    :common-lisp :shcl/core/utility :shcl/core/dispatch-table
    :shcl/core/iterator)
+  (:import-from :shcl/core/sequence
+   #:lazy-sequence #:immutable-cons #:empty-immutable-list #:do-while-popf)
   (:import-from :shcl/core/positional-stream
    #:make-position-record-from-positional-stream #:position-record)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander #:data-class)
@@ -54,7 +56,7 @@
 
    ;; Functions
    #:tokens-in-string #:tokens-in-stream #:token-iterator #:next-token
-   #:token-iterator-symbolic-readtable
+   #:token-iterator-symbolic-readtable #:tokens-in-stream-symbolic-readtable
 
    ;; Extensible reading
    #:lexer-context #:lexer-context-consume-p
@@ -619,10 +621,10 @@ some other command.  See `command-word-tokens' and
   (let ((out-stream (make-string-output-stream)))
     (format out-stream "$(")
     (let* ((echo-stream (make-echo-stream stream out-stream))
-           (token-iterator (token-iterator echo-stream :readtable (shell-lexer-context-readtable stream)))
+           (token-walkable (tokens-in-stream echo-stream :readtable (shell-lexer-context-readtable stream)))
            (tokens (make-extensible-vector)))
 
-      (do-iterator (token token-iterator)
+      (do-while-popf (token token-walkable)
         (when (typep token 'rparen)
           (return-from read-dollar-paren (make-instance 'command-word :tokens tokens :value (get-output-stream-string out-stream))))
         (vector-push-extend token tokens))
@@ -1023,20 +1025,35 @@ the tokens found in the stream."
         (stop))
       (emit token))))
 
+(defun tokens-in-stream-symbolic-readtable (stream readtable-sym)
+  "Given a stream and a symbol whose value is a readtable, return a
+lazy walkable that contains the tokens found in the stream.
+
+The value of `readtable-sym' will be re-read every time a new token is
+needed."
+  (lazy-sequence
+    (let ((token (next-token stream :readtable (symbol-value readtable-sym))))
+      (if (typep token 'eof)
+          (empty-immutable-list)
+          (immutable-cons token (tokens-in-stream-symbolic-readtable stream readtable-sym))))))
+
+(defun tokens-in-stream (stream &key (readtable (standard-shell-readtable)))
+  "Given a stream and a readtable, return a lazy walkable that
+produces the tokens found in the stream."
+  (lazy-sequence
+    (let ((token (next-token stream :readtable readtable)))
+      (if (typep token 'eof)
+          (empty-immutable-list)
+          (immutable-cons token (tokens-in-stream stream :readtable readtable))))))
+
 (defun tokens-in-string (string &key (readtable (standard-shell-readtable)))
-  "Return a vector containing the tokens present in the given string.
+  "Return a walkable containing the tokens present in the given string.
 
 See `next-token'."
   (tokens-in-stream
    (make-instance 'shcl/core/positional-stream:positional-input-stream
                   :underlying-stream (make-string-input-stream string))
    :readtable readtable))
-
-(defun tokens-in-stream (stream &key (readtable (standard-shell-readtable)))
-  "Return a vector containing the tokens present in the given stream.
-
-See `next-token'."
-  (iterable-values (token-iterator stream :readtable readtable)))
 
 (defgeneric lexer-context-first-consumed-character-position (context))
 
