@@ -15,6 +15,7 @@
 (defpackage :shcl/core/shell-form
   (:use :common-lisp :shcl/core/utility)
   (:import-from :shcl/core/iterator #:do-iterator #:iterator)
+  (:import-from :shcl/core/sequence #:walkable-to-list)
   (:import-from :shcl/core/shell-environment
    #:destroy-preserved-shell-environment #:preserve-shell-environment
    #:with-restored-shell-environment #:with-subshell)
@@ -333,6 +334,7 @@ The values produced by the iterator should be strings."
          ,result))))
 
 (defun %run (arguments modify-environment)
+  (setf arguments (walkable-to-list arguments))
   (if arguments
       (apply 'invoke-command (lookup-command (car arguments)) modify-environment arguments)
       (with-fd-scope ()

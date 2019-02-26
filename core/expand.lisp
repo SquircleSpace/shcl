@@ -15,7 +15,7 @@
 (defpackage :shcl/core/expand
   (:use
    :common-lisp :shcl/core/utility :shcl/core/lexer
-   :shcl/core/working-directory :shcl/core/iterator)
+   :shcl/core/working-directory)
   (:import-from :fset)
   (:import-from :cl-ppcre #:create-scanner #:scan)
   (:import-from :cffi #:foreign-string-to-lisp #:foreign-slot-pointer #:null-pointer-p)
@@ -25,6 +25,7 @@
   (:import-from :shcl/core/exit-info #:exit-info)
   (:import-from :shcl/core/environment #:env #:$ifs #:$home)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
+  (:import-from :shcl/core/sequence #:walk #:do-while-popf #:concatenate-sequences #:eager-flatmap-sequence #:eager-map #:flatten-sequence #:head #:tail #:empty-p #:concatenate-sequences #:attachf)
   (:export
    #:expansion-for-words #:set-alias #:unalias #:expand #:make-string-fragment
    #:string-fragment-string #:string-fragment-quoted-p
@@ -223,7 +224,7 @@ environment.
 (defun expand-aliases (tokens)
   "Perform alias expansion on the given token sequence and return an
 iterable sequence of alternate tokens."
-  (let* ((remaining (iterable-values tokens 'fset:seq))
+  (let* ((remaining tokens)
          (*aliases* *aliases*))
     (labels
         ((finish ()
@@ -233,9 +234,9 @@ iterable sequence of alternate tokens."
              (return-from alias-for))
            (fset:lookup *aliases* string))
          (next-word ()
-           (alias-name (fset:first remaining))))
+           (alias-name (head remaining))))
       (loop
-         (when (zerop (fset:size remaining))
+         (when (empty-p remaining)
            (finish))
 
          (let* ((next-word (next-word))
@@ -245,10 +246,10 @@ iterable sequence of alternate tokens."
 
            (setf *aliases* (fset:less *aliases* next-word))
 
-           (let ((less-first (fset:less-first remaining)))
+           (let ((less-first (tail remaining)))
              (when (alias-continue-expansion alias)
                (setf less-first (expand-aliases less-first)))
-             (setf remaining (fset:concat (alias-words alias) less-first))))))))
+             (setf remaining (concatenate-sequences (alias-words alias) less-first))))))))
 
 (defun ensure-exit-info-seq (value)
   (etypecase value
@@ -264,7 +265,7 @@ iterable sequence of alternate tokens."
 and collect the results."
   (let ((result (fset:empty-seq))
         (exit-infos (fset:empty-seq)))
-    (do-sequence (token token-sequence)
+    (do-while-popf (token token-sequence)
       (multiple-value-bind (value exit-info) (expand-token token)
         (fset:appendf result value)
         (fset:appendf exit-infos exit-info)))
@@ -305,14 +306,15 @@ sequence of string fragments represents a word."
 
 (defun run-expansion-pipeline (things pipeline)
   (let ((last-result things)
-        (exit-infos (make-extensible-vector)))
-    (do-sequence (fn pipeline)
+        (exit-infos (fset:empty-seq))
+        (pipeline (walk pipeline)))
+    (do-while-popf (fn pipeline)
       (multiple-value-bind
             (this-result this-exit-infos)
           (funcall fn last-result)
         (setf last-result this-result)
-        (vector-push-extend this-exit-infos exit-infos)))
-    (values last-result (concatenate-iterable-collection exit-infos))))
+        (attachf exit-infos this-exit-infos)))
+    (values last-result (flatten-sequence exit-infos))))
 
 (defun compute-expansion-pipeline (&key start-at end-at
                                      (expand-aliases t)
@@ -456,7 +458,7 @@ represents the empty file name."
                          (new-fragment (shcl/core/data:clone fragment :string new-string)))
                     (consume-fragment new-fragment))))))))
 
-      (do-sequence (fragment fragments)
+      (do-while-popf (fragment fragments)
         (consume-fragment fragment))
       (fset:push-last result part)
       result)))
@@ -740,15 +742,14 @@ expansion on it.  Tilde expansion is the process of replacing an
 unquoted #\~ character with the user's home directory.  If the tilde
 is followed by a username, that user's home directory will be used
 instead."
-  (sequence-map fragment-seqs 'expand-tilde))
+  (eager-map fragment-seqs 'expand-tilde (fset:empty-seq)))
 
 (defun expand-tilde (fragments)
   "Attempt to expand leading ~s in the given sequence of string
 fragments."
-  (setf fragments (forkable-wrapper-iterator (iterator fragments)))
-  (let ((untouched-fragments (fork fragments))
+  (let ((untouched-fragments (walk fragments))
         tilde-seen)
-    (do-sequence (fragment untouched-fragments)
+    (do-while-popf (fragment untouched-fragments)
         (unless (string-fragment-literal-p fragment)
           (return-from expand-tilde fragments))
         (loop :with string = (string-fragment-string fragment)
@@ -768,7 +769,7 @@ fragments."
                                              :displaced-index-offset index))
                      (new-fragment (shcl/core/data:clone fragment :string new-string)))
                 (return-from expand-tilde
-                  (concatenate-iterables
+                  (concatenate-sequences
                    (list (make-string-fragment $home :quoted-p t) new-fragment)
                    untouched-fragments))))
 
@@ -778,7 +779,7 @@ fragments."
              (t
               (return-from expand-tilde fragments)))))
     (if tilde-seen
-        (list-iterator (list (make-string-fragment $home :quoted-p t)))
+        (list (make-string-fragment $home :quoted-p t))
         fragments)))
 
 (defvar *error-on-failed-glob* nil
@@ -796,7 +797,7 @@ variable is non-nil, then a glob failure aborts the command.")
 (defun expand-pathname-words (fragment-seqs)
   "Given a sequence of fragment sequences, this function expands
 wildcarded path components in the fragment sequences."
-  (concatmapped-iterator fragment-seqs 'expand-pathname))
+  (eager-flatmap-sequence fragment-seqs 'expand-pathname (fset:empty-seq)))
 
 (defun expand-pathname (fragments)
   "Perform path-related expansions on the given word (which is
@@ -804,7 +805,6 @@ represented as a sequence of string fragments).
 
 Returns a sequence of expansions.  Each expansion is represented as a
 sequence of string fragments."
-  (setf fragments (iterable-values fragments))
   (let ((wild-path (make-wild-path-from-fragments fragments)))
     (or (when (wild-path-wild-p wild-path)
           (expand-wild-path wild-path))
@@ -815,12 +815,12 @@ sequence of string fragments."
 (defun concatenate-fragmented-words (word-fragment-sequences)
   "Given a sequence of fragment sequences, this function joins the
 fragment sequences and returns a sequence of words."
-  (mapped-iterator word-fragment-sequences 'concatenate-fragments))
+  (eager-map word-fragment-sequences 'concatenate-fragments (fset:empty-seq)))
 
 (defun concatenate-fragments (fragments)
   "Concatenate the given string fragments into a normal string."
   (let ((stream (make-string-output-stream)))
-    (do-sequence (f fragments)
+    (do-while-popf (f fragments)
       (write-string (string-fragment-string f) stream))
     (get-output-stream-string stream)))
 

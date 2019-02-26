@@ -22,6 +22,7 @@
   (:import-from :shcl/core/shell-form
    #:shell-pipeline #:shell-not #:& #:shell-not #:with-subshell #:shell-if
    #:shell-while #:shell-for #:shell-run #:shell-and #:shell-or)
+  (:import-from :shcl/core/sequence #:head #:do-while-popf)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluation-form-iterator #:translate #:expansion-preparation-form))
@@ -88,17 +89,12 @@ given iterator."
   (mapped-iterator command-iterator 'translate))
 
 (defun expansion-form-for-tokens (tokens &key expand-aliases expand-pathname-words split-fields)
-  (let ((prepared (mapcar 'expansion-preparation-form tokens))
-        (words (gensym "WORDS"))
-        (exit-infos (gensym "EXIT-INFOS")))
+  (let ((prepared (mapcar 'expansion-preparation-form tokens)))
     `(with-fd-streams ()
-       (multiple-value-bind (,words ,exit-infos)
-           (expansion-for-words (list ,@prepared)
-                                :expand-aliases ,(not (not expand-aliases))
-                                :expand-pathname-words ,(not (not expand-pathname-words))
-                                :split-fields ,(not (not split-fields)))
-         (values (iterable-values ,words)
-                 (iterable-values ,exit-infos))))))
+       (expansion-for-words (list ,@prepared)
+                            :expand-aliases ,(not (not expand-aliases))
+                            :expand-pathname-words ,(not (not expand-pathname-words))
+                            :split-fields ,(not (not split-fields))))))
 
 (defparameter *umask*
   (logior s-irusr s-iwusr s-irgrp s-iroth)
@@ -431,6 +427,12 @@ and io redirects."
 
       (values (nreverse assignments) (nreverse arguments) (nreverse redirects)))))
 
+(defun final (walkable)
+  (let (result)
+    (do-while-popf (value walkable)
+      (setf result value))
+    result))
+
 (defun translate-assignment (assignment)
   (let ((result-words (gensym "RESULT-WORDS"))
         (result-exit-infos (gensym "RESULT-EXIT-INFOS")))
@@ -439,14 +441,12 @@ and io redirects."
            ,(expansion-form-for-tokens (list (assignment-word-value-word assignment))
                                        :expand-pathname-words t
                                        :split-fields nil)
-         (values (unless (zerop (length ,result-words))
-                   (aref ,result-words 0))
-                 (unless (zerop (length ,result-exit-infos))
-                   (aref ,result-exit-infos (1- (length ,result-exit-infos)))))))))
+         (values (head ,result-words)
+                 (final ,result-exit-infos))))))
 
 (defmethod translate ((sy simple-command))
   (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
     (let* ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
            (assignments (mapcar 'translate-assignment raw-assignments))
-           (arguments `(coerce ,(expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname-words t) 'list)))
+           (arguments (expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname-words t)))
       `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects))))
