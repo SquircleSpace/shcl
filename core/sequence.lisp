@@ -15,14 +15,14 @@
 (defpackage :shcl/core/sequence
   (:use :common-lisp)
   (:import-from :shcl/core/utility #:required #:optimization-settings)
-  (:import-from :shcl/core/iterator #:iterator #:next)
+  (:import-from :shcl/core/iterator #:iterator #:next #:builder-for-type)
   (:import-from :bordeaux-threads #:make-lock #:with-lock-held)
   (:import-from :fset)
   (:export
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
-   #:eager-flatmap-sequence
+   #:eager-flatmap-sequence #:walkable-to-list
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:walk-iterator))
@@ -694,3 +694,16 @@ the intermediate sequences returned by `eager-map' and
       (do-while-popf (inner-value inner-sequence)
         (attachf output-sequence inner-value))))
   output-sequence)
+
+(defun walkable-to-list (walkable)
+  "Convert the given walkable sequence into a list.
+
+Let's face it.  Some things just want lists.  This gives you a proper
+list."
+  (when (typep walkable 'list)
+    (return-from walkable-to-list walkable))
+  (let ((builder (builder-for-type 'list))
+        result)
+    (do-while-popf (value walkable)
+      (setf result (funcall builder value)))
+    result))
