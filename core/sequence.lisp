@@ -22,6 +22,7 @@
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
+   #:eager-flatmap-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:walk-iterator))
@@ -675,3 +676,21 @@ This function is just a trivial wrapper around `flatten-sequence'."
   "Return a walkable that traverses the sequences contained within
 `sequence-of-sequences'."
   (make-concatenated :sequences sequence-of-sequences))
+
+(defun eager-flatmap-sequence (walkable fn output-sequence)
+  "Apply `fn' to each element in `walkable' and then `attachf' each
+element in the returned sequence to `output-sequence'.
+
+After attaching the values to `output-sequence', this function returns
+the resulting value of `output-sequence'.
+
+This function is semantically equivalent to the following.
+    (pour-from (flatten-sequence (eager-map walkable fn nil)) output-sequence)
+However, unlike the above snippet this function will avoid creating
+the intermediate sequences returned by `eager-map' and
+`flatten-sequence'."
+  (do-while-popf (value walkable)
+    (let ((inner-sequence (funcall fn value)))
+      (do-while-popf (inner-value inner-sequence)
+        (attachf output-sequence inner-value))))
+  output-sequence)
