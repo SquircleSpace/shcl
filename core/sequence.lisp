@@ -389,8 +389,36 @@ state with some other unit of code."
 
 ;;; vector
 
+(defstruct vector-walkable
+  vector
+  offset)
+
 (defmethod walk ((vector vector))
-  (walk-iterator (iterator vector)))
+  (if (zerop (length vector))
+      (make-vector-walkable)
+      (make-vector-walkable :vector vector :offset 0)))
+
+(defmethod walk ((vector-walkable vector-walkable))
+  vector-walkable)
+
+(defmethod head ((vector-walkable vector-walkable))
+  (if (vector-walkable-vector vector-walkable)
+      (values (aref (vector-walkable-vector vector-walkable)
+                    (vector-walkable-offset vector-walkable))
+              t)
+      (values nil nil)))
+
+(defmethod tail ((vector-walkable vector-walkable))
+  (unless (vector-walkable-vector vector-walkable)
+    (return-from tail vector-walkable))
+  (if (>= (1+ (vector-walkable-offset vector-walkable))
+          (length (vector-walkable-vector vector-walkable)))
+      (make-vector-walkable)
+      (make-vector-walkable :vector (vector-walkable-vector vector-walkable)
+                            :offset (1+ (vector-walkable-offset vector-walkable)))))
+
+(defmethod empty-p ((vector-walkable vector-walkable))
+  (null (vector-walkable-vector vector-walkable)))
 
 ;;; fset:seq
 

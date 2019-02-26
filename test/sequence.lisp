@@ -286,3 +286,17 @@
         "Lazy sequence still acts like the underlying sequence")
     (ok evaluated-p
         "Lazy sequences are evaluated when necessary")))
+
+(define-test shcl/core/sequence::vector-walkable
+  (let ((sequence *test-sequence*)
+        (walkable (walk (coerce *test-sequence* 'vector))))
+    (do-while-popf (value walkable (pass "Walking a non-empty vector worked correctly"))
+      (unless (eq (pop sequence) value)
+        (return (fail "walking a vector produced an unexpected value")))))
+  (ok (empty-p (walk #()))
+      "Empty vectors are empty")
+  (is (multiple-value-list (head (walk #())))
+      '(nil nil)
+      "head on an empty vector returns expected values")
+  (ok (not (empty-p (walk #(1))))
+      "Non-empty vectors are not empty"))
