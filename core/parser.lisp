@@ -48,10 +48,6 @@
 
 See `define-nonterminal'."))
 
-(defmethod make-load-form ((sy syntax-tree) &optional environment)
-  (let ((slots (mapcar 'closer-mop:slot-definition-name (closer-mop:class-slots (class-of sy)))))
-    (make-load-form-saving-slots sy :slot-names slots :environment environment)))
-
 (defmethod print-object ((st syntax-tree) stream)
   (print-unreadable-object (st stream :type t :identity nil)))
 
