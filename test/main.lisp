@@ -39,7 +39,15 @@
 
 (shcl/core/command:define-builtin -shcl-run-tests (&flag (color "--no-color" "--color")
                                                          &option package)
-  "Run unit tests."
+  "Run unit tests!
+
+-shcl-run-tests [--color | --no-color] [--package <PACKAGE>]
+
+This command runs the unit tests defined in the named test
+packages (e.g. SHCL/TEST/SEQUENCE).
+
+If no packages are specified then this command runs all registered
+unit tests."
   (with-subshell
     (let ((prove:*enable-colors* (and (not (zerop (length color)))
                                       (equal "--color"
