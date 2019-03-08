@@ -14,19 +14,21 @@
 
 (defpackage :shcl/shell/complete
   (:use :common-lisp :shcl/core/utility :shcl/core/iterator)
+  (:import-from :shcl/core/sequence
+   #:attachf #:empty-p #:concatenate-sequences #:eager-flatmap-sequence
+   #:do-while-popf #:eager-map #:eager-filter #:flatten-sequence #:walk)
   (:import-from :shcl/core/advice #:define-advice)
   (:import-from :shcl/core/shell-grammar
-   #:parse-simple-command #:parse-simple-command-word #:command-iterator
-   #:*intermediate-parse-error-hook*)
-  (:import-from :shcl/core/data #:clone #:define-data)
+   #:parse-simple-command #:parse-simple-command-word #:command-iterator)
+  (:import-from :shcl/core/data #:clone #:define-data #:define-cloning-setf-expander #:clone)
   (:import-from :shcl/core/lexer
    #:reserved-word #:literal-token-class #:literal-token-string #:token-value
    #:simple-word #:simple-word-text #:token-iterator #:token-position)
-  (:import-from :shcl/core/parser
-   #:unexpected-eof #:unexpected-eof-expected-type #:type-mismatch
-   #:type-mismatch-expected-type #:parser-bind #:parser-error #:parser-value
-   #:expected-eof #:expected-eof-got #:type-mismatch-got #:choice
-   #:choice-errors-iterator #:parse-failure #:parse-failure-error-object)
+  (:import-from :shcl/core/parser-2
+   #:unexpected-eof #:unexpected-eof-expected-type #:type-mismatch #:parser-try #:parser-var-let*
+   #:type-mismatch-expected-type #:expected-eof #:expected-eof-got #:type-mismatch-got #:choice
+   #:choice-errors #:parse-failure #:parse-failure-error-object #:parser-var
+   #:parser-error-vars)
   (:import-from :shcl/core/fd-table
    #:receive-ref-counted-fd #:retained-fd-openat #:fd-wrapper-value
    #:with-dir-ptr-for-fd)
@@ -74,74 +76,38 @@
 
 (defvar *collect-tab-complete-info* nil)
 
-(defvar *command-words* nil)
-
 (define-advice parse-simple-command
     :around tab-complete
-    (iter)
-  (declare (ignore iter))
+    ()
   (unless *collect-tab-complete-info*
     (return-from parse-simple-command
       (call-next-method)))
 
-  (let ((*command-words* (fset:empty-seq)))
+  (parser-var-let*
+      ((parsed-simple-command-words (fset:empty-seq)))
     (call-next-method)))
 
-(deftype command-word (real-type)
-  real-type)
-
-(defmethod expand-compound-type ((type-car (eql 'command-word)) type unique-table)
-  (destructuring-bind (type-car type) type
-    (declare (ignore type-car))
-    (let ((class (etypecase type
-                   (symbol (find-class type))
-                   (standard-class type))))
-
-      (unless (eq class (find-class 'reserved-word))
-        (concatenate-iterables
-         (list class)
-         (concatmapped-iterator
-          (class-direct-subclasses class)
-          (lambda (subclass)
-            (expand-type `(command-word ,subclass) unique-table))))))))
-
-(defgeneric wrap-expected-type (error-object))
-
-(defmethod wrap-expected-type ((err unexpected-eof))
-  (clone err :expected-type `(command-word ,(unexpected-eof-expected-type err))))
-
-(defmethod wrap-expected-type ((err type-mismatch))
-  (clone err :expected-type `(command-word ,(type-mismatch-expected-type err))))
+(defmethod expand-type ((class standard-class) unique-table)
+  (unless (eq class (find-class 'reserved-word))
+    (concatenate-sequences
+     (list class)
+     (eager-flatmap-sequence
+      (class-direct-subclasses class)
+      (lambda (subclass)
+        (expand-type subclass unique-table))
+      (fset:empty-seq)))))
 
 (define-advice parse-simple-command-word
     :around tab-complete
-    (iter)
-  (declare (ignore iter))
+    ()
   (unless *collect-tab-complete-info*
     (return-from parse-simple-command-word
       (call-next-method)))
 
-  (assert *command-words*)
-  (parser-bind (value error-p) (call-next-method)
-    (cond
-      (error-p
-       (parser-error (wrap-expected-type value)))
-      (t
-       (fset:push-last *command-words* value)
-       (parser-value value)))))
-
-(defvar *empty-iterator*
-  (make-computed-iterator
-    (stop)))
-
-(defun iterator-without-duplicates (iter)
-  (let ((seen-values (make-hash-table :test 'equal)))
-    (filtered-iterator
-     iter
-     (lambda (obj)
-       (unless (gethash obj seen-values)
-         (setf (gethash obj seen-values) t)
-         t)))))
+  (assert (parser-var 'parsed-simple-command-words))
+  (let ((return-values (multiple-value-list (call-next-method))))
+    (attachf (parser-var 'parsed-simple-command-words) (car return-values))
+    (values-list return-values)))
 
 (defgeneric parse-error-involves-sigil-token-p (err sigil-token))
 
@@ -154,7 +120,7 @@
   (eq sigil-token (expected-eof-got err)))
 
 (defmethod parse-error-expected-types ((err expected-eof))
-  (list :eof))
+  nil)
 
 (defmethod parse-error-involves-sigil-token-p ((err type-mismatch) sigil-token)
   (eq sigil-token (type-mismatch-got err)))
@@ -163,9 +129,10 @@
   (list (type-mismatch-expected-type err)))
 
 (defmethod parse-error-expected-types ((err choice))
-  (concatmapped-iterator
-   (choice-errors-iterator err :recursive-p t)
-   'parse-error-expected-types))
+  (eager-flatmap-sequence
+   (choice-errors err)
+   'parse-error-expected-types
+   (fset:empty-seq)))
 
 (define-data completion-context ()
   ((cursor-point
@@ -181,21 +148,22 @@
     :initarg :token-range
     :initform (required))))
 
-(defgeneric completion-suggestions (desired-token-type token-fragment context)
-  (:method-combination concatenate-iterables))
+(defgeneric completion-suggestions (desired-token-type token-fragment context parser-vars)
+  (:method-combination concatenate-sequences))
 
-(defmethod completion-suggestions concatenate-iterables
-    (desired-token-type token-fragment context)
-  (declare (ignore desired-token-type token-fragment context))
-  *empty-iterator*)
+(defmethod completion-suggestions concatenate-sequences
+    (desired-token-type token-fragment context parser-vars)
+  (declare (ignore desired-token-type token-fragment context parser-vars))
+  nil)
 
-(defmethod completion-suggestions concatenate-iterables
-    ((desired literal-token-class) token context)
+(defmethod completion-suggestions concatenate-sequences
+    ((desired literal-token-class) token context parser-vars)
+  (declare (ignore parser-vars))
   (let ((desired-string (literal-token-string desired))
         (token-value (token-value token)))
     (if (sequence-starts-with-p desired-string token-value)
-        (list-iterator (list (make-simple-completion-suggestion desired-string context)))
-        *empty-iterator*)))
+        (list (make-simple-completion-suggestion desired-string context))
+        nil)))
 
 (defun directory-p (at-fd path)
   (handler-case
@@ -228,7 +196,7 @@
                ,@body)))))))
 
 (defun executables-in-directory (path)
-  (let ((result (make-extensible-vector)))
+  (let ((result (fset:empty-seq)))
     (labels
         ((retained-fd-open-dir ()
            (handler-case
@@ -240,32 +208,35 @@
       (receive-ref-counted-fd
           (dir-fd (retained-fd-open-dir))
         (do-executables-in-dir-fd (executable-name dir-fd)
-          (vector-push-extend executable-name result))))
+          (attachf result executable-name))))
     result))
 
 (defun all-binary-commands ()
-  (let ((result-vector (make-extensible-vector)))
+  (let ((result (fset:empty-seq)))
     (do-iterator (path (colon-list-iterator $path))
       (when (equal "" path)
         ;; POSIX says we need to do this...
         (setf path "."))
-      (vector-push-extend (executables-in-directory path) result-vector))
-    (concatenate-iterable-collection result-vector)))
+      (attachf result (executables-in-directory path)))
+    (flatten-sequence result)))
 
-(defmethod completion-suggestions concatenate-iterables
+(defmethod completion-suggestions concatenate-sequences
     ((desired (eql (find-class 'simple-word)))
      (token simple-word)
-     context)
-  (unless *command-words*
-    (return-from completion-suggestions))
+     context
+     parser-vars)
+  (multiple-value-bind (command-words valid-p) (fset:lookup parser-vars 'parsed-simple-command-words)
+    (unless valid-p
+      (return-from completion-suggestions))
 
-  (when (equal 0 (fset:size *command-words*))
-    (labels
-        ((compatible-p (command)
-           (sequence-starts-with-p command (simple-word-text token))))
-      (mapped-iterator (filtered-iterator (all-binary-commands) #'compatible-p)
-                       (lambda (str)
-                         (make-simple-completion-suggestion str context))))))
+    (when (empty-p command-words)
+      (labels
+          ((compatible-p (command)
+             (sequence-starts-with-p command (simple-word-text token))))
+        (eager-map (eager-filter (all-binary-commands) #'compatible-p (fset:empty-seq))
+                   (lambda (str)
+                     (make-simple-completion-suggestion str context))
+                   (fset:empty-seq))))))
 
 (defvar *empty-token* (make-instance 'simple-word :text ""))
 
@@ -288,16 +259,8 @@
         (expand-type class unique-table)
         (call-next-method))))
 
-(defmethod expand-type ((type standard-class) unique-table)
-  (concatenate-iterables
-   (list type)
-   (concatmapped-iterator
-    (class-direct-subclasses type)
-    (lambda (subclass)
-      (expand-type subclass unique-table)))))
-
 (defmethod expand-compound-type ((type-car (eql 'or)) type-cdr unique-table)
-  (concatmapped-iterator type-cdr (lambda (type) (expand-type type unique-table))))
+  (eager-flatmap-sequence type-cdr (lambda (type) (expand-type type unique-table)) (fset:empty-seq)))
 
 (defclass sigil-token ()
   ())
@@ -337,30 +300,25 @@
                              (concatenate-iterables
                               leading-tokens
                               (list sigil-token)))))
-         (*intermediate-parse-error-hook* *intermediate-parse-error-hook*)
-         (seen-errors (make-hash-table :test 'eq))
          (suggestions (fset:empty-set)))
     (labels
         ((add-error (err)
-           (when (and (parse-error-involves-sigil-token-p err sigil-token)
-                      (not (nth-value 1 (gethash err seen-errors))))
-             (setf (gethash err seen-errors) t)
+           (when (typep err 'choice)
+             (let ((errors (choice-errors err)))
+               (do-while-popf (other-err errors)
+                 (add-error other-err)))
+             (return-from add-error))
+
+           (when (parse-error-involves-sigil-token-p err sigil-token)
              (let* ((expected-types (parse-error-expected-types err))
-                    (all-expected-types (concatmapped-iterator expected-types (type-expander)))
+                    (all-expected-types (eager-flatmap-sequence expected-types (type-expander) (fset:empty-seq)))
                     (suggestion-producer (lambda (type)
-                                           (completion-suggestions type token-to-complete context)))
-                    (err-suggestions (concatmapped-iterator all-expected-types suggestion-producer)))
-               ;; Consume suggestions eagerly so they are computed in
-               ;; the dynamic context where the error was produced
-               (do-iterator (suggestion err-suggestions)
-                 (fset:adjoinf suggestions suggestion))))))
-      (add-hook '*intermediate-parse-error-hook* #'add-error)
+                                           (completion-suggestions type token-to-complete context (parser-error-vars err)))))
+               (setf suggestions (eager-flatmap-sequence all-expected-types suggestion-producer suggestions))))))
       (handler-case
           (do-iterator (command command-iterator)
             (declare (ignore command)))
         (parse-failure (err)
-          ;; This really should have already been handled, but just in
-          ;; case...
           (add-error (parse-failure-error-object err))))
       (iterator suggestions))))
 

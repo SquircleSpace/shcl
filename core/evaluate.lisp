@@ -22,7 +22,8 @@
   (:import-from :shcl/core/shell-form
    #:shell-pipeline #:shell-not #:& #:shell-not #:with-subshell #:shell-if
    #:shell-while #:shell-for #:shell-run #:shell-and #:shell-or)
-  (:import-from :shcl/core/sequence #:head #:do-while-popf)
+  (:import-from :shcl/core/sequence
+   #:head #:do-while-popf #:tail #:empty-p #:walkable-to-list #:walk)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluation-form-iterator #:translate #:expansion-preparation-form))
@@ -47,7 +48,7 @@ the token appeared."))
 
 (defmethod expansion-preparation-form ((token compound-word))
   (let* ((value (gensym "VALUE"))
-         (parts (coerce (compound-word-parts token) 'list))
+         (parts (walkable-to-list (walk (compound-word-parts token))))
          (new-parts-forms (mapcar 'expansion-preparation-form parts)))
     (cond
       ((equal new-parts-forms parts)
@@ -222,7 +223,7 @@ for the given redirect."))
         ((filename-expansion-form ()
            (let ((expansion (gensym "EXPANSION")))
              `(let ((,expansion ,(expansion-form-for-tokens (list filename) :expand-pathname-words t :split-fields nil)))
-                (unless (equal 1 (length ,expansion))
+                (unless (and (not (empty-p ,expansion)) (empty-p (tail ,expansion)))
                   (error 'not-implemented :feature "file name expanding to multiple words"))
                 (aref ,expansion 0))))
          (file-source-form ()
@@ -285,7 +286,7 @@ for the given redirect."))
   (with-slots (term-sequence) sy
     (return-from translate
       `(with-subshell
-        ,@(bodyify (apply 'progn-concatenate (map 'list 'translate term-sequence)))))))
+        ,@(bodyify (apply 'progn-concatenate (mapcar 'translate (walkable-to-list term-sequence))))))))
 
 (defmethod translate ((sy term))
   (with-slots (and-or separator) sy
@@ -306,7 +307,7 @@ for the given redirect."))
 (defmethod translate ((sy compound-list))
   (with-slots (term-sequence) sy
     (return-from translate
-      (apply 'progn-concatenate (map 'list 'translate term-sequence)))))
+      (apply 'progn-concatenate (mapcar 'translate (walkable-to-list term-sequence))))))
 
 (defmethod translate ((sy while-clause))
   (with-slots (condition body) sy
@@ -325,11 +326,11 @@ for the given redirect."))
            (cond
              ((or (not for-clause-range)
                   (not (slot-boundp for-clause-range 'in-nt)))
-              `#(,(make-instance 'double-quote :parts `#(,(make-instance 'variable-expansion-word :variable "@")))))
+              `(,(make-instance 'double-quote :parts `#(,(make-instance 'variable-expansion-word :variable "@")))))
 
              (t
               (slot-value for-clause-range 'words)))))
-      `(shell-for (,name ,(expansion-form-for-tokens (coerce words 'list)
+      `(shell-for (,name ,(expansion-form-for-tokens (walkable-to-list words)
                                                      :expand-pathname-words t))
          ,@(bodyify (translate body))))))
 
@@ -446,7 +447,7 @@ and io redirects."
 
 (defmethod translate ((sy simple-command))
   (multiple-value-bind (raw-assignments raw-arguments raw-redirects) (simple-command-parts sy)
-    (let* ((redirects (mapcar 'translate-io-source-to-fd-binding raw-redirects))
-           (assignments (mapcar 'translate-assignment raw-assignments))
+    (let* ((redirects (mapcar 'translate-io-source-to-fd-binding (walkable-to-list raw-redirects)))
+           (assignments (mapcar 'translate-assignment (walkable-to-list raw-assignments)))
            (arguments (expansion-form-for-tokens raw-arguments :expand-aliases t :expand-pathname-words t)))
       `(shell-run ,arguments :environment-changes ,assignments :fd-changes ,redirects))))

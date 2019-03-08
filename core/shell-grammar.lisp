@@ -14,11 +14,18 @@
 
 (defpackage :shcl/core/shell-grammar
   (:use
-   :common-lisp :shcl/core/parser :shcl/core/lexer :shcl/core/utility
-   :shcl/core/iterator)
+   :common-lisp :shcl/core/lexer :shcl/core/utility)
+  (:import-from :shcl/core/parser-2
+   #:define-terminal #:define-nonterminal #:define-nonterminal-class
+   #:parser-choice #:parser-lookahead #:parser-try #:parser-repeat-until
+   #:parser-repeat-times #:parse-eof #:parse-with-sequence)
+  (:import-from :shcl/core/sequence
+   #:attachf #:walk #:lazy-sequence #:empty-immutable-list #:immutable-cons
+   #:pour-from #:popf)
+  (:import-from :shcl/core/iterator)
   (:import-from :shcl/core/advice #:define-advice #:define-advisable)
   (:export
-   #:command-iterator #:*intermediate-parse-error-hook*
+   #:commands-for-tokens #:command-iterator
    ;; nonterminals
    #:complete-command #:command-list #:and-or #:and-or-tail :pipeline
    #:pipe-sequence #:pipe-sequence-tail #:command
@@ -56,85 +63,46 @@
   clobber if-word then else elif fi do-word done case-word esac while until
   for lbrace rbrace bang in semi par pipe lparen rparen great less)
 
-(define-hook *intermediate-parse-error-hook*
-    "This hook is run when a parse error is detected in a nonterminal of
-the shell grammar.
-
-Each function will receive one argument: the error produced.  Note
-that these errors do not represent fatal parse errors.  They simply
-represent times when the parser chose a bad branch.")
-
-(defun error-hook (error)
-  (run-hook '*intermediate-parse-error-hook* error))
-
-(define-hook *intermediate-parse-value-hook*)
-
-(defun value-hook (value)
-  (run-hook '*intermediate-parse-value-hook* value))
-
-(defmacro hooked (&body body)
-  `(parser-bind (value error-p) (progn ,@body)
-                (cond
-                  (error-p
-                   (error-hook value)
-                   (parser-error value))
-                  (t
-                   (value-hook value)
-                   (parser-value value)))))
-
-(defmacro hooked-parser-choice (iter &body choices)
-  (if choices
-      `(parser-choice ,iter
-        ,@(mapcar (lambda (choice) `(hooked ,choice)) choices))
-      `(hooked (parser-choice ,iter))))
-
-(defmacro define-hooked-nonterminal (name-and-options &body clauses)
-  (when (symbolp name-and-options)
-    (setf name-and-options (list name-and-options)))
-  (setf name-and-options
-        `(,@name-and-options :parser-choice hooked-parser-choice))
-  `(define-nonterminal ,name-and-options ,@clauses))
-
-(define-hooked-nonterminal start
+(define-nonterminal start
   parse-eof
   parse-complete-command)
 
-(define-hooked-nonterminal complete-command
+(define-nonterminal complete-command
   (newline-list &optional complete-command)
   (command-list command-end))
 
-(define-hooked-nonterminal command-end
+(define-nonterminal command-end
   parse-eof
   parse-newline)
 
-(define-hooked-nonterminal command-list
+(define-nonterminal command-list
   (and-or &optional separator-op command-list))
 
-(define-hooked-nonterminal and-or
+(define-nonterminal and-or
   (pipeline and-or-tail))
 
-(define-hooked-nonterminal and-or-tail
+(define-nonterminal and-or-tail
   (and-if linebreak pipeline and-or-tail)
   (or-if linebreak pipeline and-or-tail)
   ())
 
-(define-hooked-nonterminal pipeline
+(define-nonterminal pipeline
   (bang pipe-sequence)
   parse-pipe-sequence)
 
-(define-hooked-nonterminal pipe-sequence
+(define-nonterminal pipe-sequence
   (command pipe-sequence-tail))
 
-(define-hooked-nonterminal pipe-sequence-tail
+(define-nonterminal pipe-sequence-tail
   (pipe linebreak command pipe-sequence-tail)
   ())
 
-(define-hooked-nonterminal command
+(define-nonterminal command
   (compound-command &optional redirect-list)
   parse-function-definition
   parse-simple-command)
 
-(define-hooked-nonterminal compound-command
+(define-nonterminal compound-command
   parse-brace-group
   parse-subshell
   parse-for-clause
@@ -143,136 +111,131 @@ represent times when the parser chose a bad branch.")
   parse-while-clause
   parse-until-clause)
 
-(define-hooked-nonterminal subshell
-  (lparen linebreak (term-sequence (lambda (i) (parse-term-sequence i :stop-parser #'parse-rparen :final-separator-optional-p t))) rparen))
+(define-nonterminal subshell
+  (lparen linebreak (term-sequence (parse-term-sequence :stop-parser #'parse-rparen :final-separator-optional-p t)) rparen))
 
 (define-nonterminal-class compound-list ()
   (linebreak
    term-sequence))
 
-(define-advisable parse-compound-list (iter &key stop-parser)
-  (hooked
-   (parser-block
-    (parser-value
-     (make-instance
-      'compound-list
-      'linebreak (parse (parse-linebreak iter))
-      'term-sequence (parse (parse-term-sequence iter :stop-parser stop-parser)))))))
+(define-advisable parse-compound-list (&key stop-parser)
+  (make-instance
+   'compound-list
+   'linebreak (parse-linebreak)
+   'term-sequence (parse-term-sequence :stop-parser stop-parser)))
 
 (defun compound-list-ending-with (ending-parser)
-  (lambda (iter)
-    (parse-compound-list iter :stop-parser ending-parser)))
+  (parse-compound-list :stop-parser ending-parser))
 
 (define-nonterminal-class term ()
   (and-or
    separator))
 
-(define-advisable parse-term-sequence (iter &key stop-parser final-separator-optional-p)
-  (when (typep stop-parser 'function)
-    (let ((old-stop-parser stop-parser))
-      (setf stop-parser (lambda (iter)
-                          (parser-lookahead iter
-                            (hooked (funcall old-stop-parser iter)))))))
-  (hooked
-    (parser-repeat (1 stop-parser iter)
-      (hooked
-        (parser-let
-            ((and-or (parse-and-or iter))
-             (separator (if (or (null stop-parser)
-                                (not final-separator-optional-p))
-                            (parse-separator iter)
-                            (parser-if iter (hooked (funcall stop-parser iter))
-                                       (parser-value nil)
-                                       (parse-separator iter)))))
-          (parser-value
+(define-advisable parse-term-sequence (&key stop-parser final-separator-optional-p)
+  (let ((old-stop-parser stop-parser))
+    (setf stop-parser (lambda ()
+                        (parser-lookahead
+                          (funcall old-stop-parser)))))
+  (labels
+      ((parse-one ()
+         (let ((and-or (parse-and-or))
+               (separator (if (not final-separator-optional-p)
+                              (parse-separator)
+                              (parser-choice
+                                (progn
+                                  (funcall stop-parser)
+                                  nil)
+                                (parse-separator)))))
            (make-instance
             'term
             'and-or and-or
-            'separator separator)))))))
+            'separator separator))))
+    (let ((result (fset:empty-seq)))
+      (attachf result (parse-one))
+      (parser-repeat-until (result (funcall stop-parser))
+        (parse-one)))))
 
-(define-hooked-nonterminal for-clause
-  (for name-nt linebreak for-clause-range (body #'parse-do-group)))
+(define-nonterminal for-clause
+  (for name-nt linebreak for-clause-range (body (parse-do-group))))
 
 (define-nonterminal-class for-clause-range ()
     (in-nt
      words
      sequential-sep))
 
-(define-advisable parse-for-clause-range (iter)
-  (parser-choice iter
-    (parser-block
-      (parser-value
-       (make-instance 'for-clause-range
-                      'in-nt (parse (parse-in-nt iter))
-                      'words (parser-repeat (0 nil iter)
-                               (parse-a-word iter))
-                      'sequential-sep (parse-sequential-sep iter))))
-    (parser-value nil)))
+(define-advisable parse-for-clause-range ()
+  (parser-choice
+    (make-instance 'for-clause-range
+                   'in-nt (parse-in-nt)
+                   'words (parser-repeat-times ((fset:empty-seq))
+                            (parse-a-word))
+                   'sequential-sep (parse-sequential-sep))
+    nil))
 
-(define-hooked-nonterminal name-nt
+(define-nonterminal name-nt
   (name)) ;; Apply rule 5 (need not be reflected in the grammar)
 
-(define-hooked-nonterminal in-nt
+(define-nonterminal in-nt
   (in)) ;; Apply rule 6 (need not be reflected in the grammar)
 
-(define-hooked-nonterminal case-clause
+(define-nonterminal case-clause
   (case-word a-word linebreak in-nt linebreak case-list esac)
   (case-word a-word linebreak in-nt linebreak case-list-ns esac)
   (case-word a-word linebreak in-nt linebreak esac))
 
-(define-hooked-nonterminal case-list-ns
+(define-nonterminal case-list-ns
   (case-list case-item-ns)
   (case-item-ns))
 
-(define-hooked-nonterminal case-list
+(define-nonterminal case-list
   (case-item case-list-tail))
 
-(define-hooked-nonterminal case-list-tail
+(define-nonterminal case-list-tail
   (case-item case-list-tail)
   ())
 
-(define-hooked-nonterminal case-item-ns
+(define-nonterminal case-item-ns
   (pattern rparen linebreak)
   (pattern rparen (compound-list (compound-list-ending-with #'parse-linebreak)) linebreak)
   (lparen pattern rparen linebreak)
   (lparen pattern rparen (compound-list (compound-list-ending-with #'parse-linebreak)) linebreak))
 
-(define-hooked-nonterminal case-item
+(define-nonterminal case-item
   (pattern rparen linebreak dsemi linebreak)
   (pattern rparen (compound-list (compound-list-ending-with #'parse-dsemi)) dsemi linebreak)
   (lparen pattern rparen linebreak dsemi linebreak)
   (lparen pattern rparen (compound-list (compound-list-ending-with #'parse-dsemi)) dsemi linebreak))
 
-(define-hooked-nonterminal pattern
+(define-nonterminal pattern
   (a-word pattern-tail)) ;; Apply rule 4 (must be reflected in grammar)
 
-(define-hooked-nonterminal pattern-tail
+(define-nonterminal pattern-tail
   (pipe a-word pattern-tail) ;; Do not apply rule 4 (but /bin/sh seems to?)
   ())
 
-(define-hooked-nonterminal else-part-lead
+(define-nonterminal else-part-lead
   parse-elif
   parse-else
   parse-fi)
 
-(define-hooked-nonterminal if-clause
+(define-nonterminal if-clause
   (if-word (condition (compound-list-ending-with #'parse-then)) then (body (compound-list-ending-with #'parse-else-part-lead)) else-part))
 
-(define-hooked-nonterminal else-part
+(define-nonterminal else-part
   (elif (condition (compound-list-ending-with #'parse-then)) then (body (compound-list-ending-with #'parse-else-part-lead)) else-part)
   (else (body (compound-list-ending-with #'parse-fi)) fi)
   parse-fi)
 
-(define-hooked-nonterminal while-clause
-  (while (condition (compound-list-ending-with #'parse-do-word)) (body #'parse-do-group)))
+(define-nonterminal while-clause
+  (while (condition (compound-list-ending-with #'parse-do-word)) (body (parse-do-group))))
 
-(define-hooked-nonterminal until-clause
-  (until (condition (compound-list-ending-with #'parse-do-word)) (body #'parse-do-group)))
+(define-nonterminal until-clause
+  (until (condition (compound-list-ending-with #'parse-do-word)) (body (parse-do-group))))
 
-(define-hooked-nonterminal function-definition
+(define-nonterminal function-definition
   (fname linebreak function-body))
 
-(define-hooked-nonterminal function-body
+(define-nonterminal function-body
   (compound-command redirect-list) ;; Apply rule 9 (need not be reflected in the grammar)
   (compound-command)) ;; Apply rule 9 (need not be reflected in the grammar)
 
@@ -281,56 +244,50 @@ represent times when the parser chose a bad branch.")
      lparen
      rparen))
 
-(define-advisable parse-fname (iter)
-  (parser-let
-      ((name-lparen
-        (parser-try iter
-          (parser-let
-              ((name (parse-name iter))
-               (lparen (parse-lparen iter)))
-            (parser-value (cons name lparen)))))
-       (rparen (parse-rparen iter)))
-    (parser-value
-     (make-instance 'fname
-                    'name (car name-lparen)
-                    'lparen (cdr name-lparen)
-                    'rparen rparen))))
+(define-advisable parse-fname ()
+  (multiple-value-bind (name lparen)
+      (parser-try
+        (values (parse-name) (parse-lparen)))
+    (make-instance 'fname
+                   'name name
+                   'lparen lparen
+                   'rparen (parse-rparen))))
 
-(define-hooked-nonterminal brace-group
+(define-nonterminal brace-group
   (lbrace (compound-list (compound-list-ending-with #'parse-rbrace)) rbrace))
 
-(define-hooked-nonterminal do-group
+(define-nonterminal do-group
   (do-word (compound-list (compound-list-ending-with #'parse-done)) done)) ;; Apply rule 6 (need not be reflected in the grammar)
 
-(define-advisable parse-simple-command-word (iter)
-  (parse-a-word iter))
+(define-advisable parse-simple-command-word ()
+  (parse-a-word))
 
-(define-hooked-nonterminal simple-command
-  (cmd-prefix &optional (a-word #'parse-simple-command-word) cmd-suffix)
-  ((a-word #'parse-simple-command-word) &optional cmd-suffix))
+(define-nonterminal simple-command
+  (cmd-prefix &optional (a-word (parse-simple-command-word)) cmd-suffix)
+  ((a-word (parse-simple-command-word)) &optional cmd-suffix))
 
-(define-hooked-nonterminal cmd-prefix
+(define-nonterminal cmd-prefix
   (io-redirect cmd-prefix-tail)
   (assignment-word cmd-prefix-tail))
 
-(define-hooked-nonterminal cmd-prefix-tail
+(define-nonterminal cmd-prefix-tail
   (io-redirect cmd-prefix-tail)
   (assignment-word cmd-prefix-tail)
   ())
 
-(define-hooked-nonterminal cmd-suffix
+(define-nonterminal cmd-suffix
   (io-redirect cmd-suffix-tail)
-  ((a-word #'parse-simple-command-word) cmd-suffix-tail))
+  ((a-word (parse-simple-command-word)) cmd-suffix-tail))
 
-(define-hooked-nonterminal cmd-suffix-tail
+(define-nonterminal cmd-suffix-tail
   (io-redirect cmd-suffix-tail)
-  ((a-word #'parse-simple-command-word) cmd-suffix-tail)
+  ((a-word (parse-simple-command-word)) cmd-suffix-tail)
   ())
 
-(define-hooked-nonterminal redirect-list
+(define-nonterminal redirect-list
   (io-redirect redirect-list-tail))
 
-(define-hooked-nonterminal redirect-list-tail
+(define-nonterminal redirect-list-tail
   (io-redirect redirect-list-tail)
   ())
 
@@ -338,67 +295,74 @@ represent times when the parser chose a bad branch.")
     (io-number
      io-source))
 
-(define-advisable parse-io-redirect (iter)
-  (parser-choice iter
-    (parse-io-file iter)
-    (parse-io-here iter)
-    (parser-block
-      (parser-value
-       (make-instance 'io-redirect
-                      'io-number (parse (parse-io-number iter))
-                      'io-source (parse
-                                  (parser-choice iter
-                                    (parse-io-file iter)
-                                    (parse-io-here iter))))))))
+(define-advisable parse-io-redirect ()
+  (parser-choice
+    (parse-io-file)
+    (parse-io-here)
+    (make-instance 'io-redirect
+                   'io-number (parse-io-number)
+                   'io-source (parser-choice
+                                (parse-io-file)
+                                (parse-io-here)))))
 
-(define-hooked-nonterminal io-file
-  ((redirect #'parse-less) filename)
-  ((redirect #'parse-lessand) (fd-description #'parse-simple-word))
-  ((redirect #'parse-great) filename)
-  ((redirect #'parse-greatand) (fd-description #'parse-simple-word))
-  ((redirect #'parse-dgreat) filename)
-  ((redirect #'parse-lessgreat) filename)
-  ((redirect #'parse-clobber) filename))
+(define-nonterminal io-file
+  ((redirect (parse-less)) filename)
+  ((redirect (parse-lessand)) (fd-description (parse-simple-word)))
+  ((redirect (parse-great)) filename)
+  ((redirect (parse-greatand)) (fd-description (parse-simple-word)))
+  ((redirect (parse-dgreat)) filename)
+  ((redirect (parse-lessgreat)) filename)
+  ((redirect (parse-clobber)) filename))
 
-(define-hooked-nonterminal filename
+(define-nonterminal filename
   parse-a-word) ;; Apply rule 2 (need not be reflected in grammar)
 
-(define-hooked-nonterminal io-here
+(define-nonterminal io-here
   (dless here-end)
   (dlessdash here-end))
 
-(define-hooked-nonterminal here-end
+(define-nonterminal here-end
   (a-word)) ;; Apply rule 3 (need not be reflected in grammar)
 
-(define-hooked-nonterminal newline-list
+(define-nonterminal newline-list
   (newline &optional newline-list))
 
-(define-hooked-nonterminal linebreak
+(define-nonterminal linebreak
   (newline-list)
   ())
 
-(define-hooked-nonterminal separator-op
+(define-nonterminal separator-op
   parse-par
   parse-semi)
 
-(define-hooked-nonterminal separator
+(define-nonterminal separator
   (separator-op linebreak)
   (newline-list))
 
-(define-hooked-nonterminal sequential-sep
+(define-nonterminal sequential-sep
   (semi linebreak)
   (newline-list))
 
 (defun command-iterator (token-iterator)
   "Given a `forkable-wrapper-iterator' that produces tokens, return an
-iterator that produces shell syntax tree objects."
-  (let ((iter (syntax-iterator #'parse-start token-iterator)))
-    (make-computed-iterator
-      (do-iterator (value iter)
-        (when (eq value :eof)
-          (stop))
-        (emit value))
-      (stop))))
+ iterator that produces shell syntax tree objects."
+  (let* ((token-sequence (shcl/core/sequence:walk-iterator token-iterator))
+         (commands (commands-for-tokens token-sequence)))
+    (shcl/core/iterator:make-computed-iterator
+      (multiple-value-bind (value valid-p) (popf commands)
+        (if valid-p
+            (shcl/core/iterator:emit value)
+            (shcl/core/iterator:stop))))))
+
+(defun commands-for-tokens (tokens)
+  "Given a walkable sequence of tokens, return a walkable sequence
+containing shell syntax tree objects."
+  (let ((walker (walk tokens)))
+    (lazy-sequence
+      (multiple-value-bind (result sequence) (parse-with-sequence walker (parse-start))
+        (if (eq result :eof)
+            (empty-immutable-list)
+            (immutable-cons result (commands-for-tokens sequence)))))))
 
 (defgeneric parse-shell (source))
 
@@ -406,7 +370,4 @@ iterator that produces shell syntax tree objects."
   (parse-shell (make-string-input-stream s)))
 
 (defmethod parse-shell ((s stream))
-  (parse-shell (forkable-wrapper-iterator (token-iterator s))))
-
-(defmethod parse-shell ((iter forkable-wrapper-iterator))
-  (next (command-iterator iter)))
+  (pour-from (commands-for-tokens (tokens-in-stream s)) (fset:empty-seq)))

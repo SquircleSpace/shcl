@@ -14,7 +14,7 @@
 
 (defpackage :shcl/core/parser-2
   (:use :common-lisp)
-  (:import-from :shcl/core/utility #:optimization-settings #:required #:make-extensible-vector #:symbol-nconc-intern #:progn-concatenate)
+  (:import-from :shcl/core/utility #:optimization-settings #:required #:make-extensible-vector #:symbol-nconc-intern #:symbol-nconc-gensym #:progn-concatenate)
   (:import-from :shcl/core/advice #:define-advisable)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander #:clone)
   (:import-from :shcl/core/iterator #:iterator #:do-iterator #:make-computed-iterator #:emit #:stop)
@@ -25,7 +25,7 @@
    ;; Foundations of parsing
    #:parser-throw #:parser-lookahead #:parser-try #:parser-choice #:parse-eof
    #:parse-object-of-type #:parser-repeat-times #:parser-repeat-until
-   #:parse-with-sequence #:parser-var #:unset-parser-var
+   #:parse-with-sequence #:parser-var #:unset-parser-var #:parser-var-let*
 
    ;; Error types
    #:expected-eof #:expected-eof-got #:unexpected-eof
@@ -305,6 +305,57 @@ See `parser-var'."
     (error "Cannot unset parser var outside of a parse"))
   (setf *parser-vars* (fset:less *parser-vars* key))
   (values))
+
+(defmacro parser-var-let1 ((var value) &body body)
+  (let ((previous (gensym "PREVIOUS"))
+        (valid-p (gensym "VALID-P"))
+        (set-p (gensym "SET-P")))
+    `(multiple-value-bind (,previous ,valid-p) (parser-var ',var)
+       (let (,set-p)
+         (unwind-protect
+              (progn
+                (setf (parser-var ',var) ,value)
+                (setf ,set-p t)
+                ,@body)
+           (when ,set-p
+             (if ,valid-p
+                 (setf (parser-var ',var) ,previous)
+                 (unset-parser-var ',var))))))))
+
+(defmacro parser-var-let* (bindings &body body)
+  "Establish bindings for a series of parser variables.
+
+This macro is used just like `let*'.  The first element of each
+binding is an unevaluated symbol name and the second element is an
+evaluated value.  When control enters `body', the given bindings will
+be in effect.  When control exits `body', the bound parser variables
+will return to the value they had before control entered
+`parser-var-let*'.  This macro behaves more or less like `let*' does
+when establishing bindings for special variables.
+
+Example usage:
+    (parser-var-let*
+        ((some-var (+ 1 2 3))
+         (other-var (* 1 2 3)))
+      (assert (eql (parser-var 'some-var) (parser-var 'other-var))))"
+  (unless bindings
+    (return-from parser-var-let*
+      `(progn ,@body)))
+
+  (labels
+      ((normalize (binding)
+         (when (symbolp binding)
+           (setf binding (list binding nil)))
+         (check-type binding list)
+         (check-type (car binding) symbol)
+         (when (null (cdr binding))
+           (setf binding (list (car binding) nil)))
+         (when (cdr (cdr binding))
+           (error "binding must not have multiple value forms"))
+         binding))
+    `(parser-var-let1 ,(normalize (car bindings))
+       (parser-var-let* ,(cdr bindings)
+         ,@body))))
 
 (defun produce-error-object ()
   (case (fset:size *parser-errors*)
