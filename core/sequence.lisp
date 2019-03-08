@@ -672,6 +672,16 @@ sequences.
 This function is just a trivial wrapper around `flatten-sequence'."
   (flatten-sequence sequences))
 
+(define-method-combination concatenate-sequences
+  :identity-with-one-argument t
+  :documentation
+  "A method combination that combines method results using the
+`concatenate-sequences' function.
+
+This is like a generic version of the `nconc' method combination.
+Instead of returning lists that are then destructively modified, you
+may return any walkable sequence..")
+
 (defun flatten-sequence (sequence-of-sequences)
   "Return a walkable that traverses the sequences contained within
 `sequence-of-sequences'."
