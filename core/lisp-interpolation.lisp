@@ -15,10 +15,10 @@
 (defpackage :shcl/core/lisp-interpolation
   (:use
    :common-lisp :shcl/core/utility :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/expand
-   :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
+   :shcl/core/expand :shcl/core/exit-info :shcl/core/fd-table
    :shcl/core/dispatch-table)
-  (:import-from :shcl/core/sequence #:walkable-to-list #:pour-from #:empty-p)
+  (:import-from :shcl/core/sequence
+   #:walkable-to-list #:pour-from #:empty-p #:do-while-popf #:walk)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :shcl/core/command #:define-special-builtin)
   (:import-from :shcl/core/evaluate #:translate #:expansion-preparation-form #:evaluation-forms-for-commands)
@@ -90,9 +90,9 @@ lisp form and turns each element into a separate word."))
       `(let ((,value ,lisp-form))
          (setf (lisp-form-function ,value)
                (lambda ()
-                 (let ((,seq ,form)
+                 (let ((,seq (walk ,form))
                        (,result (fset:empty-seq)))
-                   (do-iterator (,thing (iterator ,seq))
+                   (do-while-popf (,thing ,seq)
                      (fset:push-last ,result (make-string-fragment (format nil "~A" ,thing) :quoted-p t))
                      (fset:push-last ,result (word-boundary)))
                    (setf ,result (fset:less-last ,result))
