@@ -32,6 +32,8 @@
   (:import-from :shcl/core/fd-table
    #:receive-ref-counted-fd #:retained-fd-openat #:fd-wrapper-value
    #:with-dir-ptr-for-fd)
+  (:import-from :shcl/core/command
+   #:*command-namespace* #:command-namespace-table)
   (:import-from :shcl/core/posix
    #:fstat #:faccessat #:syscall-error #:do-directory-contents)
   (:import-from :shcl/core/posix-types #:o-rdonly #:st-mode #:x-ok #:at-eaccess)
@@ -76,6 +78,8 @@
 
 (defvar *collect-tab-complete-info* nil)
 
+(defconstant +parsed-simple-command-words+ '+parsed-simple-command-words+)
+
 (define-advice parse-simple-command
     :around tab-complete
     ()
@@ -84,7 +88,7 @@
       (call-next-method)))
 
   (parser-var-let*
-      ((parsed-simple-command-words (fset:empty-seq)))
+      ((+parsed-simple-command-words+ (fset:empty-seq)))
     (call-next-method)))
 
 (defmethod expand-type ((class standard-class) unique-table)
@@ -104,9 +108,9 @@
     (return-from parse-simple-command-word
       (call-next-method)))
 
-  (assert (parser-var 'parsed-simple-command-words))
+  (assert (parser-var +parsed-simple-command-words+))
   (let ((return-values (multiple-value-list (call-next-method))))
-    (attachf (parser-var 'parsed-simple-command-words) (car return-values))
+    (attachf (parser-var +parsed-simple-command-words+) (car return-values))
     (values-list return-values)))
 
 (defgeneric parse-error-involves-sigil-token-p (err sigil-token))
@@ -220,12 +224,23 @@
       (attachf result (executables-in-directory path)))
     (flatten-sequence result)))
 
+(defun all-builtin-commands ()
+  (let ((result (fset:empty-set))
+        (command-table (command-namespace-table *command-namespace*)))
+    (fset:do-map (key value command-table)
+      (declare (ignore value))
+      (fset:adjoinf result key))
+    result))
+
+(defun all-commands ()
+  (concatenate-sequences (all-binary-commands) (all-builtin-commands)))
+
 (defmethod completion-suggestions concatenate-sequences
     ((desired (eql (find-class 'simple-word)))
      (token simple-word)
      context
      parser-vars)
-  (multiple-value-bind (command-words valid-p) (fset:lookup parser-vars 'parsed-simple-command-words)
+  (multiple-value-bind (command-words valid-p) (fset:lookup parser-vars +parsed-simple-command-words+)
     (unless valid-p
       (return-from completion-suggestions))
 
@@ -233,7 +248,7 @@
       (labels
           ((compatible-p (command)
              (sequence-starts-with-p command (simple-word-text token))))
-        (eager-map (eager-filter (all-binary-commands) #'compatible-p (fset:empty-seq))
+        (eager-map (eager-filter (all-commands) #'compatible-p (fset:empty-seq))
                    (lambda (str)
                      (make-simple-completion-suggestion str context))
                    (fset:empty-seq))))))
