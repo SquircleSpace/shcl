@@ -181,6 +181,11 @@ If the pipeline runs at runtime (e.g. by using the
 =evaluate-shell-string= macro or by using SHCL interactively), then
 the lisp form is simply passed to ~eval~.
 
+* Logging
+SHCL keeps an in-memory logging buffer that can be dumped on-demand
+using the =-shcl-dump-logs= builtin command.  You can add a new log
+line to the log buffer using ~shcl/core/utility:debug-log~.
+
 * Assorted Style Guidelines
 - Every exported symbol should have documentation.  Documenting
   internal functions is also a Good Thing.  Document methods at your
