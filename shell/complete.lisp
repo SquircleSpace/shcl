@@ -319,7 +319,7 @@
             (declare (ignore command)))
         (parse-failure (err)
           (add-error (parse-failure-error-object err))))
-      (iterator suggestions))))
+      suggestions)))
 
 (defun completion-suggestions-for-input (input-text cursor-point readtable)
   "Compute possible completions.

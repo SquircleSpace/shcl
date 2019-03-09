@@ -15,7 +15,7 @@
 (defpackage :shcl/shell/builtins
   (:use :common-lisp :shcl/core/utility :shcl/core/command)
   (:import-from :shcl/shell/complete #:completion-suggestions-for-input)
-  (:import-from :shcl/core/iterator #:do-iterator)
+  (:import-from :shcl/core/sequence #:do-while-popf)
   (:import-from :shcl/core/lexer)
   (:import-from :shcl/shell/prompt
    #:completion-suggestion-display-text #:completion-suggestion-replacement-text
@@ -59,8 +59,9 @@
 
   (setf show-result (not (zerop (length show-result))))
 
-  (let ((readtable (shcl/core/lexer:standard-shell-readtable)))
-    (do-iterator (value (completion-suggestions-for-input input-string point readtable))
+  (let* ((readtable (shcl/core/lexer:standard-shell-readtable))
+         (suggestions (completion-suggestions-for-input input-string point readtable)))
+    (do-while-popf (value suggestions)
       (format t "~A~%" (completion-suggestion-display-text value))
       (when show-result
         (format t "    => ~A~%" (apply-completion-suggestion-to-text input-string value)))))
