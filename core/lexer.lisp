@@ -14,8 +14,7 @@
 
 (defpackage :shcl/core/lexer
   (:use
-   :common-lisp :shcl/core/utility :shcl/core/dispatch-table
-   :shcl/core/iterator)
+   :common-lisp :shcl/core/utility :shcl/core/dispatch-table)
   (:import-from :shcl/core/sequence
    #:lazy-sequence #:immutable-cons #:empty-immutable-list #:do-while-popf)
   (:import-from :shcl/core/positional-stream
