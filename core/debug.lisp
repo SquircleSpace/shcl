@@ -14,7 +14,9 @@
 
 (defpackage :shcl/core/debug
   (:use
-   :common-lisp :trivial-gray-streams :shcl/core/utility :shcl/core/iterator)
+   :common-lisp :trivial-gray-streams :shcl/core/utility)
+  (:import-from :shcl/core/sequence
+   #:lazy-map #:lazy-filter #:do-while-popf #:eager-flatmap-sequence #:pour-from)
   (:import-from :closer-mop)
   (:import-from :fset)
   (:export
@@ -155,25 +157,25 @@ be documented."
 Strictly speaking, there may be more forms of documentation than this.
 However, this is a good enough approximation for our purposes: finding
 undocumented symbols."
-  (let* ((methods (list-iterator (closer-mop:generic-function-methods #'documentation)))
-         (specializers (mapped-iterator methods 'closer-mop:method-specializers))
-         (symbol-methods (filtered-iterator specializers (lambda (x) (eq (find-class 'symbol) (first x)))))
-         (eql-methods (filtered-iterator symbol-methods (lambda (x) (typep (second x) 'closer-mop:eql-specializer))))
-         (eql-specializers (mapped-iterator eql-methods 'second))
-         (values (mapped-iterator eql-specializers 'closer-mop:eql-specializer-object)))
-    (iterable-values values)))
+  (let* ((methods (closer-mop:generic-function-methods #'documentation))
+         (specializers (lazy-map methods 'closer-mop:method-specializers))
+         (symbol-methods (lazy-filter specializers (lambda (x) (eq (find-class 'symbol) (first x)))))
+         (eql-methods (lazy-filter symbol-methods (lambda (x) (typep (second x) 'closer-mop:eql-specializer))))
+         (eql-specializers (lazy-map eql-methods 'second))
+         (values (lazy-map eql-specializers 'closer-mop:eql-specializer-object)))
+    (pour-from values (fset:empty-seq))))
 
 (defparameter *symbol-documentation-types* (symbol-documentation-types)
-  "An array of types of documentation a symbol can have.
+  "A sequence of types of documentation a symbol can have.
 
 See `symbol-documentation-types'.")
 
 (defun documented-p (symbol)
   "Returns non-nil if the given symbol has some form of documentation."
-  (loop :for documentation-type :across *symbol-documentation-types* :do
-     (progn
-       (when (documentation symbol documentation-type)
-         (return-from documented-p t))))
+  (let ((doc-types *symbol-documentation-types*))
+    (do-while-popf (documentation-type doc-types)
+      (when (documentation symbol documentation-type)
+        (return-from documented-p t))))
   nil)
 
 (defun undocumented-symbols-in-package (package)
@@ -186,12 +188,9 @@ See `symbol-documentation-types'.")
 
 (defun undocumented-symbols (&key (package-predicate 'documented-shcl-package-p))
   "Returns an array of all shcl symbols that are undocumented."
-  (let* ((all-packages (list-iterator (list-all-packages)))
-         (shcl-packages (filtered-iterator all-packages package-predicate))
-         (syms (fset:empty-set)))
-    (do-iterator (package shcl-packages)
-      (fset:unionf syms (undocumented-symbols-in-package package)))
-    syms))
+  (let* ((all-packages (list-all-packages))
+         (shcl-packages (lazy-filter all-packages package-predicate)))
+    (eager-flatmap-sequence shcl-packages 'undocumented-symbols-in-package (fset:empty-set))))
 
 (defclass verbose-echo-stream (fundamental-character-output-stream)
   ((output-stream
