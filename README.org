@@ -63,6 +63,26 @@ QUICKLISP_SETUP=~/quicklisp/setup.lisp # or wherever you installed quicklisp
 make LISP="sbcl --no-userinit --load \"$QUICKLISP_SETUP\" --eval '(ql:quickload :cffi-grovel)'"
 #+END_EXAMPLE
 
+If you use the Nix package manager, building SHCL is super easy!  SHCL
+has a =default.nix= file, so you just need to run =nix-build=.
+#+BEGIN_EXAMPLE
+nix-build
+#+END_EXAMPLE
+
+Congratulations!  You built SHCL!  If you try to run =shcl= you'll
+probably find that it doesn't work because it can't find
+=libshcl-support=.  As part of the build, SHCL produces a shared
+library named (you guessed it!) =libshcl-support=.  That library needs
+to be installed somewhere that the dynamic linker can find it.  So, go
+ahead and use =sudo make install= to install SHCL and its support
+library!  Don't forget to set the =PREFIX= to something you're happy
+with.  Alternatively, you can just use the =run-shcl= script included
+in the repository.  =run-shcl= just adds =$(pwd)= to the dynamic
+linker's search path before invoking =./shcl=.
+
+Note: if you build SHCL using =nix-build=, then you don't have to
+worry about =libshcl-support=.  SHCL will know how to find it!
+
 * Example Usage
 
 I don't know what you're expecting to see here.  Its a POSIX-like
