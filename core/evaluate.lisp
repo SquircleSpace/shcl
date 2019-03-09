@@ -18,7 +18,7 @@
    :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer
    :shcl/core/expand :shcl/core/posix :shcl/core/posix-types
    :shcl/core/exit-info :shcl/core/fd-table
-   :shcl/core/working-directory :shcl/core/iterator)
+   :shcl/core/working-directory)
   (:import-from :shcl/core/shell-form
    #:shell-pipeline #:shell-not #:& #:shell-not #:with-subshell #:shell-if
    #:shell-while #:shell-for #:shell-run #:shell-and #:shell-or)
