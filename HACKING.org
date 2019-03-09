@@ -28,7 +28,9 @@ source files.  Let's explore the sub-directories!
 This directory contains the "core" of SHCL.  The core contains just
 the common functionality that both the SHCL library and the SHCL shell
 need.  Think of it as a toolbox that you can use to build your own
-shell.
+shell.  It also represents the portion of SHCL that is required for
+non-interactive use cases (e.g. applications that just wish to use
+SHCL's reader macro).
 
 *** =/core/support/=
 This folder contains the C functionality that cannot be written in
@@ -49,7 +51,7 @@ never notice that we forked.  That's the theory, at least.
 
 ** =/shell/=
 This directory contains things that are only relevant to SHCL when it
-is used as a shell.  For example, shell builtins.
+is used as an interactive shell.  For example, shell builtins.
 
 Note: some builtins are defined in =/core/=.
 
@@ -122,35 +124,62 @@ changes prior to calling ~exec~.
 
 * The Pipeline
 SHCL is, at its heart, a pipeline.  Generally, each stage is a
-transformation from one iterator to another.
+transformation from one sequence to another sequence.  You can see
+this in =shcl/shell/main=, where the pipeline is created by composing
+the transformation functions.
+
+#+BEGIN_SRC lisp
+;; shell/main.lisp circa March 2019
+(as-> wrapped-stream x
+  (logging-token-sequence x)
+  (logging-command-sequence x)
+  (logging-evaluation-form-sequence x)
+  (logging-evaluated-result-sequence x))
+#+END_SRC
 
 ** Lexing
-The lexer takes a character stream and produces an iterator for the
-tokens found in the stream.
+The lexer takes a character stream and produces a lazy sequence
+containing the tokens found in the stream.
 
 The lexer can be extended using lexer readtables (much like Common
 Lisp supports adding reader macros).
 
 ** Parsing
-The parsing phase consumes a token iterator and produces a syntax tree
-iterator.  That is, the values of the resulting iterator are syntax
-trees.
+The parsing phase consumes a token sequence and produces a lazy syntax
+tree sequence.  Note: syntax trees are not simply lists.  They are
+CLOS objects with named slots.
 
 ** Translation
-There are two parts to the translation stage.  First, a parsed shell
-abstract syntax tree is translated into the Shell Form language.
-Then, the Shell Form is macroexpanded into plain-old Common Lisp.
+The translation phase consumes a sequence of syntax tree objects and
+produces a lazy sequence of equivalent Common Lisp forms.  Typically,
+the post-translation form is one of the macros provided by the
+=shcl/core/shell-form= package.  The macros in that package provide a
+DSL of sorts that has shell-like semantics.
+
+*** Expansion
+Its worth noting that before any shell builtin, binary, or
+user-defined shell function is run, the arguments of the command are
+"expanded".  Expansion isn't conceptually part of the pipeline, but it
+is complex enough to be worth mentioning.  The form produced by the
+translation phase includes the necessary calls to expand arguments,
+but expansion doesn't take place until the evaluation phase of the
+pipeline.
 
 ** Evaluation
 Evaluation is the simplest phase of the pipeline.  At the end of the
 translation phase, a lisp form is produced.  This lisp form just needs
 to be evaluated!
 
-*** Expansion
-Its worth noting that before any shell builtin, binary, or
-user-defined shell function is run, the arguments of the command are
-"expanded".  Expansion isn't conceptually part of the pipeline, but it
-is complex enough to be worth mentioning.
+If the entire pipeline before this point ran at compile time (e.g. by
+using the =evaluate-constant-shell-string= macro or SHCL's reader
+macro), SHCL will arrange for the lisp form to be evaluated like any
+regular lisp form that appears in a program.  That is, it can access
+the lexical environment in which it appears, it will get compiled, and
+it will be evaluated some time later.
+
+If the pipeline runs at runtime (e.g. by using the
+=evaluate-shell-string= macro or by using SHCL interactively), then
+the lisp form is simply passed to ~eval~.
 
 * Assorted Style Guidelines
 - Every exported symbol should have documentation.  Documenting
