@@ -1,4 +1,4 @@
-;; Copyright 2017 Bradley Jensen
+;; Copyright 2019 Bradley Jensen
 ;;
 ;; Licensed under the Apache License, Version 2.0 (the "License");
 ;; you may not use this file except in compliance with the License.
@@ -13,28 +13,28 @@
 ;; limitations under the License.
 
 (defpackage :shcl/core/parser
-  (:use
-   :common-lisp :alexandria :shcl/core/lexer :shcl/core/utility
-   :shcl/core/iterator)
+  (:use :common-lisp)
+  (:import-from :shcl/core/utility #:optimization-settings #:required #:make-extensible-vector #:symbol-nconc-intern #:symbol-nconc-gensym #:progn-concatenate)
   (:import-from :shcl/core/advice #:define-advisable)
-  (:import-from :shcl/core/data #:define-data)
-  (:import-from :closer-mop)
-  (:shadowing-import-from :alexandria #:when-let #:when-let*)
+  (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander #:clone)
+  (:import-from :shcl/core/iterator #:iterator #:do-iterator #:make-computed-iterator #:emit #:stop)
+  (:import-from :shcl/core/sequence #:head #:tail #:empty-p #:attach #:empty-of #:walk #:popf #:attachf)
+  (:import-from :fset)
+  (:import-from :alexandria #:hash-table-keys)
   (:export
    ;; Foundations of parsing
-   #:parser-error #:parser-value #:parser-let* #:parser-let #:parser-lookahead
-   #:parser-try #:parser-choice #:parse-eof #:parse-object-of-type
-   #:parser-handler-case #:parser-repeat #:parser-bind #:parser-block
-   #:private-parser-block #:parse #:parser-if
+   #:parser-throw #:parser-lookahead #:parser-try #:parser-choice #:parse-eof
+   #:parse-object-of-type #:parser-repeat-times #:parser-repeat-until
+   #:parse-with-sequence #:parser-var #:unset-parser-var #:parser-var-let*
 
    ;; Error types
    #:expected-eof #:expected-eof-got #:unexpected-eof
    #:unexpected-eof-expected-type #:type-mismatch #:type-mismatch-expected-type
-   #:type-mismatch-got #:choice #:choice-errors #:choice-errors-iterator
-   #:unconditional-failure
+   #:type-mismatch-got #:choice #:choice-errors
+   #:unconditional-failure #:parser-error-vars #:parser-error-sequence
 
    ;; Convenience and high-level parsing tools
-   #:syntax-iterator #:define-terminal #:define-nonterminal #:syntax-tree
+   #:define-terminal #:define-nonterminal #:syntax-tree
    #:define-nonterminal-class #:parse-failure #:parse-failure-error-object
    #:print-error))
 (in-package :shcl/core/parser)
@@ -60,12 +60,42 @@ See `define-nonterminal'."))
       (format stream "Unknown error (~W)" err)
       (format stream "Unknown error")))
 
+(defvar *parser-sequence*)
+(defvar *parser-vars*)
+(defvar *parser-errors*)
+
+(defun capture-sequence ()
+  (when (boundp '*parser-sequence*)
+    *parser-sequence*))
+
+(defun capture-vars ()
+  (if (boundp '*parser-vars*)
+      *parser-vars*
+      (fset:empty-map)))
+
+(defgeneric parser-error-vars (parser-error)
+  (:documentation
+   "Return the var bindings in effect when the `parser-error' was
+created."))
+
+(defgeneric parser-error-sequence (parser-error)
+  (:documentation
+   "Return the sequence that was active when the `parser-error' was
+created."))
+
 (define-data parser-error ()
-  ()
+  ((vars
+    :initform (capture-vars)
+    :reader parser-error-vars)
+   (sequence
+    :initform (capture-sequence)
+    :reader parser-error-sequence))
   (:documentation
    "A base class that built-in parse error classes derive from.
 
-This class doesn't do anything."))
+This class simply captures the parser state at the time when it is
+created.  Namely, it captures the sequence and user-defined
+variables (i.e. `parser-var'.)."))
 
 (defgeneric expected-eof-got (expected-eof)
   (:documentation
@@ -84,7 +114,7 @@ the token stream wasn't empty.
 `expected-eof-got' extracts the token that was produced."))
 
 (defmethod print-error ((err expected-eof) stream)
-  (format stream "Expected end of file, but instead found ~W" (token-value (expected-eof-got err))))
+  (format stream "Expected end of file, but instead found ~W" (expected-eof-got err)))
 
 (defgeneric unexpected-eof-expected-type (unexpected-eof)
   (:documentation
@@ -132,8 +162,7 @@ was expected and what was received."))
 (defmethod print-error ((err type-mismatch) stream)
   (format stream "Unexpected token, expected token of type ~W but got ~S"
           (type-mismatch-expected-type err)
-          (or (token-value (type-mismatch-got err))
-              (type-mismatch-got err))))
+          (type-mismatch-got err)))
 
 (defgeneric choice-errors (choice)
   (:documentation
@@ -144,7 +173,6 @@ parses."))
   ((errors
     :initarg :errors
     :reader choice-errors
-    :type vector
     :initform (required)))
   (:documentation
    "A class representing the fact that a series of potential parses
@@ -164,10 +192,10 @@ then `choice' objects will be emitted just like every other error
 object."
   (unless recursive-p
     (return-from choice-errors-iterator
-      (vector-iterator (choice-errors choice))))
+      (iterator (choice-errors choice))))
 
   (let ((stack (make-extensible-vector)))
-    (vector-push-extend (vector-iterator (choice-errors choice)) stack)
+    (vector-push-extend (iterator (choice-errors choice)) stack)
     (make-computed-iterator
       (loop :while (not (zerop (length stack))) :do
          (block again
@@ -180,7 +208,7 @@ object."
       (stop))))
 
 (defmethod print-error ((err choice) stream)
-  (when (zerop (length (choice-errors err)))
+  (when (empty-p (choice-errors err))
     (return-from print-error
       (format stream "No choice but to fail the parse")))
   (format stream "Tried multiple parses that all failed")
@@ -209,7 +237,9 @@ See `parse-failure'."))
     :initform nil
     :reader parse-failure-error-object))
   (:report (lambda (c s)
-             (print-error (parse-failure-error-object c) s)))
+             (handler-bind
+                 ((type-error (lambda (e) (break "type error ~A" e))))
+               (print-error (parse-failure-error-object c) s))))
   (:documentation
    "An error condition to represent parse failure.
 
@@ -221,428 +251,334 @@ parser logic and everything else."))
   (defun parser-part-name (thing)
     (symbol-nconc-intern nil "PARSE-" thing)))
 
-(defconstant +parser-secret-token+ '+parser-secret-token+)
+(defun parser-var (key &optional default)
+  "Look up the value associated with `key' in the parser's state.
 
-(defmacro parser-bind ((value error-p) parser-form &body body)
-  "Evaluate `parser-form' and bind the results.
+This function is a setf-able place.
 
-The exact structure of a parser result is unspecified.  This macro is
-the only supported way to extract parse results.
+Returns the value associated with the given key (or `default' if no
+value is present) and a boolean indicating whether the parser had a
+value for that key.
 
-If `error-p' is non-nil value then `parser-form' returned a parse
-failure.  Whatever value the parser produced (either an error or
-succesful parse value) is stored in `value'.
+When a parse begins, the parser establishes a table specifically for
+storing state associated with the parse.  The parser itself doesn't
+store anything in the table.  You're free to store anything you want
+in it.  For example, you can use a parser var to record extra metadata
+about the objects that have been parsed.
 
-To produce parse results this macro can consume you must use
-`parser-value' or `parser-error'."
-  (let ((value-internal (gensym "VALUE-INTERNAL"))
-        (error-p-internal (gensym "ERROR-P-INTERNAL"))
-        (secret-token (gensym "SECRET-TOKEN")))
-    `(multiple-value-bind
-           (,value-internal ,error-p-internal ,secret-token)
-         ,parser-form
-       (unless (eq ,secret-token +parser-secret-token+)
-         (error "`parser-form' did not return valid parser values~%~S" ',parser-form))
-       (let ((,value ,value-internal)
-             (,error-p ,error-p-internal))
+Note that if the parser backtracks due to a parse error, the state of
+the parser vars will be rolled back.  So, for example, the following
+form will always return nil.
+
+    (parser-choice
+      (progn (setf (parser-var 'sym) 123)
+             (assert (equal 123 (parser-var 'sym)))
+             (parser-throw))
+      (parser-var 'sym))
+
+If you want to remove a parser var from the table, use
+`unset-parser-var'."
+  (check-type key symbol)
+  (unless (boundp '*parser-vars*)
+    (error "Cannot lookup parser var outside of a parse"))
+  (multiple-value-bind (value found-p) (fset:lookup *parser-vars* key)
+    (if found-p
+        (values value t)
+        (values default nil))))
+
+(defun (setf parser-var) (value key)
+  "Change the value associated with a parser var.
+
+See `parser-var' and `unset-parser-var'."
+  (check-type key symbol)
+  (unless (boundp '*parser-vars*)
+    (error "Cannot assign parser var outside of a parse"))
+  (setf (fset:lookup *parser-vars* key) value))
+
+(defun unset-parser-var (key)
+  "Remove the value associated with the given `key' from the parser
+var table.
+
+See `parser-var'."
+  (check-type key symbol)
+  (unless (boundp '*parser-vars*)
+    (error "Cannot unset parser var outside of a parse"))
+  (setf *parser-vars* (fset:less *parser-vars* key))
+  (values))
+
+(defmacro parser-var-let1 ((var value) &body body)
+  (let ((previous (gensym "PREVIOUS"))
+        (valid-p (gensym "VALID-P"))
+        (set-p (gensym "SET-P")))
+    `(multiple-value-bind (,previous ,valid-p) (parser-var ',var)
+       (let (,set-p)
+         (unwind-protect
+              (progn
+                (setf (parser-var ',var) ,value)
+                (setf ,set-p t)
+                ,@body)
+           (when ,set-p
+             (if ,valid-p
+                 (setf (parser-var ',var) ,previous)
+                 (unset-parser-var ',var))))))))
+
+(defmacro parser-var-let* (bindings &body body)
+  "Establish bindings for a series of parser variables.
+
+This macro is used just like `let*'.  The first element of each
+binding is an unevaluated symbol name and the second element is an
+evaluated value.  When control enters `body', the given bindings will
+be in effect.  When control exits `body', the bound parser variables
+will return to the value they had before control entered
+`parser-var-let*'.  This macro behaves more or less like `let*' does
+when establishing bindings for special variables.
+
+Example usage:
+    (parser-var-let*
+        ((some-var (+ 1 2 3))
+         (other-var (* 1 2 3)))
+      (assert (eql (parser-var 'some-var) (parser-var 'other-var))))"
+  (unless bindings
+    (return-from parser-var-let*
+      `(progn ,@body)))
+
+  (labels
+      ((normalize (binding)
+         (when (symbolp binding)
+           (setf binding (list binding nil)))
+         (check-type binding list)
+         (check-type (car binding) symbol)
+         (when (null (cdr binding))
+           (setf binding (list (car binding) nil)))
+         (when (cdr (cdr binding))
+           (error "binding must not have multiple value forms"))
+         binding))
+    `(parser-var-let1 ,(normalize (car bindings))
+       (parser-var-let* ,(cdr bindings)
          ,@body))))
 
-(defun syntax-iterator (parser-function token-iterator)
-  "Return an iterator that emits the values produced by
-`parser-function' when it is repeatedly called with `token-iterator'.
+(defun produce-error-object ()
+  (case (fset:size *parser-errors*)
+    (0
+     nil)
+    (1
+     (fset:first *parser-errors*))
+    (otherwise
+     (make-instance 'choice :errors *parser-errors*))))
 
-If `parser-function' returns nil then the iterator will stop producing
-output.
+(defmacro parse-with-sequence (sequence &body body)
+  "Evaluate `body' with `sequence' used as the input sequence to be
+parsed.
 
-If a parse error occurs this function signals a `parse-failure'
-error."
-  (make-computed-iterator
-    (parser-bind (value error-p) (funcall parser-function token-iterator)
-      (when error-p
-        (error 'parse-failure :error-object value))
-      (unless value
-        (stop))
-      (emit value))))
+This form establishes a dynamic extent in which other parser
+forms (e.g. `parser-var', `parser-try', `parser-throw', etc.) are able
+to function.
 
-(defun parser-error (error)
-  "Returns values that ndicate that parsing has failed.
+`sequence' must be walkable.  See `walk'.
 
-Note that this function may return multiple values.  The contents of
-these values is unspecified.  You must use `parser-bind' to extract
-meaning from the values."
-  (values error t +parser-secret-token+))
+If `body' fails to parse then this macro will signal a `parse-failure'
+error.  If `body' exits normally then this form produces 4 values: the
+value returned by `body', the tip of the input sequence when parsing
+finished, the state of the parser vars in effect when parsing
+concluded (see `parser-var'), and a sequence containing all the errors
+that were encountered during the parse."
+  `(let ((*parser-sequence* (walk ,sequence))
+         (*parser-vars* (fset:empty-map))
+         (*parser-errors* (fset:empty-seq)))
+     (parser-catch (values (progn ,@body) *parser-sequence* *parser-vars* *parser-errors*)
+       (error 'parse-failure :error-object (produce-error-object)))))
 
-(defun parser-value (value)
-  "Returns values that ndicate that parsing has succeeded.
+(defconstant +parser-error+ '+parser-error+)
 
-Note that this function may return multiple values.  The contents of
-these values is unspecified.  You must use `parser-bind' to extract
-meaning from the values."
-  (values value nil +parser-secret-token+))
+(defun parser-throw (&optional (error nil error-p))
+  "Indicate that a parser error has occurred and that the parser
+should backtrack.
 
-(defmacro private-parser-block (macro-name &body body)
-  "Establish a parser block with a named parse macro.
+If `error' is provided then it will be added to the list of failures
+seen.  You should generally provide an error object (ideally a
+subclass of `parser-error') so that useful parse errors can be
+provided.  You should generally only omit the error argument when
+you're re-throwing an error that already occurred."
+  (when error-p
+    (fset:push-last *parser-errors* error))
+  (throw +parser-error+ nil))
 
-See `parser-block'.  This is effectively `parser-block' but you're
-allowed to choose an alternate name for the `parse' local macro.  This
-is primarily useful in macro contexts where you don't want to
-interfere with forms the user provides."
-  (let ((value (gensym "VALUE"))
-        (err (gensym "ERR"))
-        (thing (gensym "THING"))
-        (parser-block (gensym "PARSER-BLOCK")))
-    `(block ,parser-block
-       (macrolet
-           ((,macro-name (,thing)
-              `(parser-bind (,',value ,',err) ,,thing
-                 (when ,',err
-                   (return-from ,',parser-block
-                     (parser-error ,',value)))
-                 ,',value)))
-         ,@body))))
+(defmacro parser-catch (parser-form &body error-handler-body)
+  (let ((parser-catch (gensym "PARSER-CATCH"))
+        (original-vars (gensym "ORIGINAL-VARS")))
+    `(let ((,original-vars *parser-vars*))
+       (block ,parser-catch
+         (catch +parser-error+
+           (return-from ,parser-catch ,parser-form))
+         (setf *parser-vars* ,original-vars)
+         ,@error-handler-body))))
 
-(defmacro parse (form)
-  "Attempt to parse a thing and extract the parse value.
+(defmacro parser-catch-soft (parser-form &body error-handler-body)
+  (let ((original-sequence (gensym "ORIGINAL-SEQUENCE")))
+    `(let ((,original-sequence *parser-sequence*))
+       (parser-catch ,parser-form
+         (unless (eq *parser-sequence* ,original-sequence)
+           (parser-throw))
+         ,@error-handler-body))))
 
-This macro must be used inside the lexical scope of a `parser-block'
-form.  See `parser-block' for documentation on how this macro works."
-  (declare (ignore form))
-  (error "The parse macro must be used inside a parser block"))
+(defmacro parser-try (&body body)
+  "Evaluate `body', but rollback changes to the input sequence if the
+parse fails.
 
-(defmacro parser-block (&body body)
-  "Establish a lexical scope where the `parse' macro can be used.
+If `body' exits normally then this macro behaves exactly like `progn'.
+If `body' throws a parse error then the parser input sequence will be
+returned to the position it was at when control entered this macro.
+Thus, `parser-try' will turn a parse error that consumed input into a
+parse error that did not.
 
-Inside the lexical scope of `body', a local macro named `parse' is
-defined.  `parse' takes one argument: a parser form.  If the parser
-form returns a parse error then the parse error is returned from the
-`parser-block' form.  If the parser form returns a successful parse
-then `parse' simply returns the parsed value.  This allows you to
-perform a series of parses and early return if any one of them fails.
-For example, you might use `parser-block' in the following way.
+See also `parser-lookahead'."
+  (let ((sequence-value (gensym "SEQUENCE-VALUE"))
+        (success-p (gensym "SUCCESS-P")))
+    `(let ((,sequence-value *parser-sequence*)
+           ,success-p)
+       (unwind-protect
+            (multiple-value-prog1
+                (progn ,@body)
+              (setf ,success-p t))
+         (unless ,success-p
+           (setf *parser-sequence* ,sequence-value))))))
 
-    (parser-block
-      (parser-value
-       (some-random-function (parse (parse-foo iter))
-                             (parse (parse-bar iter)))))
+(defmacro parser-lookahead (&body body)
+  "Evaluate `body' but rollback changes to the input sequence if the
+parse succeeds.
 
-You generally don't want to use this macro in a macro context.  You
-should usually use `private-parser-block' with a gensym'd name for the
-parse macro.  In fact, this macro will expand to something
-semantically equivalent to the following form.
+If `body' throws a parse error then this macro behaves exactly like
+`progn'.  If `body' exits normally then the parser input sequence will
+be returned to the position it was at when control entered this macro.
+Thus, `parser-lookahead' will turn a successful parse that consumed
+input into a successful parse that did not.
 
-    `(private-parser-block parse ,@body)"
-  `(private-parser-block parse
-     ,@body))
+See also `parser-try'."
+  (let ((sequence-value (gensym "SEQUENCE-VALUE")))
+    `(let ((,sequence-value *parser-sequence*))
+       (multiple-value-prog1
+           (progn ,@body)
+         (setf *parser-sequence* ,sequence-value)))))
 
-(defmacro parser-if (iter condition-parser then &optional (else nil else-p))
-  "This is the parser equivalent of `if'.
+(defmacro parser-choice (&body alternatives)
+  "Evaluate each form in `alternatives' until one of them parses successfully.
 
-Attempt to parse `condition-parser'.  If it parses succesfully, then
-evaluate `then' and return the result.  If it fails to parse and does
-not move `iter', then `else' will be evaluated instead.  If `else' is
-not provided, the parse error will be returned instead.  If
-`condition-parser' fails to parse and moves `iter', then neither
-`then' or `else' is evaluated.  The parse error produced by
-`condition-parser' will be retuned."
-  (let ((condition (gensym "CONDITION"))
-        (parser-if (gensym "PARSER-IF"))
-        (err (gensym "ERR")))
-    `(block ,parser-if
-       (parser-handler-case ,iter
-           (parser-let
-               ((,condition ,condition-parser))
-             (declare (ignore ,condition))
-             (return-from ,parser-if ,then))
-         ,(if else-p
-              `(t ()
-                  ,else)
-              `(t (,err)
-                  (parser-error ,err)))))))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun let-bindings-transformer (parse-macro)
-    (lambda (binding)
-      (destructuring-bind (variable form) binding
-        `(,variable (,parse-macro ,form))))))
-
-(defmacro parser-let* (bindings &body body)
-  "Parse values and bind them to variables.
-
-This macro is very similar to `let*'.  The key difference is that the
-value form for each binding is treated as a parser form.  If it parses
-successfully (i.e. returns nil as the second value) then the binding
-is established normally.  If the value form fails to parse (ie.e
-returns a non-nil second value) then the `parser-let' form will
-immediately return the same parse error."
-  (let ((parse (gensym "PARSE")))
-    `(private-parser-block ,parse
-       (let* ,(mapcar (let-bindings-transformer parse) bindings)
-         ,@body))))
-
-(defmacro parser-let (bindings &body body)
-  "Parse values and bind them to variables.
-
-This macro behaves similarly to `parser-let*'.  The only difference is
-that bindings are established in parallel -- just like `let' would."
-  (let ((parse (gensym "PARSE")))
-    `(private-parser-block ,parse
-       (let ,(mapcar (let-bindings-transformer parse) bindings)
-         ,@body))))
-
-(defmacro parser-lookahead (iter &body body)
-  "Evaluate `body' and then rewind `iter' on parser success.
-
-This form returns the values produced by evaluating `body'.  If `body'
-parses successfully (i.e. returns nil for its second value) then
-`iter' will be moved back to the location it had prior to this form
-being evaluated.  `iter' is evaluated once and the resulting value is
-manipulated as described earlier."
-  (let ((fork (gensym "FORK"))
-        (original-iter (gensym "ORIGINAL-ITER"))
-        (value (gensym "VALUE"))
-        (err (gensym "ERR")))
-    `(let* ((,original-iter ,iter)
-            (,fork (fork ,original-iter)))
-       (parser-bind (,value ,err) (progn ,@body)
-         (cond
-           (,err
-            (parser-error ,value))
-
-           (t
-            (move-forkable-wrapper-iterator-to ,original-iter ,fork)
-            (parser-value ,value)))))))
-
-(defmacro parser-try (iter &body body)
-  "Evaluate `body' and then rewind `iter' on parser failure.
-
-This macro is very similar to `parser-lookahead'.  Unlike
-`parser-lookahead', this macro modifies `iter' only when `body'
-evaluates to a parse failure (i.e. returns a non-nil second value).
-If a parse failure occurs then this macro will move `iter' to the
-position it had prior to this form being evaluated."
-  (let ((fork (gensym "FORK"))
-        (original-iter (gensym "ORIGINAL-ITER"))
-        (value (gensym "VALUE"))
-        (err (gensym "ERR")))
-    `(let* ((,original-iter ,iter)
-            (,fork (fork ,original-iter)))
-       (parser-bind (,value ,err) (progn ,@body)
-         (cond
-           (,err
-            (move-forkable-wrapper-iterator-to ,original-iter ,fork)
-            (parser-error ,value))
-
-           (t
-            (parser-value ,value)))))))
-
-(defmacro parser-choice (iter &body options)
-  "Evaluate each form in `options' until one of them parses successfully.
-
-When control enters this macro, `iter' is evaluated and the result is
-saved.  If one of the option forms fails to parse and moves `iter'
-from its initial position then this macro will immediately fail to
-parse with the same value.  If an option fails to parse without moving
-`iter' then the next option will be attempted.  If one of the option
-parses succesfully then this macro will immediately return the parsed
-value.
-
-This is effectively the parser equivalent of `or'."
-  (let ((choice-block (gensym "CHOICE-BLOCK"))
-        (original-iter (gensym "ORIGINAL-ITER"))
-        (position (gensym "POSITION"))
-        (err (gensym "ERR"))
-        (errors (gensym "ERRORS"))
-        (value (gensym "VALUE")))
+Each form in `alternatives' is evaluated in turn.  If the form under
+consideration parses successfully, then this macro will return the
+produced values and stop evaluating alternatives.  If the form under
+consideration fails to parse after consuming input, then this macro
+will fail to parse in the same way.  If the form under consideration
+fails to parse but doesn't consume input, then this macro will simply
+try the next alternative.  If there are no other alternatives, this
+macro will fail to parse in the same way."
+  (let ((parser-choice (gensym "PARSER-CHOICE")))
     (labels
-        ((option-handler (option)
-           `(parser-bind (,value ,err) ,option
+      ((handle-alternatives (alternatives)
+         (assert alternatives)
 
-              (unless ,err
-                ;; Happy day!
-                (return-from ,choice-block
-                  (parser-value ,value)))
+         (when (null (cdr alternatives))
+           (return-from handle-alternatives
+             (car alternatives)))
 
-              (unless (eq (forkable-wrapper-iterator-position-token ,original-iter)
-                          ,position)
-                ;; Sad day :(
-                (return-from ,choice-block
-                  (parser-error ,value)))
+         `(parser-catch-soft
+           (return-from ,parser-choice
+             ,(car alternatives)))))
 
-              (vector-push-extend ,value ,errors)
-              ;; Live to parse another day
-              )))
+      (when (null alternatives)
+        (return-from parser-choice `(parser-throw (make-instance 'unconditional-failure))))
 
-      (cond
-        ((null options)
-         '(parser-error (make-instance 'unconditional-failure)))
+      (when (null (cdr alternatives))
+        (return-from parser-choice (handle-alternatives alternatives)))
 
-        ((null (cdr options))
-         (car options))
+      `(block ,parser-choice
+         ,@(loop :for tail :on alternatives :collect (handle-alternatives tail))))))
 
-        (t
-         `(block ,choice-block
-            (let* ((,original-iter ,iter)
-                   (,position (forkable-wrapper-iterator-position-token ,original-iter))
-                   (,errors (make-extensible-vector)))
-              ,@(mapcar #'option-handler options)
-              (parser-error (make-instance 'choice :errors ,errors)))))))))
-
-(defmacro parser-handler-case (iter parser-form &body clauses)
-  "Evaluate a parser form and handle any parse errors it returns.
-
-This is the parser equivalent of `handler-case'.  First, `iter' is
-evaluated and the result is saved.  `parser-form' is evaluated.  If it
-returns a successful parse (i.e. the second return value is nil) then
-this macro returns the same parse value.  If it returns a parse
-error (i.e. the second return value is non-nil) then `iter' is
-consulted.  If the position of `iter' is unchanged then `clauses' will
-be searched for a suitable handler.  If the position of `iter' has
-changed then this macro fails to parse with the same error value.
-
-The clauses in `clauses' are evaluated just like in `handler-case'."
-  (let ((value (gensym "VALUE"))
-        (err (gensym "ERR"))
-        (original-iter (gensym "ORIGINAL-ITER"))
-        (position (gensym "POSITION")))
-    (labels
-        ((transform-clause (clause)
-           (destructuring-bind (type (&optional (var nil var-p)) &rest forms) clause
-             (if var-p
-                 `(,type
-                   (let ((,var ,value))
-                     ,@forms))
-                 `(,type
-                   ,@forms)))))
-      `(let* ((,original-iter ,iter)
-              (,position (forkable-wrapper-iterator-position-token ,original-iter)))
-         (parser-bind (,value ,err) ,parser-form
-           (cond
-             ((not ,err)
-              (parser-value ,value))
-             ((eq ,position (forkable-wrapper-iterator-position-token ,original-iter))
-              (typecase ,value
-                ,@(mapcar #'transform-clause clauses)
-                (t
-                 (parser-error ,value))))
-             (t
-              (parser-error ,value))))))))
-
-(defun parser-repeat-times (min max iter body-fn)
-  (let ((result (make-extensible-vector)))
-    (loop
-       :while (or (not max)
-                  (< (length result) max))
-       :do
-       (parser-bind (value err)
-           (parser-handler-case iter
-               (funcall body-fn)
-             (t (err)
-                (return-from parser-repeat-times
-                  (if (>= (length result) min)
-                      (parser-value result)
-                      (parser-error err)))))
-         (when err
-           (return-from parser-repeat-times
-             (parser-error value)))
-         (vector-push-extend value result)))
-    (parser-value result)))
-
-(defun parser-repeat-until (min stop-parser-fn iter body-fn)
-  (parser-block
-    (let ((result (if (> min 0)
-                      (parse (parser-repeat-times min min iter body-fn))
-                      (make-extensible-vector))))
-      (labels
-          ((done-p ()
-             ;; If parser-handler-case returns a value normally then
-             ;; we failed and we moved the iterator.
-             (return-from parser-repeat-until
-               (parser-handler-case iter
-                   (parser-let
-                       ((value (funcall stop-parser-fn iter)))
-                     (declare (ignore value))
-                     ;; If the stop parser parsed succesfully, then
-                     ;; we're done.
-                     (return-from done-p t))
-                 (t ()
-                    ;; We had an error, but the iterator didn't move.
-                    ;; We're not done.
-                    (return-from done-p nil))))))
-        (loop :until (done-p) :do
-           (vector-push-extend (parse (funcall body-fn)) result)))
-      (parser-value result))))
-
-(defun parser-repeat-f (min stopping-point iter body-fn)
+(defun parser-repeat-times-f (output-sequence min max body-fn)
+  (unless min
+    (setf min 0))
   (check-type min (integer 0))
-  (etypecase stopping-point
-    ((or (integer 0) null)
-     (parser-repeat-times min stopping-point iter body-fn))
-    ((or function symbol)
-     (parser-repeat-until min stopping-point iter body-fn))))
+  (check-type max (or null (integer 0)))
+  (let ((count 0))
+    (loop
+      :while (or (not max)
+                 (< count max))
+      :do
+         (parser-choice
+           (progn
+             (attachf output-sequence
+                      (funcall body-fn))
+             (incf count))
+           (if (>= count min)
+               (return)
+               (parser-throw)))))
+  output-sequence)
 
-(defmacro parser-repeat ((min stopping-point iter) &body body)
-  "Parse a sequence.
+(defmacro parser-repeat-times ((output-sequence &optional min max) &body body)
+  "Parse `body' repeatedly and attach its results to `output-sequence'.
 
-`iter' is evaluated and the result is saved.  This macro then
-repeatedly evaluates `body'.  Every time `body' returns a successful
-parse the parsed value is added to the result vector.  If `body' fails
-to parse and the position of `iter' is unchanged then this macro
-parses succesfuly and returns the result vector.  If `body' fails to
-parse and the position of `iter' has changed then this macro fails to
-parse with the same error.
+Setting `min' to nil (or failing to provide a value) is equivalent to
+setting it to 0.  Setting `max' to nil (or failing to provide a value)
+is equivalent to setting it to infinity.
 
-`min' must be a non-negative integer.  If `body' fails to parse at
-least `min' times then a parse error will be returned.
+This macro repeatedly evaluates `body' and attaches the result to
+`output-sequence'.  Repetition will continue until either
 
-`stopping-point' is either nil, a non-negative integer, or a function.
+a. `max' parses have occurred, or
+b. `min' parses have occurred and `body' fails to parse without
+   consuming the input sequence.
 
-If it is an integer, then parsing will stop with a successful result
-when that number of parses of `body' have completed.  If `body' has
-fulfilled the `min' number of required parses and it fails to parse
-without moving the `iter', then `parser-repeat' will successfully
-return the parsed objects produced by `body'.  A nil `stopping-point'
-means that there is no limit on how many times `body' will be
-evaluated.
+Unless an error occurs, this macro ultimately returns the modified
+`output-sequence'.
 
-If `stopping-point' is a function, then it will be called to decide
-when parsing should stop.  After the minimum number of repetitions
-have been satisfied, `parser-repeat' will call `stopping-point' after
-each succesful parse of `body'.  If `stopping-point' returns a
-succesful prase, then `parser-repeat' will return a succesful parse
-value.  If `stopping-point' returns a failing parse without moving
-`iter', then parsing will continue.  If `stopping-point' returns a
-failing parse and moves `iter', then `parser-repeat' will return the
-parse error produced by `stopping-point'.  Note that when
-`stopping-point' is a function, `body' must always parse succesfully.
-If `body' fails to parse then `parser-repeat' will fail to parse with
-the same error.  This is different from the case where
-`stopping-point' is an integer or nil!"
-  `(parser-repeat-f ,min ,stopping-point ,iter (lambda () ,@body)))
+If `body' fails to parse after consuming input then this macro will
+also fail to parse.  If `body' fails to parse at least `min' times,
+this macro will fail to parse."
+  `(parser-repeat-times-f ,output-sequence ,min ,max (lambda () ,@body)))
 
-(defun parse-eof (iter)
-  "Parse successfully iff the given iterator produces no values.
+(defun parser-repeat-until-f (output-sequence end-parser body-parser)
+  (loop
+    :while (parser-choice
+             (progn (funcall end-parser)
+                    nil)
+             t)
+    :do (attachf output-sequence (funcall body-parser)))
+  output-sequence)
 
-This parser function never consumes input.  If the iterator has
+(defmacro parser-repeat-until ((output-sequence end-parser-form) &body body)
+  "Parse `body' repeatedly and attach its results to `output-sequence'.
+
+This macro repeatedly evaluates `body' and attaches the result to
+`output-sequence'.  Repetition will continue until `end-parser-form'
+parses successfully.  If `body' fails to parse or `end-parser-form'
+fails to parse and consumes input, then this macro will also fail to
+parse.
+
+Unless an error occurs, this macro ultimately returns the modified
+`output-sequence'."
+  `(parser-repeat-until-f ,output-sequence (lambda () ,end-parser-form) (lambda () ,@body)))
+
+(defun parse-eof ()
+  "Parse successfully iff the sequence is empty.
+
+This parser function never consumes input.  If the sequence has
 reached the end of its values, this parser produces the value `:eof'."
-  (parser-try iter
-    (multiple-value-bind (value valid) (next iter)
-      (if valid
-          (parser-error (make-instance 'expected-eof :got value))
-          (parser-value :eof)))))
+  (if (empty-p *parser-sequence*)
+      :eof
+      (parser-throw (make-instance 'expected-eof :got (head *parser-sequence*)))))
 
-(defun parse-object-of-type (iter type)
-  "Parse successfully if the next object produced by `iter' is of type
+(defun parse-object-of-type (type)
+  "Parse successfully if the next object in the sequence is of type
 `type'."
-  (multiple-value-bind (value valid) (next iter)
+  (multiple-value-bind (value valid-p) (popf *parser-sequence*)
     (cond
-      ((not valid)
-       (parser-error (make-instance 'unexpected-eof :expected-type type)))
+      ((not valid-p)
+       (parser-throw (make-instance 'unexpected-eof :expected-type type)))
 
       ((not (typep value type))
-       (parser-error (make-instance 'type-mismatch :expected-type type :got value)))
+       (parser-throw (make-instance 'type-mismatch :expected-type type :got value)))
 
       (t
-       (parser-value value)))))
+       value))))
 
 (defmacro define-terminal (type &optional (name nil name-p))
   "Define a parser function that parses objects satisfying the type `type'.
@@ -660,17 +596,16 @@ unless the parse succeeds."
     (unless (symbolp type)
       (error "name must be provided for complex types."))
     (setf name (parser-part-name type)))
-  (let ((iter (gensym "ITER")))
-    `(define-advisable ,name (,iter)
-       ,(format
-         nil
-         "Parse successfully if the next object satisfies the type ~W.
+  `(define-advisable ,name ()
+     ,(format
+       nil
+       "Parse successfully if the next object satisfies the type ~W.
 
 If the next object does not satisfy the type then this function does
 not move the iterator."
-         type)
-       (parser-try ,iter
-         (parse-object-of-type ,iter ',type)))))
+       type)
+     (parser-try
+       (parse-object-of-type ',type))))
 
 (defmacro define-nonterminal-class (class-name direct-superclasses slots &body options)
   "Define a class just like `define-nonterminal' would have.
@@ -715,11 +650,6 @@ remainder of the list is a plist which supports the following keys.
   option is not provided then it defaults to the class name prefixed
   with PARSE-.
 
-- `:parser-choice': This key should have a symbol value.  It is not
-  evaluated and defaults to `parser-choice'.  This option exists to
-  give you the opportunity to control how backtracking works.  You
-  might do this, for example, to observe intermediate parse errors.
-
 The parser function generated by this macro is advisable.  See
 `shcl/core/advice:define-advice'.
 
@@ -728,17 +658,15 @@ Each production is turned into a parser form and then combined with
 `parser-choice'.  Thus, unlike a real grammar, the parser function
 will use the first production to match.
 
-1 .If the production is nil then it always succeeds and returns nil.
+1. If the production is nil then it always succeeds and returns nil.
 
 2. If the production is a list then it is treated as a description of
    slots for the nonterminal class and how to fill the slots.  Each
    element of the list is a list of two elements and describes one
    slot of the class.  The first element of the pair is the name of
-   the slot.  The second element should evaluate to a funcallable
-   object that takes one argument: the token iterator.  The function
-   will be funcalled and the return value will be used to initialize
-   the slot.  A class will be generated that has all the slots named
-   by all the productions of this type.  See
+   the slot.  The second element is the form which should be evaluated
+   to populate the slot.  A class will be generated that has all the
+   slots named by all the productions of this type.  See
    `define-nonterminal-class'.  You may also include `&optional' in
    the production list.  After `&optional' appears, slots are
    initialized more conservatively.  If a slot initializer returns a
@@ -748,11 +676,11 @@ will use the first production to match.
    As a shorthand, you may simply provide a symbol instead of a list
    as a slot description.  The symbol will be used as the name of the
    slot and the slot will be initialized using the function named by
-   prefixing the symbol with PARSER-.  For exmaple, these production
+   prefixing the symbol with PARSE-.  For exmaple, these production
    forms are equivalent.
 
        (foo bar baz)
-       ((foo parse-foo) (bar parse-bar) (baz parse-baz))
+       ((foo (parse-foo)) (bar (parse-bar)) (baz (parse-baz)))
 
 3. If the production is a symbol then it is treated as a parser
    function name.  This production type simply defers parsing to the
@@ -760,26 +688,19 @@ will use the first production to match.
    will emit the same value.  If it fails then the nonterminal parser
    will either try the next production or emit the same failure.  See
    `parser-choice'."
-  (let ((iter (gensym "ITER"))
-        (parse (gensym "PARSE"))
-        ;; (err (gensym "ERR"))
-        (slots (make-hash-table))
+  (let ((slots (make-hash-table))
         (options (make-extensible-vector))
         (result-forms (make-extensible-vector))
         function-name
-        class-name
-        parser-choice-sym)
+        class-name)
 
     (when (symbolp name-and-options)
       (setf name-and-options `(,name-and-options)))
 
-    (destructuring-bind (class &key ((:function-name fn) (parser-part-name class))
-                               (parser-choice 'parser-choice))
+    (destructuring-bind (class &key ((:function-name fn) (parser-part-name class)))
         name-and-options
-      (check-type parser-choice symbol)
       (setf function-name fn)
-      (setf class-name class)
-      (setf parser-choice-sym parser-choice))
+      (setf class-name class))
 
     (labels
         ((ensure-slot (name)
@@ -791,51 +712,49 @@ will use the first production to match.
            (vector-push-extend form result-forms))
          (slot-parts (slot-description)
            (if (symbolp slot-description)
-               (values (ensure-slot slot-description) `#',(parser-part-name slot-description))
-               (destructuring-bind (slot-name parser-function) slot-description
-                 (values (ensure-slot slot-name) parser-function)))))
+               (values (ensure-slot slot-description) `(,(parser-part-name slot-description)))
+               (destructuring-bind (slot-name parser-form) slot-description
+                 (values (ensure-slot slot-name) parser-form)))))
 
       (dolist (production productions)
         (cond
           ((null production)
-           (add-option `(parser-value nil)))
+           (add-option nil))
 
           ((symbolp production)
-           (add-option `(,production ,iter)))
+           (add-option `(,production)))
 
           (t
            (let* (optional-break-sym
                   (initargs
-                   (loop :while production :for slot-description = (pop production) :nconc
-                      (case slot-description
-                        (&optional
-                         (when optional-break-sym
-                           (error "&optional may only be used once"))
-                         (setf optional-break-sym (gensym "OPTIONAL-BREAK"))
-                         nil)
+                    (loop :while production :for slot-description = (pop production)
+                          :nconc
+                          (case slot-description
+                            (&optional
+                             (when optional-break-sym
+                               (error "&optional may only be used once"))
+                             (setf optional-break-sym (gensym "OPTIONAL-BREAK"))
+                             nil)
 
-                        (otherwise
-                         (multiple-value-bind (slot-name parser-function)
-                             (slot-parts slot-description)
-                           (cond
-                             (optional-break-sym
-                              `(',slot-name (unless ,optional-break-sym
-                                              (,parse
-                                               (parser-choice ,iter
-                                                 (funcall ,parser-function ,iter)
-                                                 (progn
-                                                   (setf ,optional-break-sym t)
-                                                   (parser-value nil)))))))
-                             (t
-                              `(',slot-name (,parse (funcall ,parser-function ,iter)))))))))))
+                            (otherwise
+                             (multiple-value-bind (slot-name parser-form)
+                                 (slot-parts slot-description)
+                               (cond
+                                 (optional-break-sym
+                                  `(',slot-name (unless ,optional-break-sym
+                                                  (parser-choice
+                                                      ,parser-form
+                                                    (progn
+                                                      (setf ,optional-break-sym t)
+                                                      nil)))))
+                                 (t
+                                  `(',slot-name ,parser-form)))))))))
 
              (add-option
               (if optional-break-sym
                   `(let (,optional-break-sym)
-                     (private-parser-block ,parse
-                       (parser-value (make-instance ',class-name ,@initargs))))
-                  `(private-parser-block ,parse
-                     (parser-value (make-instance ',class-name ,@initargs)))))))))
+                     (make-instance ',class-name ,@initargs))
+                  `(make-instance ',class-name ,@initargs)))))))
 
       (unless (zerop (hash-table-count slots))
         (add-result-form
@@ -843,9 +762,9 @@ will use the first production to match.
               ,(hash-table-keys slots))))
 
       (add-result-form
-       `(define-advisable ,function-name (,iter)
+       `(define-advisable ,function-name ()
           ,(format nil "This parser function tries to produce instance of the ~W class" class-name)
-          (,parser-choice-sym ,iter
-                              ,@(coerce options 'list)))))
+          (parser-choice
+              ,@(coerce options 'list)))))
 
     (apply 'progn-concatenate (coerce result-forms 'list))))

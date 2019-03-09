@@ -15,7 +15,7 @@
 (defpackage :shcl/core/shell-grammar
   (:use
    :common-lisp :shcl/core/lexer :shcl/core/utility)
-  (:import-from :shcl/core/parser-2
+  (:import-from :shcl/core/parser
    #:define-terminal #:define-nonterminal #:define-nonterminal-class
    #:parser-choice #:parser-lookahead #:parser-try #:parser-repeat-until
    #:parser-repeat-times #:parse-eof #:parse-with-sequence)

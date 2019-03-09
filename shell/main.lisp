@@ -29,7 +29,7 @@
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
   (:import-from :shcl/shell/lisp-repl)
-  (:import-from :shcl/core/parser-2 #:parse-failure)
+  (:import-from :shcl/core/parser #:parse-failure)
   (:import-from :shcl/shell/prompt
    #:with-history #:history-enter #:history-set-size #:make-editline-stream
    #:interpret-prompt-string)
