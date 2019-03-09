@@ -14,7 +14,9 @@
 
 (defpackage :shcl/test/lint
   (:use :common-lisp :shcl/core/utility :shcl/core/debug
-        :shcl/test/foundation :prove))
+   :shcl/test/foundation :prove)
+  (:import-from :shcl/core/sequence
+   #:lazy-filter #:eager-flatmap-sequence #:empty-p #:do-while-popf))
 (in-package :shcl/test/lint)
 
 (optimization-settings)
@@ -35,3 +37,40 @@
                                   (make-symbol (package-name (symbol-package sym)))
                                   sym)
                           (format out " ~S" sym))))))))))
+
+(defun symbol-exported-p (sym)
+  (eq :external (nth-value 1 (find-symbol (symbol-name sym) (symbol-package sym)))))
+
+(defun package-imported-symbols (package)
+  (unless (typep package 'package)
+    (setf package (find-package package)))
+  (let ((result (fset:empty-set)))
+    (do-symbols (sym package)
+      (when (and (not (eq (symbol-package sym) package))
+                 (not (symbol-exported-p sym)))
+        (fset:adjoinf result (cons sym package))))
+    ;; Some packages (e.g. Prove circa 2019) re-export symbols from an
+    ;; internal package that aren't exported in their home package
+    ;; (e.g. prove:reset-suite).  Luckily, we're only bringing in
+    ;; those tricky exported-but-apparently-not symbols via :use
+    ;; clauses of defpackage, so its easy to prune them out.  Anything
+    ;; exported by a package we use is a-ok... even if that package is
+    ;; sneakily importing the symbols from elsewhere.
+    (dolist (used-package (package-use-list package))
+      (do-external-symbols (used-symbol used-package)
+        (setf result (fset:less result (cons used-symbol package)))))
+    result))
+
+(define-test no-unexported-imports
+  (let* ((shcl-packages (lazy-filter (list-all-packages) (lambda (package) (shcl-package-name-p (package-name package)))))
+         (symbols (eager-flatmap-sequence shcl-packages 'package-imported-symbols (fset:empty-set))))
+    (if (empty-p symbols)
+        (pass "Awesome!  No sneaky import-froms of unexported symbols")
+        (fail (with-output-to-string (out)
+                (format out "Oh no!  Found sneaky imports:~%")
+                (do-while-popf (sym-record symbols)
+                  (destructuring-bind (sym . package) sym-record
+                    (format out "~A imports ~A::~A~%"
+                            (package-name package)
+                            (package-name (symbol-package sym))
+                            (symbol-name sym)))))))))
