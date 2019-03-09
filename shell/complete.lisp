@@ -16,7 +16,8 @@
   (:use :common-lisp :shcl/core/utility :shcl/core/iterator)
   (:import-from :shcl/core/sequence
    #:attachf #:empty-p #:concatenate-sequences #:eager-flatmap-sequence
-   #:do-while-popf #:eager-map #:eager-filter #:flatten-sequence #:walk)
+   #:do-while-popf #:eager-map #:eager-filter #:flatten-sequence #:walk #:head
+   #:tail)
   (:import-from :shcl/core/advice #:define-advice)
   (:import-from :shcl/core/shell-grammar
    #:parse-simple-command #:parse-simple-command-word #:commands-for-tokens)
@@ -39,6 +40,9 @@
   (:import-from :shcl/core/posix-types #:o-rdonly #:st-mode #:x-ok #:at-eaccess)
   (:import-from :shcl/core/support #:s-isdir)
   (:import-from :shcl/core/environment #:colon-list-iterator #:$path)
+  (:import-from :shcl/core/expand
+   #:compute-expansion-pipeline #:run-expansion-pipeline
+   #:wild-path-has-wild-component-p)
   (:import-from :shcl/core/positional-stream
    #:positional-input-stream #:position-record-offset)
   (:import-from :shcl/core/working-directory #:get-fd-current-working-directory)
@@ -235,6 +239,17 @@
 (defun all-commands ()
   (concatenate-sequences (all-binary-commands) (all-builtin-commands)))
 
+(defun shell-quote (string context)
+  (declare (ignore context))
+  ;; It makes ugly strings... but its good enough for now!
+  (with-output-to-string (out)
+    (write-char #\' out)
+    (loop :for char :across string :do
+      (if (equal char #\' )
+          (write-string "'\''" out)
+          (write-char char out)))
+    (write-char #\' out)))
+
 (defmethod completion-suggestions concatenate-sequences
     ((desired (eql (find-class 'simple-word)))
      (token simple-word)
@@ -244,14 +259,38 @@
     (unless valid-p
       (return-from completion-suggestions))
 
-    (when (empty-p command-words)
-      (labels
-          ((compatible-p (command)
-             (sequence-starts-with-p command (simple-word-text token))))
-        (eager-map (eager-filter (all-commands) #'compatible-p (fset:empty-seq))
-                   (lambda (str)
-                     (make-simple-completion-suggestion str context))
-                   (fset:empty-seq))))))
+    (cond
+      ((empty-p command-words)
+       (labels
+           ((compatible-p (command)
+              (sequence-starts-with-p command (simple-word-text token))))
+         (eager-map (eager-filter (all-commands) #'compatible-p (fset:empty-seq))
+                    (lambda (str)
+                      (make-simple-completion-suggestion str context))
+                    (fset:empty-seq))))
+
+      (t
+       ;; Technically, this should run even when command-words is
+       ;; empty.  One step at a time!
+       (let* ((pipeline (compute-expansion-pipeline :expand-aliases nil :end-at :expand-wild-paths))
+              (wild-paths (run-expansion-pipeline (list token) pipeline :split-fields nil :allow-side-effects nil)))
+         (unless (and (not (empty-p wild-paths))
+                      (empty-p (tail wild-paths)))
+           (error "Expected exactly one wild path... got ~A" wild-paths))
+
+         (when (wild-path-has-wild-component-p (head wild-paths))
+           (let* ((remaining-pipeline (compute-expansion-pipeline :expand-aliases nil :start-at :expand-wild-paths))
+                  (paths (run-expansion-pipeline wild-paths remaining-pipeline :split-fields nil :allow-side-effects nil))
+                  (quoted-paths (eager-map paths (lambda (str) (shell-quote str context)) (fset:empty-seq)))
+                  (suggestion-text (with-output-to-string (out)
+                                     (do-while-popf (path quoted-paths)
+                                       (write-string path out)
+                                       (unless (empty-p quoted-paths)
+                                         (write-string " " out))))))
+             (list
+              (make-simple-completion-suggestion
+               suggestion-text
+               context)))))))))
 
 (defvar *empty-token* (make-instance 'simple-word :text ""))
 
