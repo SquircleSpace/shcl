@@ -19,11 +19,11 @@
    #:do-while-popf #:eager-map #:eager-filter #:flatten-sequence #:walk)
   (:import-from :shcl/core/advice #:define-advice)
   (:import-from :shcl/core/shell-grammar
-   #:parse-simple-command #:parse-simple-command-word #:command-iterator)
+   #:parse-simple-command #:parse-simple-command-word #:commands-for-tokens)
   (:import-from :shcl/core/data #:clone #:define-data #:define-cloning-setf-expander #:clone)
   (:import-from :shcl/core/lexer
    #:reserved-word #:literal-token-class #:literal-token-string #:token-value
-   #:simple-word #:simple-word-text #:token-iterator #:token-position)
+   #:simple-word #:simple-word-text #:token-position #:tokens-in-string)
   (:import-from :shcl/core/parser
    #:unexpected-eof #:unexpected-eof-expected-type #:type-mismatch #:parser-try #:parser-var-let*
    #:type-mismatch-expected-type #:expected-eof #:expected-eof-got #:type-mismatch-got #:choice
@@ -295,11 +295,10 @@
 (defun completion-suggestions-for-tokens (leading-tokens token-to-complete context)
   (let* ((*collect-tab-complete-info* t)
          (sigil-token (make-instance 'sigil-token))
-         (command-iterator (command-iterator
-                            (forkable-wrapper-iterator
-                             (concatenate-iterables
-                              leading-tokens
-                              (list sigil-token)))))
+         (commands (commands-for-tokens
+                    (concatenate-sequences
+                     leading-tokens
+                     (list sigil-token))))
          (suggestions (fset:empty-set)))
     (labels
         ((add-error (err)
@@ -316,7 +315,7 @@
                                            (completion-suggestions type token-to-complete context (parser-error-vars err)))))
                (setf suggestions (eager-flatmap-sequence all-expected-types suggestion-producer suggestions))))))
       (handler-case
-          (do-iterator (command command-iterator)
+          (do-while-popf (command commands)
             (declare (ignore command)))
         (parse-failure (err)
           (add-error (parse-failure-error-object err))))
@@ -336,21 +335,19 @@ then new text will be inserted after the last character.
 
 This function returns an iterator of strings.  Each string represents
 text that could replace the token under point."
-  (let ((token-iterator (token-iterator
-                         (make-instance 'positional-input-stream
-                                        :underlying-stream (make-string-input-stream input-text))
-                         :readtable readtable))
-        (tokens (make-extensible-vector))
+  (let ((tokens (tokens-in-string input-text
+                                  :readtable readtable))
+        (tokens-under-consideration (fset:empty-seq))
         end-found)
-    (do-iterator (token token-iterator)
+    (do-while-popf (token tokens)
       (let* ((token-start (position-record-offset (token-position token)))
              (token-end (+ token-start (length (token-value token)))))
         (when (<= token-start cursor-point)
-          (vector-push-extend token tokens))
+          (fset:push-last tokens-under-consideration token))
         (when (>= token-end cursor-point)
           (setf end-found t)
           (return))))
-    (let* ((token-to-complete (if end-found (vector-pop tokens) *empty-token*))
+    (let* ((token-to-complete (if end-found (fset:pop-last tokens-under-consideration) *empty-token*))
            (token-start (if end-found
                             (position-record-offset (token-position token-to-complete))
                             (length input-text)))
@@ -359,7 +356,7 @@ text that could replace the token under point."
                           token-start))
            (token-range (cons token-start token-end)))
       (completion-suggestions-for-tokens
-       tokens
+       tokens-under-consideration
        token-to-complete
        (make-instance 'completion-context :cursor-point cursor-point
                       :readtable readtable :token-range token-range)))))

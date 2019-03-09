@@ -55,8 +55,8 @@
    #:while #:until #:for #:lbrace #:rbrace #:bang #:in
 
    ;; Functions
-   #:tokens-in-string #:tokens-in-stream #:token-iterator #:next-token
-   #:token-iterator-symbolic-readtable #:tokens-in-stream-symbolic-readtable
+   #:tokens-in-string #:tokens-in-stream #:next-token
+   #:tokens-in-stream-symbolic-readtable
 
    ;; Extensible reading
    #:lexer-context #:lexer-context-consume-p
@@ -1003,27 +1003,6 @@ For example, \"${FOO+Alternate value to use}\"."))
 This readtable only describes part of the behavior for shell syntax.
 The rest is handled by `next-token'."
   *standard-shell-readtable*)
-
-(defun token-iterator-symbolic-readtable (stream readtable-sym)
-    "Given a stream and a symbol whose value is a readtable, return an
-iterator that produces the tokens found in the stream.
-
-The value of `readtable-sym' will be re-read every time a new token is
-needed."
-  (make-computed-iterator
-    (let ((token (next-token stream :readtable (symbol-value readtable-sym))))
-      (when (typep token 'eof)
-        (stop))
-      (emit token))))
-
-(defun token-iterator (stream &key (readtable (standard-shell-readtable)))
-  "Given a stream and a readtable, return an iterator that produces
-the tokens found in the stream."
-  (make-computed-iterator
-    (let ((token (next-token stream :readtable readtable)))
-      (when (typep token 'eof)
-        (stop))
-      (emit token))))
 
 (defun tokens-in-stream-symbolic-readtable (stream readtable-sym)
   "Given a stream and a symbol whose value is a readtable, return a

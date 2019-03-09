@@ -23,10 +23,11 @@
    #:shell-pipeline #:shell-not #:& #:shell-not #:with-subshell #:shell-if
    #:shell-while #:shell-for #:shell-run #:shell-and #:shell-or)
   (:import-from :shcl/core/sequence
-   #:head #:do-while-popf #:tail #:empty-p #:walkable-to-list #:walk)
+   #:head #:do-while-popf #:tail #:empty-p #:walkable-to-list #:walk
+   #:lazy-map)
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
-  (:export #:evaluation-form-iterator #:translate #:expansion-preparation-form))
+  (:export #:evaluation-forms-for-commands #:translate #:expansion-preparation-form))
 (in-package :shcl/core/evaluate)
 
 (optimization-settings)
@@ -80,14 +81,12 @@ the token appeared."))
               `((setf (assignment-word-value-word ,value) ,new-value-form)))
           ,value)))))
 
-(defun evaluation-form-iterator (command-iterator)
-  "Given an iterator that produces shell syntax trees, return an
-iterator that produces Common Lisp forms for evaluating the shell
-command.
+(defun evaluation-forms-for-commands (command-sequence)
+  "Given a sequence of shell syntax trees, return a lazy sequence that
+contains Common Lisp forms for evaluating the shell command.
 
-This just maps `evaluation-form' onto every value produced by the
-given iterator."
-  (mapped-iterator command-iterator 'translate))
+This just maps `translate' onto every value in the sequence."
+  (lazy-map command-sequence 'translate))
 
 (defun expansion-form-for-tokens (tokens &key expand-aliases expand-pathname-words split-fields)
   (let ((prepared (mapcar 'expansion-preparation-form tokens)))
