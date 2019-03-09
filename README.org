@@ -36,6 +36,27 @@ Now lay your eyes on a lisp function participating in a pipeline!
 shcl> : ,(shcl/core/debug:graph-dependencies) | dot -Tpng > graph.png
 #+END_EXAMPLE
 
+The =#$= reader macro isn't just some hack that constructs a string to
+be evaluated by a "real" shell.  The =#$= reader macro fully parses
+the shell expression and constructs an equivalent Common Lisp form.
+SHCL IS the "real" shell!
+
+#+BEGIN_EXAMPLE
+SHCL/CORE/LISP-INTERPOLATION> (macroexpand-1 '#$ if true; then echo woo; fi #$)
+(SHCL/CORE/SHELL-FORM:SHELL-IF
+ (SHCL/CORE/SHELL-FORM:SHELL-RUN
+  (WITH-FD-STREAMS NIL
+    (EXPANSION-FOR-WORDS (LIST #<NAME "true">) :EXPAND-ALIASES T
+                         :EXPAND-PATHNAME-WORDS T :SPLIT-FIELDS NIL))
+  :ENVIRONMENT-CHANGES NIL :FD-CHANGES NIL)
+ (SHCL/CORE/SHELL-FORM:SHELL-RUN
+  (WITH-FD-STREAMS NIL
+    (EXPANSION-FOR-WORDS (LIST #<NAME "echo"> #<NAME "woo">) :EXPAND-ALIASES T
+                         :EXPAND-PATHNAME-WORDS T :SPLIT-FIELDS NIL))
+  :ENVIRONMENT-CHANGES NIL :FD-CHANGES NIL))
+T
+#+END_EXAMPLE
+
 * Building SHCL
 
 SHCL is only really tested against SBCL and CCL, but it should be
