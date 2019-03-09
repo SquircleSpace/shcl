@@ -14,8 +14,7 @@
 
 (defpackage :shcl/core/shell-form
   (:use :common-lisp :shcl/core/utility)
-  (:import-from :shcl/core/iterator #:do-iterator #:iterator)
-  (:import-from :shcl/core/sequence #:walkable-to-list)
+  (:import-from :shcl/core/sequence #:walkable-to-list #:do-while-popf #:walk)
   (:import-from :shcl/core/shell-environment
    #:destroy-preserved-shell-environment #:preserve-shell-environment
    #:with-restored-shell-environment #:with-subshell)
@@ -320,15 +319,17 @@ bound to each string in `word-seq'.
 `variable' should be a string or a form that produces a string.  It is
 evaluated once.
 
-`word-seq' should be an object that can be iterated using `iterator'.
-The values produced by the iterator should be strings."
+`word-seq' should be an object that can be walked using `walk'.
+The values contained within the sequence should be strings."
   (let ((result (gensym "RESULT"))
         (value (gensym "VALUE"))
-        (var (gensym "VAR")))
+        (var (gensym "VAR"))
+        (sequence (gensym "SEQUENCE")))
     `(break-level
        (let ((,result (truthy-exit-info))
-             (,var ,variable))
-         (do-iterator (,value (iterator ,word-seq))
+             (,var ,variable)
+             (,sequence (walk ,word-seq)))
+         (do-while-popf (,value ,sequence)
            (setf (env ,var) ,value)
            (setf ,result (continue-level ,@body)))
          ,result))))
