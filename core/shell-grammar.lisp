@@ -22,10 +22,9 @@
   (:import-from :shcl/core/sequence
    #:attachf #:walk #:lazy-sequence #:empty-immutable-list #:immutable-cons
    #:pour-from #:popf)
-  (:import-from :shcl/core/iterator)
   (:import-from :shcl/core/advice #:define-advice #:define-advisable)
   (:export
-   #:commands-for-tokens #:command-iterator
+   #:commands-for-tokens
    ;; nonterminals
    #:complete-command #:command-list #:and-or #:and-or-tail :pipeline
    #:pipe-sequence #:pipe-sequence-tail #:command
@@ -342,17 +341,6 @@
 (define-nonterminal sequential-sep
   (semi linebreak)
   (newline-list))
-
-(defun command-iterator (token-iterator)
-  "Given a `forkable-wrapper-iterator' that produces tokens, return an
- iterator that produces shell syntax tree objects."
-  (let* ((token-sequence (shcl/core/sequence:walk-iterator token-iterator))
-         (commands (commands-for-tokens token-sequence)))
-    (shcl/core/iterator:make-computed-iterator
-      (multiple-value-bind (value valid-p) (popf commands)
-        (if valid-p
-            (shcl/core/iterator:emit value)
-            (shcl/core/iterator:stop))))))
 
 (defun commands-for-tokens (tokens)
   "Given a walkable sequence of tokens, return a walkable sequence

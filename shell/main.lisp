@@ -18,6 +18,7 @@
    :shcl/core/utility :shcl/core/evaluate
    :shcl/core/lisp-interpolation :shcl/core/dispatch-table
    :shcl/core/iterator)
+  (:import-from :shcl/core/sequence #:lazy-map #:do-while-popf)
   (:import-from :shcl/core/command #:define-builtin)
   (:import-from :shcl/core/shell-lambda
    #:handle-command-errors #:with-parsed-arguments)
@@ -120,33 +121,33 @@ See `*fresh-prompt*'."
 (defun main-complete (input-string cursor-position)
   (completion-suggestions-for-input input-string cursor-position *shell-readtable*))
 
-(defun logging-token-iterator (stream)
+(defun logging-token-sequence (stream)
   "Return an iterator that produces the tokens found in `stream'.
 
 Tokens are read using `*shell-readtable*'."
-  (mapped-iterator (token-iterator-symbolic-readtable stream '*shell-readtable*)
-                   (lambda (token)
-                     (debug-log status "TOKEN: ~A" token)
-                     token)))
+  (lazy-map (tokens-in-stream-symbolic-readtable stream '*shell-readtable*)
+            (lambda (token)
+              (debug-log status "TOKEN: ~A" token)
+              token)))
 
-(defun logging-command-iterator (token-iterator)
-  (mapped-iterator (command-iterator (forkable-wrapper-iterator token-iterator))
-                   (lambda (command)
-                     (debug-log status "COMMAND: ~A" command)
-                     command)))
+(defun logging-command-sequence (tokens)
+  (lazy-map (commands-for-tokens tokens)
+            (lambda (command)
+              (debug-log status "COMMAND: ~A" command)
+              command)))
 
-(defun logging-evaluation-form-iterator (command-iterator)
-  (mapped-iterator (evaluation-form-iterator command-iterator)
-                   (lambda (form)
-                     (debug-log status "EVAL: ~A" form)
-                     form)))
+(defun logging-evaluation-form-sequence (commands)
+  (lazy-map (evaluation-forms-for-commands commands)
+            (lambda (form)
+              (debug-log status "EVAL: ~A" form)
+              form)))
 
-(defun logging-result-iterator (form-iterator)
-  (mapped-iterator form-iterator
-                   (lambda (form)
-                     (let ((values (multiple-value-list (eval form))))
-                       (debug-log status "RESULT: ~A" values)
-                       values))))
+(defun logging-evaluated-result-sequence (forms)
+  (lazy-map forms
+            (lambda (form)
+              (let ((values (multiple-value-list (eval form))))
+                (debug-log status "RESULT: ~A" values)
+                values))))
 
 (defun main-iterator (stream &key history)
   (let* ((captured-input (when history (make-string-output-stream)))
@@ -159,28 +160,28 @@ Tokens are read using `*shell-readtable*'."
                (when history
                  (history-enter history (get-output-stream-string captured-input)))
                (setf *fresh-prompt* t))
-             (initialize-iterator ()
+             (initialize-sequence ()
                (setf results (as-> wrapped-stream x
-                               (logging-token-iterator x)
-                               (logging-command-iterator x)
-                               (logging-evaluation-form-iterator x)
-                               (logging-result-iterator x))))
-             (reset-token-iterator ()
+                               (logging-token-sequence x)
+                               (logging-command-sequence x)
+                               (logging-evaluation-form-sequence x)
+                               (logging-evaluated-result-sequence x))))
+             (reset-token-sequence ()
                (loop :while (read-char-no-hang wrapped-stream nil nil))
-               (initialize-iterator)
+               (initialize-sequence)
                (record-history)))
           (unless results
-            (initialize-iterator))
+            (initialize-sequence))
           (tagbody
            start
              (restart-case
                  (progn
-                   (do-iterator (value results)
+                   (do-while-popf (value results)
                      (record-history)
                      (emit value))
                    (stop))
                (ignore-command ()
-                 (reset-token-iterator)
+                 (reset-token-sequence)
                  (go start))
                (die ()
                  (exit 1)))))))))

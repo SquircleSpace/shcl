@@ -18,10 +18,10 @@
    :shcl/core/expand
    :shcl/core/exit-info :shcl/core/iterator :shcl/core/fd-table
    :shcl/core/dispatch-table)
-  (:import-from :shcl/core/sequence #:walkable-to-list)
+  (:import-from :shcl/core/sequence #:walkable-to-list #:pour-from #:empty-p)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :shcl/core/command #:define-special-builtin)
-  (:import-from :shcl/core/evaluate #:evaluation-form-iterator #:translate #:expansion-preparation-form)
+  (:import-from :shcl/core/evaluate #:translate #:expansion-preparation-form #:evaluation-forms-for-commands)
   (:import-from :shcl/core/posix)
   (:import-from :bordeaux-threads)
   (:import-from :babel)
@@ -217,14 +217,11 @@ evauluated in the null lexical environment."
   "This macro is responsible for parsing (at macro expansion time) a
 sequence of tokens and producing code which evaulates the shell
 command they describe."
-  (let* ((token-iter (forkable-wrapper-iterator (list-iterator tokens)))
-         (commands (command-iterator token-iter))
-         (evaluates (iterable-values (evaluation-form-iterator commands))))
-    (do-iterator (value token-iter)
-      (assert nil nil "Unconsumed token ~A found" value))
-    (when (zerop (length evaluates))
-      (setf evaluates #((truthy-exit-info))))
-    (apply 'progn-concatenate (coerce evaluates 'list))))
+  (let* ((commands (commands-for-tokens tokens))
+         (evaluates (pour-from (evaluation-forms-for-commands commands) (fset:empty-seq))))
+    (when (empty-p evaluates)
+      (setf evaluates '((truthy-exit-info))))
+    (apply 'progn-concatenate (walkable-to-list evaluates))))
 
 (define-condition exit-failure (error)
   ((info
