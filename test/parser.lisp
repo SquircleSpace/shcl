@@ -12,38 +12,38 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl/test/parser-2
-  (:use :common-lisp :shcl/core/parser-2 :shcl/test/foundation :prove)
+(defpackage :shcl/test/parser
+  (:use :common-lisp :shcl/core/parser :shcl/test/foundation :prove)
   (:import-from :shcl/core/advice #:define-advice)
   (:import-from :shcl/core/utility #:optimization-settings)
   (:import-from :fset)
   (:import-from :shcl/core/sequence #:head #:tail #:empty-p #:attach #:empty-of #:walk #:attachf))
-(in-package :shcl/test/parser-2)
+(in-package :shcl/test/parser)
 
 (optimization-settings)
 
-(link-package-to-system :shcl/core/parser-2)
+(link-package-to-system :shcl/core/parser)
 
 (defun compare-equal-p (left right)
   (eq :equal (fset:compare left right)))
 
 (define-test parser-throw
   (block nil
-    (catch shcl/core/parser-2::+parser-error+
+    (catch shcl/core/parser::+parser-error+
       (parser-throw)
       (fail "parser-throw failed to throw")
       (return))
     (pass "parser-throw actually threw!"))
 
-  (let ((shcl/core/parser-2::*parser-errors* (fset:seq 1 2 3)))
-    (catch shcl/core/parser-2::+parser-error+
+  (let ((shcl/core/parser::*parser-errors* (fset:seq 1 2 3)))
+    (catch shcl/core/parser::+parser-error+
       (parser-throw 4))
-    (is shcl/core/parser-2::*parser-errors* (fset:seq 1 2 3 4)
+    (is shcl/core/parser::*parser-errors* (fset:seq 1 2 3 4)
         "parser-throw adds the thrown error to *parser-errors*"
         :test 'compare-equal-p)
-    (catch shcl/core/parser-2::+parser-error+
+    (catch shcl/core/parser::+parser-error+
       (parser-throw))
-    (is shcl/core/parser-2::*parser-errors* (fset:seq 1 2 3 4)
+    (is shcl/core/parser::*parser-errors* (fset:seq 1 2 3 4)
         "parser-throw doesn't touch *parser-errors* if its not given a value"
         :test 'compare-equal-p)))
 
@@ -56,7 +56,7 @@
            (parse-with-sequence ,sequence
              (unwind-protect
                   (progn ,@body)
-               (setf ,last-sequence-value shcl/core/parser-2::*parser-sequence*)))
+               (setf ,last-sequence-value shcl/core/parser::*parser-sequence*)))
          (parse-failure ()))
        ,last-sequence-value)))
 
@@ -275,7 +275,7 @@
   (is-error (parser-var 'sym) 'error
             "Attempting to access a parser-var outside of a parse is an error")
   (parse-with-sequence '(1 2 3 4)
-    (is shcl/core/parser-2::*parser-vars*
+    (is shcl/core/parser::*parser-vars*
         (fset:empty-map)
         "parser-var state is empty at the start of a parse"
         :test 'compare-equal-p)

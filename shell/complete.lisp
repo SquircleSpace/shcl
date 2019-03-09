@@ -24,7 +24,7 @@
   (:import-from :shcl/core/lexer
    #:reserved-word #:literal-token-class #:literal-token-string #:token-value
    #:simple-word #:simple-word-text #:token-iterator #:token-position)
-  (:import-from :shcl/core/parser-2
+  (:import-from :shcl/core/parser
    #:unexpected-eof #:unexpected-eof-expected-type #:type-mismatch #:parser-try #:parser-var-let*
    #:type-mismatch-expected-type #:expected-eof #:expected-eof-got #:type-mismatch-got #:choice
    #:choice-errors #:parse-failure #:parse-failure-error-object #:parser-var
