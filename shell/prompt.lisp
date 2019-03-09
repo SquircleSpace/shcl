@@ -29,7 +29,7 @@
   (:import-from :shcl/core/support #:string-table)
   (:import-from :fset)
   (:export
-   #:with-history #:history-set-size #:get-line
+   #:with-history #:history-set-size #:get-line #:history-enter
    #:interpret-prompt-string #:make-editline-stream
    #:completion-suggestion-display-text #:completion-suggestion-replacement-text
    #:completion-suggestion-replacement-range
@@ -218,6 +218,7 @@ To obtain a history object, use `with-history'."
     (history (foreign-history-ptr h) ev +h-setsize+ :int size)))
 
 (defun history-enter (h str)
+  "Add a record to the given history object."
   (with-histevent (ev)
     (history (foreign-history-ptr h) ev +h-enter+ :string str)))
 
