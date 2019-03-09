@@ -17,7 +17,7 @@
         :shcl/test/foundation)
   (:import-from :shcl/core/shell-environment #:with-subshell)
   (:import-from :shcl/core/lisp-interpolation #:evaluate-shell-string)
-  (:import-from :shcl/core/exit-info #:exit-info-true-p #:exit-info-exit-status
+  (:import-from :shcl/core/exit-info #:exit-info-true-p #:exit-info-code
                 #:truthy-exit-info)
   (:import-from :fset))
 (in-package :shcl/test/command)
@@ -87,7 +87,7 @@
        (with-subshell
          (evaluate-shell-string "exit")))
       "Exit with no arguments exits with status 0")
-  (is (exit-info-exit-status
+  (is (exit-info-code
        (with-subshell
          (evaluate-shell-string "exit 1")))
       1

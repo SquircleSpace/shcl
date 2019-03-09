@@ -20,7 +20,7 @@
   (:import-from :shcl/core/fd-table #:with-fd-streams)
   (:import-from :shcl/core/exit-info
                 #:exit-info-true-p #:exit-info-false-p #:truthy-exit-info
-                #:falsey-exit-info #:exit-info #:exit-info-exit-status)
+                #:falsey-exit-info #:exit-info #:exit-info-code)
   (:import-from :fset))
 (in-package :shcl/test/shell-form)
 
@@ -94,7 +94,7 @@
   (let (true-path-evaluated
         false-path-evaluated)
     (ok (equal 1
-               (exit-info-exit-status
+               (exit-info-code
                 (shell-if (truthy-exit-info)
                           (progn
                             (setf true-path-evaluated t)
@@ -110,7 +110,7 @@
   (let (true-path-evaluated
         false-path-evaluated)
     (ok (equal 2
-               (exit-info-exit-status
+               (exit-info-code
                 (shell-if (falsey-exit-info)
                           (progn
                             (setf true-path-evaluated t)
@@ -125,19 +125,19 @@
         "Falsey path was not executed"))
 
   (ok (equal 2
-             (exit-info-exit-status
+             (exit-info-code
               (shell-if (make-instance 'exit-info :exit-status 2)
                         (make-instance 'exit-info :exit-status 1))))
       "Exit info of condition is emitted when false and no else branch provided"))
 
 (define-test shell-when
-  (is (exit-info-exit-status
+  (is (exit-info-code
        (shell-when (make-instance 'exit-info :exit-status 2)
          (make-instance 'exit-info :exit-status 1)))
       2
       "Exit info of condition is emitted when false")
 
-  (is (exit-info-exit-status
+  (is (exit-info-code
        (shell-when (truthy-exit-info)
          (make-instance 'exit-info :exit-status 2)))
       2
@@ -149,7 +149,7 @@
          (make-instance 'exit-info :exit-status 2)))
       "Exit info of condition is emitted when true")
 
-  (is (exit-info-exit-status
+  (is (exit-info-code
        (shell-unless (make-instance 'exit-info :exit-status 3)
          (make-instance 'exit-info :exit-status 2)))
       2
@@ -161,7 +161,7 @@
                            (falsey-exit-info)))
         (execution-count 0)
         status)
-    (is (exit-info-exit-status
+    (is (exit-info-code
          (shell-while (setf status (pop status-list))
            (incf execution-count)
            (make-instance 'exit-info :exit-status 2)))
@@ -186,7 +186,7 @@
   (let* ((string-list '("a" "b" "c"))
          (string-list-copy string-list)
          (execution-count 0))
-    (is (exit-info-exit-status
+    (is (exit-info-code
          (shell-for ("var" string-list)
            (is (env "var") (pop string-list-copy)
                "Iteration works")
@@ -216,7 +216,7 @@
            (funcall fn)))
        (test-exit-info (looper-fn)
          (let ((loop-count 0))
-           (is (exit-info-exit-status
+           (is (exit-info-code
                 (with-continuator looper-fn
                   (incf loop-count)
                   (when (equal 3 loop-count)
@@ -231,7 +231,7 @@
          (let ((outer-loop-count 0)
                (middle-loop-count 0)
                (inner-loop-count 0))
-           (is (exit-info-exit-status
+           (is (exit-info-code
                 (with-continuator looper-fn
                   (with-continuator looper-fn
                     (with-continuator looper-fn
