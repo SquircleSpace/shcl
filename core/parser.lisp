@@ -17,8 +17,9 @@
   (:import-from :shcl/core/utility #:optimization-settings #:required #:make-extensible-vector #:symbol-nconc-intern #:symbol-nconc-gensym #:progn-concatenate)
   (:import-from :shcl/core/advice #:define-advisable)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander #:clone)
-  (:import-from :shcl/core/iterator #:iterator #:do-iterator #:make-computed-iterator #:emit #:stop)
-  (:import-from :shcl/core/sequence #:head #:tail #:empty-p #:attach #:empty-of #:walk #:popf #:attachf)
+  (:import-from :shcl/core/sequence
+   #:head #:tail #:empty-p #:attach #:empty-of #:walk #:popf #:attachf
+   #:do-while-popf)
   (:import-from :fset)
   (:import-from :alexandria #:hash-table-keys)
   (:export
@@ -181,40 +182,15 @@ all failed.
 Use `choice-errors' to access the errors produced by the potential
 parses."))
 
-(defun choice-errors-iterator (choice &key recursive-p)
-  "Return an iterator that traverses the errors contained in a
-`choice' instance.
-
-If `recursive-p' is non-nil, then the iterator will recursively
-traverse any `choice' objects it encounters.  In that case, the
-iterator will not emit any `choice' objects.  If `recursive-p' is nil
-then `choice' objects will be emitted just like every other error
-object."
-  (unless recursive-p
-    (return-from choice-errors-iterator
-      (iterator (choice-errors choice))))
-
-  (let ((stack (make-extensible-vector)))
-    (vector-push-extend (iterator (choice-errors choice)) stack)
-    (make-computed-iterator
-      (loop :while (not (zerop (length stack))) :do
-         (block again
-           (do-iterator (err (aref stack (1- (length stack))))
-             (when (typep err 'choice)
-               (vector-push-extend (choice-errors-iterator err :recursive-p recursive-p) stack)
-               (return-from again))
-             (emit err))
-           (vector-pop stack)))
-      (stop))))
-
 (defmethod print-error ((err choice) stream)
   (when (empty-p (choice-errors err))
     (return-from print-error
       (format stream "No choice but to fail the parse")))
   (format stream "Tried multiple parses that all failed")
-  (do-iterator (error (choice-errors-iterator err :recursive-p t))
-    (format stream "~%")
-    (print-error error stream)))
+  (let ((errors (choice-errors err)))
+    (do-while-popf (error errors)
+      (format stream "~%")
+      (print-error error stream))))
 
 (define-data unconditional-failure (parser-error)
   ()
@@ -602,7 +578,7 @@ unless the parse succeeds."
        "Parse successfully if the next object satisfies the type ~W.
 
 If the next object does not satisfy the type then this function does
-not move the iterator."
+not modify the input sequence."
        type)
      (parser-try
        (parse-object-of-type ',type))))
