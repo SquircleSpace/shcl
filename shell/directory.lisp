@@ -18,12 +18,15 @@
    :shcl/core/working-directory :shcl/core/fd-table
    :shcl/core/lisp-interpolation :shcl/core/posix :shcl/core/posix-types)
   (:import-from :shcl/core/environment #:env #:$pwd #:$oldpwd #:$home
-                #:$cdpath #:colon-list-iterator))
+                #:$cdpath #:colon-list-iterator)
+  (:export #:physical-pwd))
 (in-package :shcl/shell/directory)
 
 (optimization-settings)
 
 (defun physical-pwd ()
+  "Return the so-called physical path to the present working
+directory."
   (let ((raw-path (capture (:streams '(:stdout)) (evaluate-constant-shell-string "pwd -P"))))
     (string-right-trim #(#\newline) raw-path)))
 
