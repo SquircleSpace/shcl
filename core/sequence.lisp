@@ -47,6 +47,10 @@ this function should return two nil values.  If the walkable isn't
 empty then this function shall return two values: the first element of
 the sequence and a non-nil value."))
 
+(defmethod head (walkable)
+  (let ((walker (walk walkable)))
+    (head walker)))
+
 (defgeneric tail (walkable)
   (:documentation
    "Return a walkable representing everything except the first element
@@ -60,6 +64,10 @@ simultaneously from multiple threads.
 
 If `walkable' is empty then this function will return `walkable'
 unmodified."))
+
+(defmethod tail (walkable)
+  (let ((walker (walk walkable)))
+    (tail walker)))
 
 (defgeneric empty-p (walkable)
   (:documentation
@@ -402,6 +410,11 @@ state with some other unit of code."
 (defmethod walk ((vector-walkable vector-walkable))
   vector-walkable)
 
+(defmethod head ((vector vector))
+  (if (zerop (length vector))
+      (values nil nil)
+      (values (aref vector 0) t)))
+
 (defmethod head ((vector-walkable vector-walkable))
   (if (vector-walkable-vector vector-walkable)
       (values (aref (vector-walkable-vector vector-walkable)
@@ -418,8 +431,17 @@ state with some other unit of code."
       (make-vector-walkable :vector (vector-walkable-vector vector-walkable)
                             :offset (1+ (vector-walkable-offset vector-walkable)))))
 
+(defmethod tail ((vector vector))
+  (let ((length (length vector)))
+    (if (>= 1 (length vector))
+        (make-vector-walkable)
+        (make-vector-walkable :vector vector :offset 1))))
+
 (defmethod empty-p ((vector-walkable vector-walkable))
   (null (vector-walkable-vector vector-walkable)))
+
+(defmethod empty-p ((vector vector))
+  (zerop (length vector)))
 
 ;;; fset:seq
 
@@ -553,24 +575,34 @@ macro will pop an element off the walkable, bind it to `var', and evaluate
 This macro is sort of like the walkable version of `dolist'.  However,
 in an effort to avoid retaining the head of the sequence, this macro
 is intentionally destructive.  That is, `walkable-place' will get
-modified each time this macro evaluates `body'."
-  ;; If we actually just used `popf' then we'd evaluate
-  ;; `walkable-place' every time through the loop.
-  (multiple-value-bind
-        (vars vals store-vars writer-form reader-form)
-      (get-setf-expansion walkable-place env)
-    (let ((bindings (mapcar 'list vars vals))
-          (value (gensym "VALUE"))
-          (valid-p (gensym "VALID-P")))
-      `(let ,bindings
-         (loop
-           (multiple-value-bind (,value ,valid-p) (head ,reader-form)
-             (unless ,valid-p
-               (return ,result))
-             (multiple-value-bind ,store-vars (tail ,reader-form)
-               ,writer-form)
-             (let ((,var ,value))
-               ,@body)))))))
+modified each time this macro evaluates `body'.
+
+This macro repeatedly uses `popf' to remove an element from
+`walkable-place' until the second return value is nil.  As a result,
+`walkable-place' will be evaluated multiple times."
+  (let ((value (gensym "VALUE"))
+        (valid-p (gensym "VALID-P")))
+    `(loop
+       (multiple-value-bind (,value ,valid-p) (popf ,walkable-place)
+         (unless ,valid-p
+           (return ,result))
+         (let ((,var ,value))
+           ,@body)))))
+
+(defmacro do-sequence ((var sequence &optional result) &body body)
+  "Repeatedly evaluate `body' with `var' bound to the successive
+elements in `sequence'.
+
+This macro is the walkable version of `dolist'.
+
+Note that unlike regular cons lists, sequences may be lazy and have an
+infinite number of distinct elements.  Thus, it is important to avoid
+unnecessarily retaining a pointer to an early part of a sequence while
+traversing it with this macro.  See also `do-while-popf'."
+  (let ((walker (gensym "WALKER")))
+    `(let ((,walker ,walkable))
+       (do-while-popf (,var ,walker ,result)
+         ,@body))))
 
 (defun lazy-map (walkable fn)
   "Create a lazy sequence that consists of `fn' applied to each
