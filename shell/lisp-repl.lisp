@@ -80,7 +80,7 @@ prompt."
     (catch 'return-to-shell
       (let* ((*package* (find-package :shcl-user))
              (*fresh-prompt* t)
-             (*default-pathname-defaults* (uiop:parse-native-namestring (physical-pwd)))
+             (*default-pathname-defaults* (uiop:parse-native-namestring (physical-pwd) :ensure-directory t))
              (stdin-raw (make-editline-stream :prompt-fn 'repl-prompt :history h))
              (captured-input (make-string-output-stream))
              (stdin (make-echo-stream stdin-raw captured-input)))
