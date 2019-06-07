@@ -13,33 +13,23 @@
 # limitations under the License.
 
 { pkgs ? import <nixpkgs> {} }:
+let
+  mkNixlispBundle = import ./nixlisp/mkNixlispBundle.nix pkgs;
+  nixlispBundle = mkNixlispBundle (import ./nixlisp/qlDist.nix);
+in
 pkgs.stdenv.mkDerivation rec {
   name = "shcl";
   src = ./.;
   env = pkgs.buildEnv { name = name; paths = buildInputs; };
   buildInputs = [
     pkgs.clang
-    pkgs.libedit # BSD 3-clause
-    pkgs.lispPackages.alexandria # Public domain
-    pkgs.lispPackages.bordeaux-threads # MIT
-    pkgs.lispPackages.cffi # MIT
-    pkgs.lispPackages.cffi-grovel # MIT
-    pkgs.lispPackages.cl-fad # BSD 2-clause
-    pkgs.lispPackages.closer-mop # MIT
-    pkgs.lispPackages.cl-ppcre # BSD 2-clause
-    pkgs.lispPackages.fset # Lisp LGPL
-    pkgs.lispPackages.swank # Public domain
-    pkgs.lispPackages.trivial-garbage # Public domain
-    pkgs.lispPackages.trivial-gray-streams # MIT
-    pkgs.lispPackages.lisp-namespace # Lisp LGPL
-    pkgs.lispPackages.clwrapper
+    pkgs.libedit
     pkgs.sbcl
-    # For test
-    pkgs.lispPackages.prove # MIT
+    nixlispBundle
   ];
   LD_LIBRARY_PATH = "${pkgs.stdenv.lib.makeLibraryPath buildInputs}";
   installPhase = ''
-    make PREFIX=$out install
+    make PREFIX=$out install LISP="cl-wrapper.sh sbcl --eval '(push :shcl-nix *features*)'"
   '';
   buildPhase = ''
     libedit="${pkgs.libedit}" make LISP="cl-wrapper.sh sbcl --eval '(push :shcl-nix *features*)'"
