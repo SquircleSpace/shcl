@@ -12,6 +12,8 @@ matrix:
   include:
     - env: LISP=sbcl/1.4.15
       os: linux
+    - env: LISP=sbcl/1.5.2
+      os: osx
     - language: nix
       os: linux
       env:
@@ -20,6 +22,8 @@ matrix:
   allow_failures:
     - env: LISP=sbcl-bin
       os: linux
+    - env: LISP=sbcl-bin
+      os: osx
 
 install:
   - ./ci/install
