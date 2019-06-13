@@ -129,7 +129,7 @@ Returns two values: the variable name and the value."
   "Translate the posix environment of the current process into a map
 suitable for storing in `*environment*'."
   (let ((map (fset:empty-map *env-default-binding*)))
-    (do-iterator (binding (environment-iterator))
+    (do-environment (binding)
       (multiple-value-bind (key value) (deconstruct-environment-assignment-string binding)
         (setf map (fset:with map key (make-instance 'environment-binding
                                                     :value value
