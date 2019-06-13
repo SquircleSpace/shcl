@@ -15,11 +15,11 @@
 (defpackage :shcl/core/posix
   (:use
    :common-lisp :cffi :trivial-garbage :shcl/core/posix-types
-   :shcl/core/utility :shcl/core/iterator :shcl/core/support)
+   :shcl/core/utility :shcl/core/support)
   (:import-from :fset)
   (:export
-   #:environment-iterator #:do-directory-contents #:dir-ptr #:fdopendir
-   #:closedir #:dirfd #:readdir
+   #:do-environment #:copy-environment #:do-directory-contents #:dir-ptr
+   #:fdopendir #:closedir #:dirfd #:readdir
    #:posix-read #:strlen #:posix-write #:exit
    #:waitpid #:dup #:getpid #:posix-open #:openat #:fcntl #:posix-close
    #:pipe #:fstat #:syscall-error #:syscall-errno #:file-ptr #:fdopen
@@ -38,21 +38,26 @@
   "Returns non-nil iff `number' is not -1."
   (not (equal -1 number)))
 
-(defun environment-iterator ()
-  "Returns an iterator that emits the bindings in the current process
-environment.
+(defmacro do-environment ((var &optional result) &body body)
+  "Iterate through the process environment, repeatedly binding `var'
+to the environment binding strings."
+  (let ((environment-pointer (gensym "ENVIRONMENT-POINTER"))
+        (index (gensym "INDEX")))
+    `(loop :with ,environment-pointer = environ
+           :with ,index = 0
+           :until (null-pointer-p (mem-aref ,environment-pointer :pointer ,index))
+           :do
+              (let ((,var (mem-aref ,environment-pointer :string ,index)))
+                ,@body)
+           :do (incf ,index))))
 
-This function assumes that the process environment will not change
-during iteration."
-  (let ((environment-pointer environ)
-        (index 0))
-    (make-computed-iterator
-      (when (null-pointer-p (mem-aref environment-pointer :pointer index))
-        (stop))
-
-      (let ((result (mem-aref environment-pointer :string index)))
-        (incf index)
-        (emit result)))))
+(defun copy-environment ()
+  "Return a sequence containing all the strings in the process
+environment."
+  (let ((result (make-extensible-vector :element-type 'string)))
+    (do-environment (string)
+      (vector-push-extend string result))
+    result))
 
 (define-foreign-type dir-ptr ()
   ()
