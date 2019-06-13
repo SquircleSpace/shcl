@@ -23,7 +23,7 @@
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
-   #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence
+   #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence #:do-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:walk-iterator))
@@ -601,7 +601,7 @@ infinite number of distinct elements.  Thus, it is important to avoid
 unnecessarily retaining a pointer to an early part of a sequence while
 traversing it with this macro.  See also `do-while-popf'."
   (let ((walker (gensym "WALKER")))
-    `(let ((,walker ,walkable))
+    `(let ((,walker ,sequence))
        (do-while-popf (,var ,walker ,result)
          ,@body))))
 
