@@ -39,7 +39,7 @@
    #:fstat #:faccessat #:syscall-error #:do-directory-contents)
   (:import-from :shcl/core/posix-types #:o-rdonly #:st-mode #:x-ok #:at-eaccess)
   (:import-from :shcl/core/support #:s-isdir)
-  (:import-from :shcl/core/environment #:colon-list-iterator #:$path)
+  (:import-from :shcl/core/environment #:split-colon-list #:$path)
   (:import-from :shcl/core/expand
    #:compute-expansion-pipeline #:run-expansion-pipeline
    #:wild-path-has-wild-component-p)
@@ -220,13 +220,13 @@
     result))
 
 (defun all-binary-commands ()
-  (let ((result (fset:empty-seq)))
-    (do-iterator (path (colon-list-iterator $path))
-      (when (equal "" path)
-        ;; POSIX says we need to do this...
-        (setf path "."))
-      (attachf result (executables-in-directory path)))
-    (flatten-sequence result)))
+  (labels
+      ((handle (path)
+         (when (equal "" path)
+           ;; POSIX says we need to do this...
+           (setf path "."))
+         (executables-in-directory path)))
+    (eager-flatmap-sequence (split-colon-list $path) #'handle (fset:empty-seq))))
 
 (defun all-builtin-commands ()
   (let ((result (fset:empty-set))

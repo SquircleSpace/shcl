@@ -14,8 +14,8 @@
 
 (defpackage :shcl/core/environment
   (:use
-   :common-lisp :shcl/core/utility :shcl/core/posix :shcl/core/shell-environment
-   :shcl/core/iterator)
+   :common-lisp :shcl/core/utility :shcl/core/posix :shcl/core/shell-environment)
+  (:import-from :shcl/core/sequence #:head #:tail #:empty-p #:walk)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :fset)
   (:export
@@ -23,7 +23,7 @@
    #:env #:env-exported-p #:env-readonly-p
    ;; Utility
    #:linearized-exported-environment #:with-environment-scope
-   #:colon-list-iterator #:clear-environment #:reset-environment
+   #:split-colon-list #:clear-environment #:reset-environment
    #:deconstruct-environment-assignment-string
    ;; Common environment variables
    #:$ifs #:$path #:$cdpath #:$pwd #:$oldpwd #:$home
@@ -249,22 +249,48 @@ value associated with the variable will signal an error."
         (not (not value)))
   value)
 
-(defun colon-list-iterator (string)
+(defstruct colon-list-sequence
+  head
+  tail)
+
+(defmethod walk ((sequence colon-list-sequence))
+  sequence)
+
+(defmethod head ((sequence colon-list-sequence))
+  (values (colon-list-sequence-head sequence) t))
+
+(defmethod tail ((sequence colon-list-sequence))
+  (let ((tail (colon-list-sequence-tail sequence)))
+    (when tail
+      (split-colon-list tail))))
+
+(defmethod empty-p ((sequence colon-list-sequence))
+  nil)
+
+(defun split-colon-list (string)
   "This function interprets `string' as a #\: delimited list and
-returns an iterator which produces the elements of that list."
-  (let ((part (make-string-output-stream))
-        (iterator (vector-iterator string)))
-    (make-computed-iterator
-      (do-iterator (c iterator)
-        (case c
-          (#\:
-           (emit (get-output-stream-string part)))
-          (otherwise
-           (write-char c part))))
-      (let ((last-part (get-output-stream-string part)))
-        (unless (zerop (length last-part))
-          (emit last-part))
-        (stop)))))
+returns a sequence containing the elements of that list.
+
+This function can be thought of as matching the following regex.
+    ([^:]*)(:.*)?
+Anything matching the first group becomes the head of the list.  If
+the second group matches anything, the #\: is stripped away and the
+result is processed recursively.  Note that the empty string is
+considered to be an empty list."
+  (when (zerop (length string))
+    (return-from split-colon-list nil))
+
+  (let* ((position (position #\: string))
+         (head-stream (make-string-output-stream))
+         (tail (when position
+                 (make-array (- (length string) (1+ position))
+                             :element-type (array-element-type string)
+                             :displaced-to string
+                             :displaced-index-offset (1+ position)))))
+    (loop :for index :below (or position (length string)) :do
+      (write-char (aref string index) head-stream))
+    (make-colon-list-sequence :head (get-output-stream-string head-stream)
+                              :tail tail)))
 
 (defmacro define-environment-accessor (sym-and-name &body options)
   "Define a symbol macro that accesses the given environment

@@ -18,7 +18,7 @@
    :shcl/core/working-directory :shcl/core/fd-table
    :shcl/core/lisp-interpolation :shcl/core/posix :shcl/core/posix-types)
   (:import-from :shcl/core/environment #:env #:$pwd #:$oldpwd #:$home
-                #:$cdpath #:colon-list-iterator)
+                #:$cdpath #:split-colon-list)
   (:export #:physical-pwd))
 (in-package :shcl/shell/directory)
 
@@ -113,7 +113,7 @@ directory."
            (go step-6)))
 
        ;; Step 5
-       (do-iterator (cdpath (colon-list-iterator $cdpath))
+       (shcl/core/sequence:do-sequence (cdpath (split-colon-list $cdpath))
          (let* ((cdpath (if (equal "" cdpath) "./" cdpath))
                 (slash-terminated (equal #\/ (aref cdpath (- (length cdpath) 1))))
                 (query-path (concatenate 'string cdpath (if slash-terminated "" "/") path)))
