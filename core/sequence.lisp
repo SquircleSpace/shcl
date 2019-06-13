@@ -14,7 +14,8 @@
 
 (defpackage :shcl/core/sequence
   (:use :common-lisp)
-  (:import-from :shcl/core/utility #:required #:optimization-settings)
+  (:import-from :shcl/core/utility
+   #:required #:optimization-settings #:make-extensible-vector)
   (:import-from :shcl/core/iterator #:iterator #:next #:builder-for-type)
   (:import-from :bordeaux-threads #:make-lock #:with-lock-held)
   (:import-from :fset)
@@ -22,7 +23,7 @@
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
-   #:eager-flatmap-sequence #:walkable-to-list
+   #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:walk-iterator))
@@ -603,6 +604,18 @@ traversing it with this macro.  See also `do-while-popf'."
     `(let ((,walker ,walkable))
        (do-while-popf (,var ,walker ,result)
          ,@body))))
+
+(defun sort-sequence (sequence predicate &key key)
+  "Return a sequence with the same elements as `sequence' but sorted
+in the order determined by `predicate'.
+
+This is a non-mutating, generic version of the standard `sort'.  The
+`predicate' and `key' arguments work exactly like in the standard
+`sort' function."
+  (let ((result (make-extensible-vector)))
+    (do-while-popf (element sequence)
+      (vector-push-extend element result))
+    (sort result predicate :key key)))
 
 (defun lazy-map (walkable fn)
   "Create a lazy sequence that consists of `fn' applied to each
