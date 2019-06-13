@@ -16,6 +16,7 @@
   (:use
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
+  (:import-from :shcl/core/sequence #:sort-sequence #:head #:tail #:empty-p)
   (:import-from :shcl/core/command #:define-builtin)
   (:import-from
    :shcl/core/posix
@@ -615,16 +616,15 @@ See `completion-suggestion-replacement-text' and
   (let* ((line (editline-line editline))
          (cursor-index (lineinfo-cursor-index line))
          (line-text (lineinfo-text line))
-         (suggestions (shcl/core/iterator:iterable-values
-                       (funcall *tab-complete-fn* line-text
-                                (lineinfo-cursor-index line))))
+         (suggestions (funcall *tab-complete-fn* line-text
+                               (lineinfo-cursor-index line)))
          (return-value +cc-redisplay+))
     (cond
-      ((equal 0 (length suggestions))
+      ((empty-p suggestions)
        (setf return-value +cc-refresh-beep+))
 
-      ((equal 1 (length suggestions))
-       (let* ((suggestion (aref suggestions 0))
+      ((empty-p (tail suggestions))
+       (let* ((suggestion (head suggestions))
               (suggestion-range (completion-suggestion-replacement-range suggestion))
               (desired-cursor-position (cdr suggestion-range))
               (cursor-movement (- desired-cursor-position cursor-index))
@@ -638,7 +638,7 @@ See `completion-suggestion-replacement-text' and
                (editline-insertstr editline " ")))))
 
       (t
-       (setf suggestions (sort suggestions 'string< :key 'completion-suggestion-display-text))
+       (setf suggestions (sort-sequence suggestions 'string< :key 'completion-suggestion-display-text))
        (format t "~%")
        (loop :for suggestion :across suggestions :do
           (format t "~A~%" (completion-suggestion-display-text suggestion)))))
