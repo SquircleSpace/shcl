@@ -237,6 +237,27 @@
              (immutable-cons (incf accumulator) (generator)))))
       (generator))))
 
+(define-test sequence-starts-with-p
+  (ok (sequence-starts-with-p (naturals) '(1 2 3))
+      "The natural numbers start with 1 2 3")
+  (ok (not (sequence-starts-with-p (naturals) '(1 2 3 a b c)))
+      "The naturals are not as easy as A, B, C")
+  (let ((evaluation-count 0))
+    (labels
+        ((generator ()
+           (lazy-sequence
+             (cons (incf evaluation-count) (generator)))))
+      (sequence-starts-with-p (generator) '(1 2 3 a b c)))
+    (is evaluation-count
+        4
+        "sequence-starts-with-p early returns when a mismatch is encountered"))
+
+  (ok (sequence-starts-with-p
+       (eager-map '("foo" "bar" "baz") 'string-upcase (fset:empty-seq))
+       '("FOO" "BAR")
+       :test 'equal)
+      "the :test argument works"))
+
 (defconstant +lazy-sequence-test-thread-count+ 5)
 (defconstant +lazy-sequence-test-stopping-point+ 1000)
 
