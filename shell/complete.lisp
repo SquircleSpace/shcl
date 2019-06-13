@@ -13,11 +13,11 @@
 ;; limitations under the License.
 
 (defpackage :shcl/shell/complete
-  (:use :common-lisp :shcl/core/utility :shcl/core/iterator)
+  (:use :common-lisp :shcl/core/utility)
   (:import-from :shcl/core/sequence
    #:attachf #:empty-p #:concatenate-sequences #:eager-flatmap-sequence
    #:do-while-popf #:eager-map #:eager-filter #:flatten-sequence #:walk #:head
-   #:tail)
+   #:tail #:sequence-starts-with-p)
   (:import-from :shcl/core/advice #:define-advice)
   (:import-from :shcl/core/shell-grammar
    #:parse-simple-command #:parse-simple-command-word #:commands-for-tokens)
@@ -387,7 +387,7 @@ then new text will be inserted after the last character.
 
 `readtable' is the readtable that should be used when lexing the input text.
 
-This function returns an iterator of strings.  Each string represents
+This function returns a sequence of strings.  Each string represents
 text that could replace the token under point."
   (let ((tokens (tokens-in-string input-text
                                   :readtable readtable))

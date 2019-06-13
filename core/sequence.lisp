@@ -26,7 +26,7 @@
    #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence #:do-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
-   #:lazy-sequence #:walk-iterator))
+   #:lazy-sequence #:walk-iterator #:sequence-starts-with-p))
 (in-package :shcl/core/sequence)
 
 (optimization-settings)
@@ -762,3 +762,23 @@ list."
     (do-while-popf (value walkable)
       (setf result (funcall builder value)))
     result))
+
+(defun sequence-starts-with-p (sequence prefix &key (test 'eql))
+  "Returns non-nil if the first elements of `sequence' match the
+first elements of `prefix'.
+
+`sequence' and `prefix' may be any types that can be walked using
+`head' and `tail'.  When non-equal elements are found (as determined
+by the function provided in the `test' parameter), this function
+returns nil.  If `sequence' has fewer elements than `prefix', this
+function returns nil."
+  (loop
+    (multiple-value-bind (seq-value seq-valid) (popf sequence)
+      (multiple-value-bind (prefix-value prefix-valid) (popf prefix)
+        (cond
+          ((not prefix-valid)
+           (return-from sequence-starts-with-p t))
+          ((not seq-valid)
+           (return-from sequence-starts-with-p nil))
+          ((not (funcall test seq-value prefix-value))
+           (return-from sequence-starts-with-p nil)))))))
