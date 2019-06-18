@@ -16,7 +16,8 @@
   (:use
    :common-lisp :shcl/core/utility :shcl/core/dispatch-table)
   (:import-from :shcl/core/sequence
-   #:lazy-sequence #:immutable-cons #:empty-immutable-list #:do-while-popf)
+   #:lazy-sequence #:immutable-cons #:empty-immutable-list #:do-while-popf
+   #:cache-impure #:wrap-with)
   (:import-from :shcl/core/positional-stream
    #:make-position-record-from-positional-stream #:position-record)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander #:data-class)
@@ -1010,6 +1011,7 @@ lazy walkable that contains the tokens found in the stream.
 The value of `readtable-sym' will be re-read every time a new token is
 needed."
   (lazy-sequence
+    (declare (wrap-with cache-impure))
     (let ((token (next-token stream :readtable (symbol-value readtable-sym))))
       (if (typep token 'eof)
           (empty-immutable-list)
@@ -1019,6 +1021,7 @@ needed."
   "Given a stream and a readtable, return a lazy walkable that
 produces the tokens found in the stream."
   (lazy-sequence
+    (declare (wrap-with cache-impure))
     (let ((token (next-token stream :readtable readtable)))
       (if (typep token 'eof)
           (empty-immutable-list)

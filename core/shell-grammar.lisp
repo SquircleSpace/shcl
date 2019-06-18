@@ -21,7 +21,7 @@
    #:parser-repeat-times #:parse-eof #:parse-with-sequence)
   (:import-from :shcl/core/sequence
    #:attachf #:walk #:lazy-sequence #:empty-immutable-list #:immutable-cons
-   #:pour-from #:popf)
+   #:pour-from #:popf #:cache-impure #:wrap-with)
   (:import-from :shcl/core/advice #:define-advice #:define-advisable)
   (:export
    #:commands-for-tokens
@@ -347,6 +347,7 @@
 containing shell syntax tree objects."
   (let ((walker (walk tokens)))
     (lazy-sequence
+      (declare (wrap-with cache-impure))
       (multiple-value-bind (result sequence) (parse-with-sequence walker (parse-start))
         (if (eq result :eof)
             (empty-immutable-list)

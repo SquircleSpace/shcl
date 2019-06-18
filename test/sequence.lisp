@@ -85,12 +85,6 @@
   (ok (null (eager-map nil (lambda (val) (* val 2)) nil))
       "eager-map works on empty sequences"))
 
-(defun make-lazy-list (&rest values)
-  (lazy-sequence
-    (if values
-        (immutable-cons (car values) (make-lazy-list (cdr values)))
-        (empty-immutable-list))))
-
 (define-test lazy-map
   (let* (values
          (functions (list
@@ -234,6 +228,7 @@
     (labels
         ((generator ()
            (lazy-sequence
+             (declare (wrap-with cache-impure))
              (immutable-cons (incf accumulator) (generator)))))
       (generator))))
 
@@ -246,6 +241,7 @@
     (labels
         ((generator ()
            (lazy-sequence
+             (declare (wrap-with cache-impure))
              (cons (incf evaluation-count) (generator)))))
       (sequence-starts-with-p (generator) '(1 2 3 a b c)))
     (is evaluation-count
@@ -261,7 +257,25 @@
 (defconstant +lazy-sequence-test-thread-count+ 5)
 (defconstant +lazy-sequence-test-stopping-point+ 1000)
 
-(define-test lazy-sequence
+(define-test cache-impure
+  (let* ((evaluated-count 0)
+         (fn (cache-impure (lambda ()
+                             (incf evaluated-count)
+                             123456))))
+    (is evaluated-count
+        0
+        "cache-impure doesn't call the cached function instantly")
+    (is (funcall fn)
+        123456
+        "cache-impure returns a funcallable object that calls the given function")
+    (is evaluated-count
+        1
+        "function was actually called")
+    (funcall fn)
+    (is evaluated-count
+        1
+        "cache-impure only calls the wrapped function once"))
+
   (let ((sequence (naturals))
         (test-pass t)
         (result-lock (bordeaux-threads:make-lock))
@@ -282,8 +296,62 @@
       (dolist (thread threads)
         (bordeaux-threads:join-thread thread))
       (ok test-pass
-          "Lazy sequences appear thread-safe")))
+          "Lazy sequences with cache-impure appear thread-safe"))))
 
+(define-test wrap-with
+  (labels
+      ((local-fn (wrapee)
+         (lambda () (cons 'local-fn (funcall wrapee))))
+       (local-fn-2 (wrapee)
+         (lambda () (cons 'local-fn-2 (funcall wrapee)))))
+    (macrolet
+        ((local-macro (wrapee)
+           `(lambda () (cons 'local-macro (funcall ,wrapee)))))
+
+      (is (walkable-to-list
+           (lazy-sequence
+             (declare (wrap-with local-fn))
+             (list 123)))
+          '(local-fn 123)
+          "Basic wrapping works")
+
+      (is (walkable-to-list
+           (lazy-sequence
+             (declare (wrap-with local-fn)
+                      (optimize (compilation-speed 0)))
+             (list 123)))
+          '(local-fn 123)
+          "wrap-with declarations can live in the same declaration as other delcarations")
+
+      (is (walkable-to-list
+           (lazy-sequence
+             (declare (optimize (compilation-speed 0))
+                      (wrap-with local-fn)
+                      (optimize (space 0)))
+             (declare (wrap-with local-fn))
+             (declare (optimize (speed 0)))
+             (list 123)))
+          '(local-fn local-fn 123)
+          "More complex declaration orderings work")
+
+      (is (walkable-to-list
+           (lazy-sequence
+             (declare (wrap-with local-macro))
+             (list 123)))
+          '(local-macro 123)
+          "Wrapping with macros works")
+
+      (is (walkable-to-list
+           (lazy-sequence
+             (declare (wrap-with local-fn-2))
+             (declare (wrap-with local-macro)
+                      (wrap-with local-fn))
+             (declare (wrap-with local-fn-2))
+             (list 123)))
+          '(local-fn-2 local-macro local-fn local-fn-2 123)
+          "Wrapping order is as expected"))))
+
+(define-test lazy-sequence
   (let ((sequence (lazy-sequence '(1 2 3))))
     (is (head sequence) 1
         "Lazy sequence's head acts like the underlying sequence's head")
@@ -306,7 +374,15 @@
     (ok (head sequence)
         "Lazy sequence still acts like the underlying sequence")
     (ok evaluated-p
-        "Lazy sequences are evaluated when necessary")))
+        "Lazy sequences are evaluated when necessary"))
+
+  (let* ((eval-count 0)
+         (sequence (lazy-sequence
+                     (list (incf eval-count)))))
+    (head sequence)
+    (is (head sequence)
+        2
+        "Lazy sequences evaluate every time they are called on")))
 
 (define-test shcl/core/sequence::vector-walkable
   (let ((sequence *test-sequence*)
