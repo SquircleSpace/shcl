@@ -15,10 +15,12 @@
 (defpackage :shcl/core/sequence
   (:use :common-lisp)
   (:import-from :shcl/core/utility
-   #:required #:optimization-settings #:make-extensible-vector)
+   #:required #:optimization-settings #:make-extensible-vector
+   #:document #:define-documentation-type)
   (:import-from :shcl/core/iterator #:iterator #:next #:builder-for-type)
   (:import-from :bordeaux-threads #:make-lock #:with-lock-held)
   (:import-from :fset)
+  (:import-from :alexandria)
   (:export
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
@@ -26,7 +28,8 @@
    #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence #:do-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
-   #:lazy-sequence #:walk-iterator #:sequence-starts-with-p))
+   #:lazy-sequence #:walk-iterator #:sequence-starts-with-p #:wrap-with
+   #:cache-impure))
 (in-package :shcl/core/sequence)
 
 (optimization-settings)
@@ -261,33 +264,27 @@ cons'd onto."
 (defclass lazy-sequence ()
   ((generator
     :initarg :generator
-    :initform (required))
-   (seq)
-   (lock
-    :initform (make-lock)))
+    :initform (required)))
   (:documentation
    "This class represents a sequence that is produced lazily.
 
-Instances of this class represents a sequence that may be as-of-yet
-unevaluated.  This class has methods for the walkable and the sequence
-protocols.  The methods simply ensure that the sequence has been
-evaluated and then invoke the same function on the concrete
-sequence.
+Instances of this class represents a sequence that hasn't been
+evaluated, yet.  The generator function is expected to return a
+sequence.  Whenever a sequence function (e.g. `head', `tail',
+`attach', etc.) is invoked on a `lazy-sequence', the generator
+function is evaluated and the sequence function is invoked on the
+result.
 
 This class is typically used with `immutable-list' to produce a lazy
 list.  See the `lazy-sequence' macro documentation for an example of
 this."))
 
+(defun force-lazy-sequence (lazy-sequence)
+  (with-slots (generator) lazy-sequence
+    (funcall generator)))
+
 (defmethod walk ((lazy-sequence lazy-sequence))
   lazy-sequence)
-
-(defun force-lazy-sequence (lazy-sequence)
-  (with-slots (generator seq lock) lazy-sequence
-    (with-lock-held (lock)
-      (when (slot-boundp lazy-sequence 'generator)
-        (setf seq (walk (funcall generator)))
-        (slot-makunbound lazy-sequence 'generator))
-      seq)))
 
 (defmethod head ((lazy-sequence lazy-sequence))
   (let ((seq (force-lazy-sequence lazy-sequence)))
@@ -309,11 +306,40 @@ this."))
   (let ((seq (force-lazy-sequence lazy-sequence)))
     (empty-of seq)))
 
-(defmacro lazy-sequence (&body body)
+(defun cache-impure (function)
+  "Wrap `function' with a function that caches the result of
+`function'.
+
+`function' is assumed to take no arguments.  Synchronization is used
+to ensure that `function' is called at most once.  This is meant to be
+used with the `wrap-with' declaration in a `lazy-sequence' body.  The
+name refers to the fact that the given `function' is assumed to have
+stateful effects."
+  (let ((lock (make-lock))
+        evaluated-p
+        values)
+    (lambda ()
+      (with-lock-held (lock)
+        (unless evaluated-p
+          (setf values (multiple-value-list (funcall function)))
+          (setf evaluated-p t))
+        (values-list values)))))
+
+;; Ideally, wrap-with would be documented in the declaration doc-type,
+;; but that symbol is owned by the common-lisp package.
+;; Implementations are well within their rights to have documentation
+;; methods that know how to read/write the declaration doc-type.  It
+;; would be sad if we overwrote those methods, here.
+(define-documentation-type lazy-sequence)
+(document wrap-with lazy-sequence
+  "Wrap the body of a `lazy-sequence' using a wrapping function.
+
+This declaration is only valid at the start of a `lazy-sequence'
+macro body.  See the `lazy-sequence' macro for more information.")
+
+(defmacro lazy-sequence (&whole whole &body body)
   "Create a `lazy-sequence' object that evalutes `body' when it needs
 to generate a concrete sequence.
-
-This macro is a trivial wrapper around `make-instance'.
 
 When used in conjunction with `immutable-list', this macro can be used
 to create lazy lists.  For example, this code snippet creates a lazy
@@ -325,9 +351,62 @@ list containing the natural numbers.
              (immutable-cons value (generate (1+ value))))))
       (generate 0))
 
-If you're trying to generate a lazy list, you may also find
-`walk-iterator' helpful."
-  `(make-instance 'lazy-sequence :generator (lambda () ,@body)))
+By default, the returned sequence will evaluate `body' every time a
+sequence function is called on it.  You must ensure that the body is
+idempotent, thread-safe, and relatively cheap to evaluate.
+
+Since caching is often desirable, this macro will recognize the
+`wrap-with' declaration.  When you use the `wrap-with' declaration,
+the body of the macro will be turned into a 0-argument lambda that is
+passed into the function named by the `wrap-with' declaration.  The
+wrapping function must return a funcallable object.  That object will
+be called whenever the `lazy-sequence' needs to produce its value.
+When combined with a wrapping function like `cache-impure', you'll get
+a `lazy-sequence' that evalutes `body' at most once.
+
+If `wrap-with' appears multiple times, each wrapping function will be
+called in the reverse of the order that they appear.  For example, the
+following lazy sequences will have identical behaviors.
+
+    (lazy-sequence
+      (declare (wrap-with first-wrapper)
+               (wrap-with second-wrapper))
+      (body-forms))
+    (let ((fn (first-wrapper (second-wrapper (lambda () (body-forms))))))
+      (lazy-sequence
+        (funcall fn)))
+
+Note that you can also name a macro instead of a function."
+  (multiple-value-bind (body declarations) (alexandria:parse-body body :whole whole)
+    (let (wrapping-functions)
+      (labels
+          ((consume-declaration (declaration)
+             (destructuring-bind (declare-sym &rest decl-clauses) declaration
+               (assert (eq declare-sym 'declare))
+               (unless (find 'wrap-with decl-clauses :key (lambda (entry) (and (consp entry) (car entry))))
+                 (return-from consume-declaration declaration))
+
+               (let ((result-clauses (make-extensible-vector)))
+                 (dolist (clause decl-clauses)
+                   (cond
+                     ((and (consp clause) (eq (car clause) 'wrap-with))
+                      (destructuring-bind (decl-name value) clause
+                        (assert (eq decl-name 'wrap-with))
+                        (check-type value symbol)
+                        (push value wrapping-functions)))
+                     (t
+                      (vector-push-extend clause result-clauses))))
+
+                 (unless (zerop (length result-clauses))
+                   `(declare ,@(coerce result-clauses 'list)))))))
+
+        (setf declarations (mapcar #'consume-declaration declarations))
+        (setf declarations (remove nil declarations)))
+
+      (let ((generator `(lambda () ,@declarations ,@body)))
+        (dolist (wrapper wrapping-functions)
+          (setf generator `(,wrapper ,generator)))
+        `(make-instance 'lazy-sequence :generator ,generator)))))
 
 ;;; Iterators
 
@@ -619,8 +698,11 @@ This is a non-mutating, generic version of the standard `sort'.  The
 
 (defun lazy-map (walkable fn)
   "Create a lazy sequence that consists of `fn' applied to each
-element in `walkable'."
+element in `walkable'.
+
+`fn' is called at most once per element in `walkable'."
   (lazy-sequence
+    (declare (wrap-with cache-impure))
     (multiple-value-bind (value valid-p) (head walkable)
       (if valid-p
           (immutable-cons (funcall fn value) (lazy-map (tail walkable) fn))
@@ -640,8 +722,11 @@ to `pour-from'."
 
 (defun lazy-filter (walkable fn)
   "Create a lazy sequence that consists of the elements of `walkable'
-for which `fn' returns non-nil."
+for which `fn' returns non-nil.
+
+`fn' is called at most once per element in `walkable'."
   (lazy-sequence
+    (declare (wrap-with cache-impure))
     (multiple-value-bind (value valid-p) (head walkable)
       (cond
         ((and valid-p (funcall fn value))

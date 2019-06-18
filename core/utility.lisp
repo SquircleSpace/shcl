@@ -22,6 +22,7 @@
    #:required-argument-missing #:optimization-settings #:when-let #:when-let*
    #:try #:debug-log #:dump-logs #:status #:make-extensible-vector
    #:symbol-nconc-gensym #:symbol-nconc-intern #:progn-concatenate #:bodyify
+   #:document #:define-documentation-type
    ;; Conditions
    #:not-implemented
    ;; Hooks
@@ -36,6 +37,56 @@ Put this at the top of every file!"
   `(declaim (optimize (speed 0) (safety 3) (space 0) (debug 3) (compilation-speed 0))))
 
 (optimization-settings)
+
+(defvar *documentation* (make-hash-table))
+
+(defun get-documentation (symbol doc-type)
+  (let ((inner-table (gethash symbol *documentation*)))
+    (when inner-table
+      (nth-value 0 (gethash doc-type inner-table)))))
+
+(defun (setf get-documentation) (new-value symbol doc-type)
+  (let ((inner-table (gethash symbol *documentation*)))
+    (cond
+      ((and (not inner-table) (not new-value))
+       (return-from get-documentation new-value))
+      ((not inner-table)
+       (setf inner-table (make-hash-table))
+       (setf (gethash symbol *documentation*) inner-table)))
+    (if new-value
+        (setf (gethash doc-type inner-table) new-value)
+        (remhash doc-type inner-table))
+    (when (zerop (hash-table-count inner-table))
+      (remhash symbol *documentation*))
+    new-value))
+
+(defmacro define-documentation-type (doc-type)
+  "Define a new category of documentation."
+  (check-type doc-type symbol)
+  (let ((symbol (gensym "SYMBOL"))
+        (doc-type-arg (gensym "DOC-TYPE"))
+        (new-value (gensym "NEW-VALUE")))
+    `(progn
+       (defmethod documentation ((,symbol symbol) (,doc-type-arg (eql ',doc-type)))
+         (get-documentation ,symbol ,doc-type-arg))
+
+       (defmethod (setf documentation) (,new-value (,symbol symbol) (,doc-type-arg (eql ',doc-type)))
+         (setf (get-documentation ,symbol ,doc-type-arg) ,new-value)))))
+
+(defmacro document (symbol doc-type &body documentation-string)
+  "Update the documentation for the given symbol.
+
+Although this macro accepts a `&body', you must provide exactly one
+string in the macro body.  The macro's lambda list uses `&body' purely
+to trick editors into using better indentation."
+  (unless documentation-string
+    (error "document expects a docstring"))
+  (when (cdr documentation-string)
+    (error "document expects exactly one docstring"))
+  (check-type symbol symbol)
+  (check-type doc-type symbol)
+  (check-type (car documentation-string) string)
+  `(setf (documentation ',symbol ',doc-type) ,(car documentation-string)))
 
 (defconstant +whitespace-characters+
   (if (boundp '+whitespace-characters+)
