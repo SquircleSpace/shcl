@@ -69,7 +69,7 @@ and all of its subclasses"))
         ((unpack-dependency (dep)
            (typecase dep
              (symbol
-              (symbol-name peer))
+              (symbol-name dep))
              (cons
               (unless (eq :feature (car dep))
                 (warn "Don't know how to deal with dependency ~W" dep)
