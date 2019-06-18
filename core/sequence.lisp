@@ -512,10 +512,9 @@ state with some other unit of code."
                             :offset (1+ (vector-walkable-offset vector-walkable)))))
 
 (defmethod tail ((vector vector))
-  (let ((length (length vector)))
-    (if (>= 1 (length vector))
-        (make-vector-walkable)
-        (make-vector-walkable :vector vector :offset 1))))
+  (if (>= 1 (length vector))
+      (make-vector-walkable)
+      (make-vector-walkable :vector vector :offset 1)))
 
 (defmethod empty-p ((vector-walkable vector-walkable))
   (null (vector-walkable-vector vector-walkable)))
@@ -647,7 +646,7 @@ state with some other unit of code."
 
 ;;; Utilities
 
-(defmacro do-while-popf ((var walkable-place &optional result) &body body &environment env)
+(defmacro do-while-popf ((var walkable-place &optional result) &body body)
   "As long as `walkable-place' contains a non-empty walkable, this
 macro will pop an element off the walkable, bind it to `var', and evaluate
 `body'.
