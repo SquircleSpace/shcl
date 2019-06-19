@@ -20,7 +20,6 @@
   (:import-from :shcl/test/posix)
   (:import-from :shcl/test/lisp-interpolation)
   (:import-from :shcl/test/data)
-  (:import-from :shcl/test/iterator)
   (:import-from :shcl/test/sequence)
   (:import-from :shcl/test/command)
   (:import-from :shcl/test/shell-lambda)
@@ -32,6 +31,7 @@
                 #:run-test-set #:all-tests #:package-test-set #:symbol-test)
   (:import-from :shcl/core/command)
   (:import-from :shcl/core/shell-environment #:with-subshell)
+  (:import-from :shcl/core/sequence #:eager-flatmap-sequence)
   (:import-from :prove)
   (:import-from :fset))
 (in-package :shcl/test/main)
@@ -60,11 +60,7 @@ unit tests."
               (shcl/test/foundation:dependency-ordered-tests))
 
              (t
-              (shcl/core/iterator:concatenate-iterable-collection
-               (shcl/core/iterator:mapped-iterator
-                (shcl/core/iterator:iterator package)
-                (lambda (package)
-                  (shcl/core/iterator:iterator (package-test-set package)))))))))
+              (eager-flatmap-sequence package 'package-test-set (fset:empty-seq))))))
       (if (run-test-set tests)
           0
           1))))
