@@ -14,7 +14,7 @@
 
 (defpackage :shcl/test/foundation
   (:use :common-lisp :prove :lisp-namespace)
-  (:import-from :shcl/core/iterator #:do-iterator #:iterator)
+  (:import-from :shcl/core/sequence #:do-sequence #:eager-flatmap-sequence)
   (:import-from :shcl/core/utility #:optimization-settings)
   (:import-from :fset)
   (:export #:define-test #:run-test-set #:all-tests #:package-test-set
@@ -50,9 +50,9 @@ test forms inside the body (e.g. `ok')."
        ',name)))
 
 (defun run-test-set (tests)
-  "Run the test functions in the given iterable collection."
+  "Run the test functions in the given sequence."
   (let ((*suite* (make-instance 'suite :plan nil)))
-    (do-iterator (test (iterator tests))
+    (do-sequence (test tests)
       (funcall (symbol-test test)))
     (finalize)))
 
@@ -83,8 +83,7 @@ Presently, this information is only used for
   (values))
 
 (defun dependency-ordered-tests ()
-  "Get an iterable, ordered collection of all tests defined with
-`define-test'.
+  "Get an ordered collection of all tests defined with `define-test'.
 
 This returns the same tests that `all-tests' does, but it attempts to
 order the tests such that more foundational tests occur earlier than
@@ -150,8 +149,8 @@ end in an unspecified order."
       (fset:do-set (package packages-without-linked-systems)
         (vector-push-extend package sorted-packages))
 
-      (shcl/core/iterator:concatenate-iterable-collection
-       (shcl/core/iterator:mapped-iterator
-        (iterator sorted-packages)
-        (lambda (package)
-          (iterator (fset:lookup *package-tests* package))))))))
+      (eager-flatmap-sequence
+       sorted-packages
+       (lambda (package)
+         (fset:lookup *package-tests* package))
+       (fset:empty-seq)))))
