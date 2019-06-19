@@ -15,7 +15,8 @@
 (defpackage :shcl/core/environment
   (:use
    :common-lisp :shcl/core/utility :shcl/core/posix :shcl/core/shell-environment)
-  (:import-from :shcl/core/sequence #:head #:tail #:empty-p #:walk)
+  (:import-from :shcl/core/sequence
+   #:immutable-cons #:empty-immutable-list #:lazy-sequence)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :fset)
   (:export
@@ -249,24 +250,6 @@ value associated with the variable will signal an error."
         (not (not value)))
   value)
 
-(defstruct colon-list-sequence
-  head
-  tail)
-
-(defmethod walk ((sequence colon-list-sequence))
-  sequence)
-
-(defmethod head ((sequence colon-list-sequence))
-  (values (colon-list-sequence-head sequence) t))
-
-(defmethod tail ((sequence colon-list-sequence))
-  (let ((tail (colon-list-sequence-tail sequence)))
-    (when tail
-      (split-colon-list tail))))
-
-(defmethod empty-p ((sequence colon-list-sequence))
-  nil)
-
 (defun split-colon-list (string)
   "This function interprets `string' as a #\: delimited list and
 returns a sequence containing the elements of that list.
@@ -278,19 +261,21 @@ the second group matches anything, the #\: is stripped away and the
 result is processed recursively.  Note that the empty string is
 considered to be an empty list."
   (when (zerop (length string))
-    (return-from split-colon-list nil))
+    (return-from split-colon-list (empty-immutable-list)))
 
   (let* ((position (position #\: string))
-         (head-stream (make-string-output-stream))
-         (tail (when position
-                 (make-array (- (length string) (1+ position))
-                             :element-type (array-element-type string)
-                             :displaced-to string
-                             :displaced-index-offset (1+ position)))))
-    (loop :for index :below (or position (length string)) :do
-      (write-char (aref string index) head-stream))
-    (make-colon-list-sequence :head (get-output-stream-string head-stream)
-                              :tail tail)))
+         (head (subseq string 0 (or position (length string))))
+         (tail-string
+           (when position
+             (make-array (- (length string) (1+ position))
+                         :element-type (array-element-type string)
+                         :displaced-to string
+                         :displaced-index-offset (1+ position))))
+         (tail (if tail-string
+                   (lazy-sequence
+                     (split-colon-list tail-string))
+                   (empty-immutable-list))))
+    (immutable-cons head tail)))
 
 (defmacro define-environment-accessor (sym-and-name &body options)
   "Define a symbol macro that accesses the given environment
