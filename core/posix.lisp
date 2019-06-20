@@ -49,7 +49,8 @@ to the environment binding strings."
            :do
               (let ((,var (mem-aref ,environment-pointer :string ,index)))
                 ,@body)
-           :do (incf ,index))))
+           :do (incf ,index)
+           :finally (return ,result))))
 
 (defun copy-environment ()
   "Return a sequence containing all the strings in the process
