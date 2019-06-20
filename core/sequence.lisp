@@ -17,7 +17,6 @@
   (:import-from :shcl/core/utility
    #:required #:optimization-settings #:make-extensible-vector
    #:document #:define-documentation-type)
-  (:import-from :shcl/core/iterator #:iterator #:next #:builder-for-type)
   (:import-from :bordeaux-threads #:make-lock #:with-lock-held)
   (:import-from :fset)
   (:import-from :alexandria)
@@ -28,8 +27,7 @@
    #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence #:do-sequence
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
-   #:lazy-sequence #:walk-iterator #:sequence-starts-with-p #:wrap-with
-   #:cache-impure))
+   #:lazy-sequence #:sequence-starts-with-p #:wrap-with #:cache-impure))
 (in-package :shcl/core/sequence)
 
 (optimization-settings)
@@ -407,46 +405,6 @@ Note that you can also name a macro instead of a function."
         (dolist (wrapper wrapping-functions)
           (setf generator `(,wrapper ,generator)))
         `(make-instance 'lazy-sequence :generator ,generator)))))
-
-;;; Iterators
-
-(defun walk-iterator (iterator)
-  "Produce a `lazy-sequence' that contains the values produced by `iterator'.
-
-The given iterator is only invoked when the lazy sequence requires a
-fresh value.  That can happen at any time and on any thread.  It is a
-very bad idea to walk an iterator that has side effects or shared with
-other code.
-
-Since iterators are inherently stateful, there isn't a method on
-`walk' for them -- it would be too easy to accidentally create a lazy
-sequence with side effects!  However, its actually quite useful to
-walk an iterator.  Some things are naturally expressed with iterator.
-For example, these forms produce lazy sequences that contain the same
-values.
-
-    ;; Functionally
-    (labels
-        ((generate (value)
-           (lazy-sequence
-             (immutable-cons value (generate (1+ value))))))
-      (generate 0))
-
-    ;; Imperatively
-    (let ((value -1))
-      (walk-iterator (make-iterator () (emit (incf value)))))
-
-Note that the imperative version has side effects, but they are only
-observable by the iterator itself.  This is okay!  The lazy sequence
-that this function generates will provide the necessary
-synchronization to ensure that the iterator isn't invoked in parallel.
-It would still be a very bad idea to share the iterator's internal
-state with some other unit of code."
-  (lazy-sequence
-   (multiple-value-bind (value valid-p) (next iterator)
-     (if valid-p
-         (immutable-cons value (walk-iterator iterator))
-         (empty-immutable-list)))))
 
 ;;; Lists
 
@@ -841,11 +799,17 @@ Let's face it.  Some things just want lists.  This gives you a proper
 list."
   (when (typep walkable 'list)
     (return-from walkable-to-list walkable))
-  (let ((builder (builder-for-type 'list))
-        result)
+  (let (head
+        tail)
     (do-while-popf (value walkable)
-      (setf result (funcall builder value)))
-    result))
+      (cond
+        (tail
+         (setf (cdr tail) (cons value nil))
+         (setf tail (cdr tail)))
+        (t
+         (setf head (cons value nil))
+         (setf tail head))))
+    head))
 
 (defun sequence-starts-with-p (sequence prefix &key (test 'eql))
   "Returns non-nil if the first elements of `sequence' match the
