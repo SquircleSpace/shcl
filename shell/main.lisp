@@ -16,16 +16,16 @@
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
    :shcl/core/utility :shcl/core/evaluate
-   :shcl/core/lisp-interpolation :shcl/core/dispatch-table
-   :shcl/core/iterator)
-  (:import-from :shcl/core/sequence #:lazy-map #:do-while-popf)
+   :shcl/core/lisp-interpolation :shcl/core/dispatch-table)
+  (:import-from :shcl/core/sequence
+   #:lazy-map #:do-while-popf #:do-sequence #:wrap-with #:cache-impure)
   (:import-from :shcl/core/command #:define-builtin)
   (:import-from :shcl/core/shell-lambda
    #:handle-command-errors #:with-parsed-arguments)
   (:import-from :shcl/core/posix #:exit)
   (:import-from :shcl/core/command #:exit-condition #:exit-condition-exit-info)
   (:import-from :shcl/core/exit-info
-   #:truthy-exit-info #:exit-info-code #:exit-info-p)
+   #:truthy-exit-info #:exit-info-code #:exit-info-p #:falsey-exit-info)
   (:import-from :shcl/core/environment #:env)
   (:import-from :shcl/shell/directory)
   (:import-from :shcl/shell/builtins)
@@ -122,7 +122,7 @@ See `*fresh-prompt*'."
   (completion-suggestions-for-input input-string cursor-position *shell-readtable*))
 
 (defun logging-token-sequence (stream)
-  "Return an iterator that produces the tokens found in `stream'.
+  "Return a sequence that produces the tokens found in `stream'.
 
 Tokens are read using `*shell-readtable*'."
   (lazy-map (tokens-in-stream-symbolic-readtable stream '*shell-readtable*)
@@ -142,49 +142,80 @@ Tokens are read using `*shell-readtable*'."
               (debug-log status "EVAL: ~A" form)
               form)))
 
-(defun logging-evaluated-result-sequence (forms)
-  (lazy-map forms
-            (lambda (form)
-              (let ((values (multiple-value-list (eval form))))
-                (debug-log status "RESULT: ~A" values)
-                values))))
+(define-condition shell-eof (error)
+  ())
 
-(defun main-iterator (stream &key history)
+(defun shell-read (stream &key history (eof-error-p t) eof-value)
   (let* ((captured-input (when history (make-string-output-stream)))
          (wrapped-stream (if history (make-echo-stream stream captured-input) stream))
-         results)
-    (make-computed-iterator
-      (let ((*fresh-prompt* t))
-        (labels
-            ((record-history ()
-               (when history
-                 (history-enter history (get-output-stream-string captured-input)))
-               (setf *fresh-prompt* t))
-             (initialize-sequence ()
-               (setf results (as-> wrapped-stream x
+         results
+         (*fresh-prompt* t))
+    (labels
+        ((record-history ()
+           (when history
+             (history-enter history (get-output-stream-string captured-input)))
+           (setf *fresh-prompt* t))
+         (initialize-sequence ()
+           (setf results (as-> wrapped-stream x
                                (logging-token-sequence x)
                                (logging-command-sequence x)
-                               (logging-evaluation-form-sequence x)
-                               (logging-evaluated-result-sequence x))))
-             (reset-token-sequence ()
-               (loop :while (read-char-no-hang wrapped-stream nil nil))
-               (initialize-sequence)
-               (record-history)))
-          (unless results
-            (initialize-sequence))
-          (tagbody
-           start
-             (restart-case
-                 (progn
-                   (do-while-popf (value results)
-                     (record-history)
-                     (emit value))
-                   (stop))
-               (ignore-command ()
-                 (reset-token-sequence)
-                 (go start))
-               (die ()
-                 (exit 1)))))))))
+                               (logging-evaluation-form-sequence x))))
+         (reset-token-sequence ()
+           (loop :while (read-char-no-hang wrapped-stream nil nil))
+           (initialize-sequence)
+           (record-history)))
+      (initialize-sequence)
+      (tagbody
+       restart
+         (restart-case
+             (do-while-popf (value results)
+               (record-history)
+               (return-from shell-read value))
+           (give-up-on-read ()
+             (reset-token-sequence)
+             (go restart))))
+      (if eof-error-p
+          (error 'shell-eof)
+          eof-value))))
+
+(defun %shell-repl (stream history)
+  (let ((last-result (list (truthy-exit-info))))
+    (labels
+        ((handle-parse-failure (e)
+           (when-let ((restart (find-restart 'ignore-command)))
+             (format *error-output* "Parse error: ~A~%" e)
+             (invoke-restart restart)))
+         (handle-shell-eof (e)
+           (declare (ignore e))
+           (return-from %shell-repl (values-list last-result)))
+         (read-with-handlers ()
+           (handler-bind
+               ((parse-failure #'handle-parse-failure)
+                (shell-eof #'handle-shell-eof))
+             (shell-read stream :history history)))
+         (eval-with-restarts (form)
+           (restart-case
+               (eval form)
+             (give-up-on-eval ()
+               (falsey-exit-info)))))
+      (declare (dynamic-extent #'handle-parse-failure)
+               (dynamic-extent #'handle-shell-eof)
+               (dynamic-extent #'read-with-handlers)
+               (dynamic-extent #'eval-with-restarts))
+
+      (loop
+        (let* ((form (read-with-handlers))
+               (result (multiple-value-list (eval-with-restarts form))))
+          (debug-log status "RESULT: ~A" result)
+          (setf last-result result))))))
+
+(defun shell-repl (stream &key history)
+  (loop
+    (restart-case
+        (return (%shell-repl stream history))
+      (exit-repl ()
+        (return (falsey-exit-info)))
+      (restart-repl ()))))
 
 (defparameter *debug* nil)
 (defparameter *help* nil
@@ -250,18 +281,8 @@ example, that...
               (startup-file (probe-file "~/.shclrc.lisp")))
           (when startup-file
             (load startup-file))
-          (handler-bind
-              ((parse-failure
-                (lambda (e)
-                  (when-let ((restart (find-restart 'ignore-command)))
-                    (format *error-output* "Parse error: ~A~%" e)
-                    (invoke-restart restart)))))
-            (let ((result (truthy-exit-info)))
-              (handler-case
-                  (do-iterator (values (main-iterator stream :history h))
-                    (if (exit-info-p (car values))
-                        (setf result (car values))
-                        (warn "Got non-exit-info result: ~A" values)))
-                (exit-condition (e)
-                  (setf result (exit-condition-exit-info e))))
-              (exit (exit-info-code result)))))))))
+
+          (handler-case
+              (shell-repl stream :history h)
+            (exit-condition (e)
+              (exit-condition-exit-info e))))))))
