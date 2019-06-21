@@ -19,11 +19,21 @@ matrix:
       env:
       script: nix-build default.nix && echo -shcl-run-tests | ./result/bin/shcl
       install: true
+    - language: nix
+      os: linux
+      env:
+      script: nix-build ci/pinned.nix && echo -shcl-run-tests | ./result/bin/shcl
+      install: true
   allow_failures:
     - env: LISP=sbcl-bin
       os: linux
     - env: LISP=sbcl-bin
       os: osx
+    - language: nix
+      os: linux
+      env:
+      script: nix-build default.nix && echo -shcl-run-tests | ./result/bin/shcl
+      install: true
 
 install:
   - ./ci/install
