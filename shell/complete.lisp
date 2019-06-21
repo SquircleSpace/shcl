@@ -156,22 +156,29 @@
     :initarg :token-range
     :initform (required))))
 
-(defgeneric completion-suggestions (desired-token-type token-fragment context parser-vars)
-  (:method-combination concatenate-sequences))
+(defvar *completers* (fset:empty-set))
 
-(defmethod completion-suggestions concatenate-sequences
-    (desired-token-type token-fragment context parser-vars)
-  (declare (ignore desired-token-type token-fragment context parser-vars))
-  nil)
+(defun get-completions (completers desired-token-type token-fragment context parser-vars)
+  (labels
+      ((call-completer (completer)
+         (funcall completer desired-token-type token-fragment context parser-vars)))
+    (eager-flatmap-sequence completers #'call-completer (fset:empty-seq))))
 
-(defmethod completion-suggestions concatenate-sequences
-    ((desired literal-token-class) token context parser-vars)
+(defmacro define-completer (name (desired-token-type token-fragment context parser-vars) &body body)
+  `(progn
+     (defun ,name (,desired-token-type ,token-fragment ,context ,parser-vars)
+       ,@body)
+     (fset:adjoinf *completers* ',name)))
+
+(define-completer complete-literal-token (desired-token-type token-fragment context parser-vars)
   (declare (ignore parser-vars))
-  (let ((desired-string (literal-token-string desired))
-        (token-value (token-value token)))
-    (if (sequence-starts-with-p desired-string token-value)
-        (list (make-simple-completion-suggestion desired-string context))
-        nil)))
+  (unless (typep desired-token-type 'literal-token-class)
+    (return-from complete-literal-token))
+
+  (let ((desired-string (literal-token-string desired-token-type))
+        (token-value (token-value token-fragment)))
+    (when (sequence-starts-with-p desired-string token-value)
+      (list (make-simple-completion-suggestion desired-string context)))))
 
 (defun directory-p (at-fd path)
   (handler-case
@@ -250,47 +257,52 @@
           (write-char char out)))
     (write-char #\' out)))
 
-(defmethod completion-suggestions concatenate-sequences
-    ((desired (eql (find-class 'simple-word)))
-     (token simple-word)
-     context
-     parser-vars)
+(define-completer command-name-completer (desired-token-type token-fragment context parser-vars)
+  (declare (ignore token-fragment))
+  (unless (eql desired-token-type (find-class 'simple-word))
+    (return-from command-name-completer))
+
   (multiple-value-bind (command-words valid-p) (fset:lookup parser-vars +parsed-simple-command-words+)
-    (unless valid-p
-      (return-from completion-suggestions))
+    (unless (and valid-p (empty-p command-words))
+      (return-from command-name-completer))
 
-    (cond
-      ((empty-p command-words)
-       (labels
-           ((compatible-p (command)
-              (sequence-starts-with-p command (simple-word-text token))))
-         (eager-map (eager-filter (all-commands) #'compatible-p (fset:empty-seq))
-                    (lambda (str)
-                      (make-simple-completion-suggestion str context))
-                    (fset:empty-seq))))
+    (labels
+        ((compatible-p (command)
+           (sequence-starts-with-p command (simple-word-text token-fragment))))
+      (eager-map (eager-filter (all-commands) #'compatible-p (fset:empty-seq))
+                 (lambda (str)
+                   (make-simple-completion-suggestion str context))
+                 (fset:empty-seq)))))
 
-      (t
-       ;; Technically, this should run even when command-words is
-       ;; empty.  One step at a time!
-       (let* ((pipeline (compute-expansion-pipeline :expand-aliases nil :end-at :expand-wild-paths))
-              (wild-paths (run-expansion-pipeline (list token) pipeline :split-fields nil :allow-side-effects nil)))
-         (unless (and (not (empty-p wild-paths))
-                      (empty-p (tail wild-paths)))
-           (error "Expected exactly one wild path... got ~A" wild-paths))
+(define-completer file-path-completer (desired-token-type token-fragment context parser-vars)
+  (unless (eql desired-token-type (find-class 'simple-word))
+    (return-from file-path-completer))
 
-         (when (wild-path-has-wild-component-p (head wild-paths))
-           (let* ((remaining-pipeline (compute-expansion-pipeline :expand-aliases nil :start-at :expand-wild-paths))
-                  (paths (run-expansion-pipeline wild-paths remaining-pipeline :split-fields nil :allow-side-effects nil))
-                  (quoted-paths (eager-map paths (lambda (str) (shell-quote str context)) (fset:empty-seq)))
-                  (suggestion-text (with-output-to-string (out)
-                                     (do-while-popf (path quoted-paths)
-                                       (write-string path out)
-                                       (unless (empty-p quoted-paths)
-                                         (write-string " " out))))))
-             (list
-              (make-simple-completion-suggestion
-               suggestion-text
-               context)))))))))
+  (multiple-value-bind (command-words valid-p) (fset:lookup parser-vars +parsed-simple-command-words+)
+    ;; Technically, this should run even when command-words is empty.
+    ;; One step at a time!
+    (unless (and valid-p (not (empty-p command-words)))
+      (return-from file-path-completer))
+
+    (let* ((pipeline (compute-expansion-pipeline :expand-aliases nil :end-at :expand-wild-paths))
+           (wild-paths (run-expansion-pipeline (list token-fragment) pipeline :split-fields nil :allow-side-effects nil)))
+      (unless (and (not (empty-p wild-paths))
+                   (empty-p (tail wild-paths)))
+        (error "Expected exactly one wild path... got ~A" wild-paths))
+
+      (when (wild-path-has-wild-component-p (head wild-paths))
+        (let* ((remaining-pipeline (compute-expansion-pipeline :expand-aliases nil :start-at :expand-wild-paths))
+               (paths (run-expansion-pipeline wild-paths remaining-pipeline :split-fields nil :allow-side-effects nil))
+               (quoted-paths (eager-map paths (lambda (str) (shell-quote str context)) (fset:empty-seq)))
+               (suggestion-text (with-output-to-string (out)
+                                  (do-while-popf (path quoted-paths)
+                                    (write-string path out)
+                                    (unless (empty-p quoted-paths)
+                                      (write-string " " out))))))
+          (list
+           (make-simple-completion-suggestion
+            suggestion-text
+            context)))))))
 
 (defvar *empty-token* (make-instance 'simple-word :text ""))
 
@@ -365,8 +377,9 @@
            (when (parse-error-involves-sigil-token-p err sigil-token)
              (let* ((expected-types (parse-error-expected-types err))
                     (all-expected-types (eager-flatmap-sequence expected-types (type-expander) (fset:empty-seq)))
-                    (suggestion-producer (lambda (type)
-                                           (completion-suggestions type token-to-complete context (parser-error-vars err)))))
+                    (suggestion-producer
+                      (lambda (type)
+                        (get-completions *completers* type token-to-complete context (parser-error-vars err)))))
                (setf suggestions (eager-flatmap-sequence all-expected-types suggestion-producer suggestions))))))
       (handler-case
           (do-while-popf (command commands)
