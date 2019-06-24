@@ -122,64 +122,102 @@ take on the value of physical file descriptor 3.  When spawning a
 subprocess, SHCL will consult that table and make the appropriate
 changes prior to calling ~exec~.
 
+* Evaluation
+SHCL took a lot of cues from Common Lisp itself.  You can see this in
+SHCL's main loop.  It divides responsibilities just like the classic
+Common Lisp ~READ~, ~EVAL~, ~PRINT~, LOOP~ would.
+
+#+BEGIN_EXAMPLE
+;; shell/main.lisp circa June 2019
+(loop
+  (let* ((form (read-with-handlers)) ; Read
+         (result (multiple-value-list (eval-with-restarts form)))) ; Eval
+    (debug-log status "RESULT: ~A" result) ; "Print"
+    (setf last-result result)))
+#+END_EXAMPLE
+
+Note that in the above snippet, ~EVAL-WITH-RESTARTS~ actually calls
+~COMMON-LISP:EVAL~.  SHCL doesn't ever interpret shell expressions.
+It merely translates shell expressions into Common Lisp forms.  It
+defers the task of evaluation to the Common Lisp environment.  In an
+interactive shell, we can't get around using ~EVAL~.  We can't compile
+the user's input before they finish typing it!
+
+When SHCL is used to embed shell expressions within Common Lisp
+source, SHCL doesn't need to use ~EVAL~.  For example, consider SHCL's
+~#$~ reader macro.  This macro returns a form that completely
+tokenizes, parses, and translates the shell expression to Common Lisp
+before macroexpansion completes.
+
+#+BEING_EXAMPLE
+SHCL/CORE/LISP-INTERPOLATION> (macroexpand-1 '#$ if true; then echo woo; fi #$)
+(SHCL/CORE/SHELL-FORM:SHELL-IF
+ (SHCL/CORE/SHELL-FORM:SHELL-RUN
+  (WITH-FD-STREAMS NIL
+    (EXPANSION-FOR-WORDS (LIST #<NAME "true">) :EXPAND-ALIASES T
+                         :EXPAND-PATHNAME-WORDS T :SPLIT-FIELDS NIL))
+  :ENVIRONMENT-CHANGES NIL :FD-CHANGES NIL)
+ (SHCL/CORE/SHELL-FORM:SHELL-RUN
+  (WITH-FD-STREAMS NIL
+    (EXPANSION-FOR-WORDS (LIST #<NAME "echo"> #<NAME "woo">) :EXPAND-ALIASES T
+                         :EXPAND-PATHNAME-WORDS T :SPLIT-FIELDS NIL))
+  :ENVIRONMENT-CHANGES NIL :FD-CHANGES NIL))
+T
+#+END_EXAMPLE
+
+As an interesting observation, note that SHCL and the host Common Lisp
+implementation now form a complete compiler for the POSIX Shell
+language.  SHCL acts as the front end and the host environment acts as
+the back end.  SHCL may very well be the first shell capable of fully
+compiling a shell script.
+
 * The Pipeline
+
 SHCL is, at its heart, a pipeline.  Generally, each stage is a
 transformation from one sequence to another sequence.  You can see
 this in =shcl/shell/main=, where the pipeline is created by composing
 the transformation functions.
 
 #+BEGIN_SRC lisp
-;; shell/main.lisp circa March 2019
+;; shell/main.lisp circa June 2019
 (as-> wrapped-stream x
   (logging-token-sequence x)
   (logging-command-sequence x)
-  (logging-evaluation-form-sequence x)
-  (logging-evaluated-result-sequence x))
+  (logging-evaluation-form-sequence x))
 #+END_SRC
 
-** Lexing
+At the end of this process, a Common Lisp form is produced.
+
+** Lexer
 The lexer takes a character stream and produces a lazy sequence
 containing the tokens found in the stream.
 
 The lexer can be extended using lexer readtables (much like Common
 Lisp supports adding reader macros).
 
-** Parsing
+** Parser
 The parsing phase consumes a token sequence and produces a lazy syntax
 tree sequence.  Note: syntax trees are not simply lists.  They are
 CLOS objects with named slots.
 
-** Translation
+** Translator
 The translation phase consumes a sequence of syntax tree objects and
 produces a lazy sequence of equivalent Common Lisp forms.  Typically,
 the post-translation form is one of the macros provided by the
 =shcl/core/shell-form= package.  The macros in that package provide a
 DSL of sorts that has shell-like semantics.
 
-*** Expansion
+Unlike the parse trees produced during the parsing phase, the
+~shell-form~ DSL is meant to be human-friendly.  It is intended to be
+comfortable to read and write directly.
+
 Its worth noting that before any shell builtin, binary, or
 user-defined shell function is run, the arguments of the command are
-"expanded".  Expansion isn't conceptually part of the pipeline, but it
-is complex enough to be worth mentioning.  The form produced by the
-translation phase includes the necessary calls to expand arguments,
-but expansion doesn't take place until the evaluation phase of the
-pipeline.
-
-** Evaluation
-Evaluation is the simplest phase of the pipeline.  At the end of the
-translation phase, a lisp form is produced.  This lisp form just needs
-to be evaluated!
-
-If the entire pipeline before this point ran at compile time (e.g. by
-using the =evaluate-constant-shell-string= macro or SHCL's reader
-macro), SHCL will arrange for the lisp form to be evaluated like any
-regular lisp form that appears in a program.  That is, it can access
-the lexical environment in which it appears, it will get compiled, and
-it will be evaluated some time later.
-
-If the pipeline runs at runtime (e.g. by using the
-=evaluate-shell-string= macro or by using SHCL interactively), then
-the lisp form is simply passed to ~eval~.
+"expanded".  Expansion isn't conceptually part of the pipeline or the
+translation phase, but it is complex enough to be worth mentioning.
+The form produced by the translation phase includes the necessary
+calls to expand arguments, but expansion doesn't take place until
+evaluation takes place.
 
 * Logging
 SHCL keeps an in-memory logging buffer that can be dumped on-demand
@@ -194,7 +232,9 @@ line to the log buffer using ~shcl/core/utility:debug-log~.
 - Treat all exported symbols as public API.  No packages are private.
 - Long lines should be avoided.
 - Prefer immutable data structures (e.g. fset or define-data).
-- Prefer a functional style
+- Prefer a functional style.
+- Prefer explicitly importing symbols with ~:IMPORT-FROM~ rather than
+  ~:USE~.
 
 * Highly Desired Contributions
 Not sure where to begin?  How about you take on one of these open
