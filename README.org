@@ -21,14 +21,15 @@ SHCL is
 1. a very customizable shell made with secret alien technology, and
 2. an unholy union of POSIX Shell and Common Lisp.
 
-Behold Common Lisp embedded in POSIX shell embedded in Common Lisp!
-Notice that the Common Lisp form embedded in the shell expression can
-access the lexical environment.
+SHCL is more than just a shell.  It is a mutual embedding of POSIX
+Shell and Common Lisp.  Behold Common Lisp embedded in POSIX shell
+embedded in Common Lisp!  Notice that the Common Lisp form embedded in
+the shell expression can access the lexical environment.
 #+BEGIN_EXAMPLE
 (let ((rld "rld"))
   (capture (:stdout)
-    #$ echo Hello ,(concatenate 'string "Wo" rld) | wc -c #$))
-; => "12"
+    #$ echo Hello ,(concatenate 'string "Wo" rld) #$))
+; => "Hello World"
 #+END_EXAMPLE
 
 Now lay your eyes on a lisp function participating in a pipeline!
@@ -112,32 +113,24 @@ shell.  You can do (almost) all your normal POSIX shell stuff in it.
 #+BEGIN_EXAMPLE
 shcl> echo foobar
 foobar
-shcl> FOO=$(echo echo foo; false) || echo assignment returned false
-assignment returned false
-shcl> $FOO
-foo
 shcl> { echo foobar ; echo baz ; echo blip ; } | tail -n 1
 blip
 shcl> shcl-enable-lisp-syntax
 shcl> if [ ,(+ 1 2 3) = ,(* 2 3) ]; then
-> echo woah
+> echo woah wait what
 > fi
-woah
+woah wait what
 shcl> shcl-repl
-shcl (lisp)> (format t "Hello world~%")
-Hello world
-NIL
-shcl (lisp)> (define-builtin set-env (&option print &required var value)
-> (loop :for str :across print :do (format t "~A~%" str))
-> (setf (env var) value)
+shcl (lisp)> (define-builtin upcase ()
+> (loop :for line = (read-line *standard-input* nil :eof)
+>       :until (eq line :eof) :do
+>       (format "~A~%" (string-upcase line)))
 > 0)
-SET-ENV
+UPCASE
 shcl (lisp)> ^D
-shcl> set-env --print hi --print there VAR value | wc -l
-2
-shcl> echo $VAR
-value
-shcl> ^D
+shcl> { echo ahhh ; echo what is going on ; } | upcase
+AHHH
+WHAT IS GOING ON
 #+END_EXAMPLE
 
 Okay, actually, that kind of went off the rails.
