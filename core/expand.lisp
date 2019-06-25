@@ -415,8 +415,9 @@ This indicates that the path is absolute.  If the first directory
 component doesn't start with a slash, then the path may be assumed to
 be relative.
 
-A wildcard component of the path is simply a scanner returned by
-`cl-ppcre:create-scanner'.
+A wildcard component of the path is simply a funcallable object.  It
+should accept a string representing a file and return non-nil if that
+file would be acceptable.
 
 How wild!"
   file-name
@@ -603,9 +604,11 @@ The return value is appropriate for storing in a `wild-path'."
       (return-from make-wild-path-component-from-fragments))
 
     (if (find-if-not 'characterp result)
-        (create-scanner
-         (nconc (list :sequence :start-anchor) (coerce result 'list) (list :end-anchor))
-         :multi-line-mode t)
+        (let ((scanner (create-scanner
+                        `(:sequence :start-anchor ,@(coerce result 'list) :end-anchor)
+                        :multi-line-mode t)))
+          (lambda (path)
+            (scan scanner path)))
         (coerce result 'simple-string))))
 
 (defun make-wild-path-from-fragments (fragments)
@@ -720,7 +723,7 @@ directory."
            (with-dir-ptr-for-fd (dir-ptr (get-fd-current-working-directory))
              (shcl/core/posix:do-directory-contents (file dir-ptr)
                (when (and (not (or (equal file ".") (equal file "..")))
-                          (scan next file))
+                          (funcall next file))
                  (if as-directory-p
                      (with-directory-or-nil (file)
                        (let ((rest (recurse-and-prefix file t)))
