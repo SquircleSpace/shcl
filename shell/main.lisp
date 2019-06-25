@@ -15,7 +15,7 @@
 (defpackage :shcl/shell/main
   (:use
    :common-lisp :trivial-gray-streams :shcl/core/lexer :shcl/core/shell-grammar
-   :shcl/core/utility :shcl/core/evaluate
+   :shcl/core/utility :shcl/core/translate
    :shcl/core/lisp-interpolation :shcl/core/dispatch-table)
   (:import-from :shcl/core/sequence
    #:lazy-map #:do-while-popf #:do-sequence #:wrap-with #:cache-impure)

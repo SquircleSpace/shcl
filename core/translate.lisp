@@ -12,7 +12,7 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(defpackage :shcl/core/evaluate
+(defpackage :shcl/core/translate
   (:use
    :common-lisp :alexandria :bordeaux-threads
    :shcl/core/utility :shcl/core/shell-grammar :shcl/core/lexer
@@ -28,7 +28,7 @@
   (:shadowing-import-from :alexandria #:when-let #:when-let*)
   (:shadowing-import-from :shcl/core/posix #:pipe)
   (:export #:evaluation-forms-for-commands #:translate #:expansion-preparation-form))
-(in-package :shcl/core/evaluate)
+(in-package :shcl/core/translate)
 
 (optimization-settings)
 
