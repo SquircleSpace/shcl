@@ -21,7 +21,7 @@
    #:walkable-to-list #:pour-from #:empty-p #:do-while-popf #:walk)
   (:import-from :shcl/core/data #:define-data #:define-cloning-setf-expander)
   (:import-from :shcl/core/command #:define-special-builtin)
-  (:import-from :shcl/core/evaluate #:translate #:expansion-preparation-form #:evaluation-forms-for-commands)
+  (:import-from :shcl/core/translate #:translate #:expansion-preparation-form #:evaluation-forms-for-commands)
   (:import-from :shcl/core/posix)
   (:import-from :bordeaux-threads)
   (:import-from :babel)
