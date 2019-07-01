@@ -194,7 +194,10 @@ See `immutable-cons' and `immutable-list'."
   "Return a new `immutable-list' with the given head and tail.
 
 This function is analogous to `cons', but it returns an object that
-cannot be modified."
+cannot be modified.
+
+`tail' can be any sequence.  It doesn't need to be another
+`immutable-list'."
   (make-immutable-list :head head :tail tail))
 
 (defun immutable-list (&rest things)
