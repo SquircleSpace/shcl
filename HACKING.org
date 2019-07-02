@@ -171,12 +171,13 @@ language.  SHCL acts as the front end and the host environment acts as
 the back end.  SHCL may very well be the first shell capable of fully
 compiling a shell script.
 
-* The Pipeline
+* The Input Pipeline
 
-SHCL is, at its heart, a pipeline.  Generally, each stage is a
-transformation from one sequence to another sequence.  You can see
-this in =shcl/shell/main=, where the pipeline is created by composing
-the transformation functions.
+The input pipeline is the how SHCL converts a sequence of characters
+into an executable lisp form.  Each stage is a lazy transformation
+from one sequence to another sequence.  You can see this in
+=shcl/shell/main=, where the pipeline is created by composing the
+transformation functions.
 
 #+BEGIN_SRC lisp
 ;; shell/main.lisp circa June 2019
@@ -186,19 +187,43 @@ the transformation functions.
   (logging-evaluation-form-sequence x))
 #+END_SRC
 
-At the end of this process, a Common Lisp form is produced.
+This results in a sequence that contains Common Lisp forms that, upon
+evaluation, execute the POSIX Shell expressions contained within the
+character stream.
 
 ** Lexer
 The lexer takes a character stream and produces a lazy sequence
 containing the tokens found in the stream.
 
-The lexer can be extended using lexer readtables (much like Common
-Lisp supports adding reader macros).
+Much like Common Lisp supports adding reader macros, the lexer can be
+extended using a generalization of readtables: ~DISPATCH-TABLE~.  Some
+lexer rules cannot be encoded in the ~DISPATCH-TABLE~, but most rules
+are.  Unlike Common Lisp's readtables, ~DISPATCH-TABLE~ supports
+arbitrarily long dispatch rules.
 
 ** Parser
 The parsing phase consumes a token sequence and produces a lazy syntax
 tree sequence.  Note: syntax trees are not simply lists.  They are
 CLOS objects with named slots.
+
+=shcl/core/parser.lisp= defines a set of PEG-style parser combinators.
+The parser combinators are heavily inspired by the popular Parsec
+library for Haskell.  =parser.lisp= is a general purpose parser
+generator.  In =shcl/core/shell-grammar.lisp= the parser generator is
+used to create a parser for the POSIX Shell language.
+
+Just like the lexer supports extensions, SHCL's parser is designed to
+accept extensions.  SHCL uses a PEG-style parser specifically to make
+syntactic extensions easier.  Unlike the more common LL or LR parsing
+schemes, PEG parsers are composable and you don't need to reprocess
+the entire grammar when a change is made.  Those properties made PEGs
+a natural fit for SHCL.
+
+To actually modify the grammar, SHCL uses a system modeled off of
+Emacs Lisp's advice functionality.  Every nonterminal and terminal in
+SHCL's grammar is an advisable function (see =shcl/core/advice.lisp=).
+By defining ~:AROUND~ advice on the grammar node of interest, you can
+easily add new parser rules into the grammar.
 
 ** Translator
 The translation phase consumes a sequence of syntax tree objects and
@@ -213,11 +238,254 @@ comfortable to read and write directly.
 
 Its worth noting that before any shell builtin, binary, or
 user-defined shell function is run, the arguments of the command are
-"expanded".  Expansion isn't conceptually part of the pipeline or the
-translation phase, but it is complex enough to be worth mentioning.
-The form produced by the translation phase includes the necessary
-calls to expand arguments, but expansion doesn't take place until
-evaluation takes place.
+"expanded".  Expansion deals with things like aliases, shell variable
+access, and evaluation of lisp splices.  Expansion isn't conceptually
+part of the pipeline or the translation phase, but it is complex
+enough to be worth mentioning.  The form produced by the translation
+phase includes the necessary calls to expand arguments, but expansion
+doesn't take place until evaluation takes place.
+
+* Sequences
+When it comes to sequences, SHCL takes a page from Clojure's book.
+SHCL has a collection of generic functions (defined in
+=shcl/core/sequence.lisp=) that facilitate working with arbitrary
+sequence types in a uniform way.  You can traverse a sequence using
+~HEAD~ and ~TAIL~, or you can extend it using ~ATTACH~.  None of the
+sequence functions actually modify an object in-place.  There are
+convenience macros that modify places (e.g. ~POPF~), but no sequences
+are harmed in the execution of those macros.
+
+In this past, SHCL used iterators as the common currency instead of
+immutable sequences.  This led to a number of problems.
+1. Traversing an iterator twice was clunky.
+2. The iterators weren't thread-safe.
+3. Debugging code that used iterators was clunky (observing the
+   iterator would modify it!)
+
+A little bit more GC traffic was deemed an acceptable trade-of to
+avoid those issues.
+
+* Data
+Since subshells are simply threads, there is a high risk of one
+subshell stomping on another subshell's state.  Using immutable
+objects and a generally functional model greatly simplifies the task
+of maintaining thread-based subshells.
+
+Common Lisp doesn't have great tools off-the-shelf for defining and
+working with immutable objects.  Sure, you can simply avoid defining
+writer methods for slots, but that is just the first step.  What
+happens when you need to make a tweak in some deeply nested data
+structure of immutable objects?  Rebuilding the entire data structure
+can be fairly cumbersome.  Without some macro assistance, there is a
+lot of boilerplate.  More importantly, that boilerplate needs to be
+updated whenever the data structure is redefined.  Consider the
+following example of a read-only class.  If we later decide to add a
+new slot we'll have to update all the ~with-altered-slot~ functions to
+preserve that new slot.  When you consider inheritance, the code below
+is outright broken -- there might be slots we don't know about!
+
+#+BEGIN_EXAMPLE
+(defclass foo ()
+  ((slot1 :initarg :slot1 :reader foo-slot1)
+   (slot2 :initarg :slot2 :reader foo-slot2)))
+
+(defun with-altered-slot1 (foo new-value)
+  (make-instance 'foo :slot1 new-value :slot2 (foo-slot2 foo)))
+
+(defun with-altered-slot2 (foo new-value)
+  (make-instance 'foo :slot1 (foo-slot1 foo) :slot2 new-value))
+
+(with-altered-slot1 (with-altered-slot2 (get-foo) 123) 456)
+#+END_EXAMPLE
+
+=shcl/core/data.lisp= provides macros to make managing immutable
+objects easier.  It takes inspiration from Haskell, Haskell's Lens
+library, and FSet's ~setf~ expanders.  There are three key ingredients
+in =data.lisp=.
+
+** ~CLONE~
+The ~CLONE~ generic function provides a way to make a shallow copy of
+an object.  It intentionally does not handle all objects.  Some
+~STANDARD-OBJECT~ subclasses may behave strangely when naively
+copied.
+
+~CLONE~ goes a step beyond just copying.  For class types, ~CLONE~
+accepts initargs, too.  ~CLONE~ allocates a fresh object, copies all
+the slot values of the original object into the new object, and then
+uses ~SHARED-INITIALIZE~ to process any initargs.  The end result is
+that ~CLONE~ behaves more like a variant of ~MAKE-INSTANCE~ than a
+simple copier function.
+
+Returning to our ~FOO~ example above, ~CLONE~ makes rewriting slots in
+a new instance much easier.  The only price is that we must ensure
+that our ~FOO~ class can be copied correctly.  In this instance, ~FOO~
+is a "dumb struct" and can be copied naively.
+
+#+BEGIN_EXAMPLE
+(defclass foo ()
+  ((slot1 :initarg :slot1 :reader foo-slot1)
+   (slot2 :initarg :slot2 :reader foo-slot2)))
+
+(define-clone-method foo) ;; convenience macro for trivially clonable types
+
+(clone (get-foo) :slot1 456 :slot2 123)
+#+END_EXAMPLE
+
+** ~DEFINE-CLONING-SETF-EXPANDER~
+~CLONE~ greatly simplifies the task of updating a complex read-only
+data structure, but it does little to help with nested data
+structures.  Suppose our ~FOO~ class holds an instance of another
+immutable class and we want to update one of the inner class's slots.
+
+#+BEGIN_EXAMPLE
+(defclass bar ()
+  ((slot1 :initarg :slot1 :reader bar-slot1)))
+
+(define-clone-method bar)
+
+(defclass foo ()
+  ((slot1 :initarg :slot1 :reader foo-slot1)
+   (slot2 :initarg :slot2 :reader foo-slot2)
+   (bar :initarg :bar :reader foo-bar)))
+
+(define-clone-method foo)
+
+(let ((foo (get-foo)))
+  (clone foo :bar (clone (foo-bar foo) :slot1 123)))
+#+END_EXAMPLE
+
+This is workable, but it lacks the pizzazz that we had when the
+structure was flat.  We're repeating ourselves here.  We specified
+that we wanted to operate on the ~BAR~ slot in two different ways: the
+initarg and the call to ~FOO-BAR~.  It also just feels heavy.  Our
+goal is to make read-only objects feel just as ergonomic as mutable
+objects.  We're not living up to that standard with just ~CLONE~.
+
+SHCL's answer to that is to define ~SETF~ expanders that do the heavy
+lifting for you.  ~DEFINE-CLONING-SETF-EXPANDER~ defines a ~SETF~
+expander that clones the target object before making any changes to
+it.  If you're familiar with FSet's ~SETF~ behaviors, this should be
+familiar.
+
+#+BEGIN_EXAMPLE
+(defclass bar ()
+  ((slot1
+    :reader bar-slot1
+    :writer set-bar-slot1
+    :initform 'abc)))
+
+(define-clone-method bar)
+(define-cloning-setf-expander bar-slot1 set-bar-slot1)
+
+(defclass foo ()
+  ((bar
+    :reader foo-bar
+    :writer set-foo-bar
+    :initform (make-instance 'bar))))
+
+(define-clone-method foo)
+(define-cloning-setf-expander foo-bar set-foo-bar)
+
+(let* ((foo (make-instance 'foo))
+       (old-foo foo))
+  (setf (bar-slot1 (foo-bar foo)) 123)
+  (assert (eql (bar-slot1 (foo-bar foo)) 123))
+  (assert (eql (bar-slot1 (foo-bar old-foo)) 'abc))
+  foo)
+#+END_EXAMPLE
+
+There are two things that are unaesthetic about this.
+1. We're using procedural constructs and statefully modifying the
+   place holding the immutable object.
+2. Under the hood, the "immutable" object is modified before the
+   ~SETF~ operation completes.
+
+Issue #1 is intrinsic to this approach.  The fact of the matter is
+that its easier to bring a bit of functional goodness to ~SETF~ than
+it is to build a rock-solid replacement for ~SETF~ that returns a new
+value instead of changing one.  Using ~SETF~ as the backbone is
+just practical.
+
+Issue #2 is much more complex than it seems.  First, notice that it is
+essential that mutation is allowed during the initialization of an
+object.  With the way CLOS works, you can write an ~:AROUND~ method
+that sees the object pre-initialization and post-initialization.  As a
+result, methods on CLOS's initialization functions must be tolerant of
+mutation.  In addition, methods on the initialization functions should
+not assume the object won't be further modified after they return.  A
+method can check if there are deeper layers to the method onion, but
+it cannot check if there are layers further out.[fn::Technically, an
+~:AROUND~ method with exclusively ~EQL~ specializers could confidently
+assume that it is the outer-most method.  Even then, you'd need to
+have the specialization on one of the outer-most functions of the
+object creation flow (e.g. ~MAKE-INSTANCE~ or ~CLONE~).  It seems
+unlikely that anyone would write such a method on ~CLONE~ specifically
+so that they can observe a fully-post-initialization end state, so
+we're going to just ignore that possibility in this argument.]  As a
+result, initialization methods must be tolerant of changes that occur
+after they return.
+
+Thus, the object cannot really be considered immutable until after
+control returns to the caller that initiated the creation of the
+object.  At that point, it is actually quite helpful if the creator of
+the object is allowed to mutate it in some way before handing it off
+to someone else.  Otherwise, all interesting state will need to be
+modifiable via initargs!  The owner of a class type may not wish to
+expose the slot's initarg, or the state may not be known to the
+class's owner.
+
+Suppose we have a ~FAVORITE-COLOR~ accessor generic function.  Some
+objects may store a favorite color in a slot, but other types may
+store their favorite color elsewhere.
+
+#+BEGIN_EXAMPLE
+(defclass person ()
+  ((favorite-color :reader favorite-color :writer set-favorite-color)))
+
+(defmethod favorite-color ((list list))
+  (cdr (assoc 'color list)))
+
+(defmethod set-favorite-color (new-value (list list))
+  (let ((entry (assoc 'color list)))
+    (if entry
+        (setf (cdr entry) new-value)
+        (error "This list doesn't have a favorite color!"))))
+#+END_EXAMPLE
+
+What if we wanted to support cloning a list while changing its
+favorite color?  Sure, we could define a method on ~CLONE~ that knows
+how to handle a ~:FAVORITE-COLOR~ initarg, but methods on a generic
+function are a limited resource.  You can't have two different
+libraries both try to add initargs to the same type!  For common types
+such as ~LIST~, this is a real problem.
+
+At the end of the day, we can't assume that all interesting state can
+be set correctly at initialization time.  Allowing ourselves to modify
+a freshly allocated "immutable" object is a reasonable compromise.  We
+can still pretend we have immutable objects, and the secret mutation
+is very unlikely to be noticed by anyone.
+
+** ~DEFINE-DATA~
+=shcl/core/data.lisp= has one final trick up its sleeve.
+~DEFINE-DATA~ is a fairly simple wrapper around ~DEFCLASS~.  When you
+define a class with ~DEFINE-DATA~, you are promising that the class
+(and all future subclasses) will behave like "plain old data".  The
+exact meaning of "plain old data" isn't specified, but the intuitive
+meaning is that it should be safe to treat the object like a C struct.
+By making the promise to keep the class well behaved, your class will
+automatically support some common operations (e.g. ~CLONE~,
+~FSET:COMPARE~, and ~MAKE-LOAD-FORM~).
+
+You don't need to use ~DEFINE-DATA~ to mark a class as plain old data.
+You merely need to include ~DATA~ in the class's precedence list.
+Note that all future subclasses and all superclasses must be
+compatible with the plain old data promise, too.  To help make that
+requirement a bit more clear, ~DEFINE-DATA~ also defaults the
+metaclass of the class to ~DATA-CLASS~.  The ~DATA-CLASS~ metaclass
+and the ~STANDARD-CLASS~ metaclass are like oil and water.  You cannot
+inherit a ~STANDARD-CLASS~ from a ~DATA-CLASS~ or vis versa.  This is
+to help ensure that all subclasses and superclasses have committed to
+the plain old data promise.
 
 * Logging
 SHCL keeps an in-memory logging buffer that can be dumped on-demand
