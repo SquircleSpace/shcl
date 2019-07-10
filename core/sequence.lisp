@@ -25,6 +25,10 @@
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
    #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence #:do-sequence
+   #:sequence-find-if #:sequence-find-if-not #:sequence-find
+   #:eager-sequence-remove-if #:eager-sequence-remove-if-not
+   #:eager-sequence-remove #:sequence-count-if #:sequence-count-if-not
+   #:sequence-count #:sequence-nth-tail
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:sequence-starts-with-p #:wrap-with #:cache-impure))
@@ -655,6 +659,260 @@ This is a non-mutating, generic version of the standard `sort'.  The
     (do-while-popf (element sequence)
       (vector-push-extend element result))
     (sort result predicate :key key)))
+
+(defun sequence-nth-tail (sequence nth)
+  "Pop off `nth' elements from `sequence' and return the result.
+
+If `sequence' has at least `nth' elements then the second return value
+will be 0.  If `sequence' has fewer than `nth' elements then the
+second return value will contain the difference between `nth' and the
+length of `sequence'."
+  (check-type nth (integer 0))
+
+  (loop :for remaining :above 0 :downfrom nth :do
+    (multiple-value-bind (head valid-p) (popf sequence)
+      (declare (ignore head))
+      (unless valid-p
+        (return-from sequence-nth-tail
+          (values sequence remaining)))))
+
+  (values sequence 0))
+
+(defun sequence-find-if (predicate sequence &key (start 0) end key)
+  "Search through `sequence' for an element that satisfies `predicate'.
+
+This is a generic version of Common Lisp's `find-if'.  Note: unlike
+`find-if', this function does not support the from-end keyword
+argument.
+
+In addition to returning the item that was found, this function also
+returns the sequence starting at the point where the item was found.
+If no item was found then this function returns nil for both the first
+and second return value."
+  (check-type start (integer 0))
+  (check-type end (or null (integer 0)))
+
+  (when end
+    (cond
+      ((< end start)
+       (error "end must not be less than start"))
+      ((equal end start)
+       (return-from sequence-find-if
+         (values nil nil)))))
+
+  (multiple-value-bind
+        (new-sequence uncompleted-steps)
+      (sequence-nth-tail sequence start)
+    (unless (zerop uncompleted-steps)
+      (return-from sequence-find-if
+        (values nil nil)))
+    (setf sequence new-sequence))
+
+  (when end
+    (decf end start)
+    (assert (plusp end) (end) "This should be impossible"))
+
+  (let ((previous-sequence sequence))
+    (do-while-popf (item sequence)
+      (when (funcall predicate (if key (funcall key item) item))
+        (return-from sequence-find-if
+          (values item previous-sequence)))
+      (when end
+        (decf end)
+        (when (not (plusp end))
+          (return-from sequence-find-if
+            (values nil nil))))
+      (setf previous-sequence sequence))))
+
+(defun sequence-find-if-not (predicate sequence &rest args &key (start 0) end key)
+  "Search through `sequence' for an element that fails to satisfy
+`predicate'.
+
+This is a generic version of Common Lisp's `find-if-not'.  Note:
+unlike `find-if-not', this function does not support the from-end
+keyword argument.
+
+In addition to returning the item that was found, this function also
+returns the sequence starting at the point where the item was found.
+If no item was found then this function returns nil for both the first
+and second return value."
+  (declare (ignore start end key))
+  (apply 'sequence-find-if (lambda (item) (not (funcall predicate item))) sequence args))
+
+(defun finder-predicate (item test test-not)
+  (cond
+    ((and (null test)
+          (null test-not))
+     (lambda (seq-item)
+       (eql item seq-item)))
+    ((and test test-not)
+     (error "Only one of test or test-not should be provided"))
+    (test
+     (lambda (seq-item)
+       (funcall test item seq-item)))
+    (test-not
+     (lambda (seq-item)
+       (not (funcall test-not item seq-item))))
+    (t
+     (assert nil nil "This should be impossible"))))
+
+(defun sequence-find (item sequence &key test test-not (start 0) end key)
+  "Search through `sequence' for an element that matches `item'.
+
+This is a generic version of Common Lisp's `find'.  Note: unlike
+`find', this function does not support the from-end keyword argument.
+
+In addition to returning the item that was found, this function also
+returns the sequence starting at the point where the item was found.
+If no item was found then this function returns nil for both the first
+and second return value."
+  (sequence-find-if
+   (finder-predicate item test test-not)
+   sequence :start start :end end :key key))
+
+(defun eager-sequence-remove-if (predicate sequence output-sequence &key (start 0) end count key)
+  "Search through `sequence', remove every element that satisfies
+`predicate', and attach the remaining elements to `output-sequence'.
+
+This is a generic version of Common Lisp's `remove-if'.  Note: unlike
+`remove-if', this function does not support the from-end keyword
+argument."
+  (check-type start (integer 0))
+  (check-type end (or null (integer 0)))
+  (check-type count (or null (integer 0)))
+
+  (when end
+    (cond
+      ((< end start)
+       (error "end must not be less than start"))
+      ((equal end start)
+       (return-from eager-sequence-remove-if
+         (pour-from sequence output-sequence)))))
+
+  (dotimes (count start)
+    (multiple-value-bind (head valid-p) (popf sequence)
+      (unless valid-p
+        (return-from eager-sequence-remove-if output-sequence))
+      (attachf output-sequence head)))
+
+  (when end
+    (decf end start)
+    (assert (plusp end) (end) "This should be impossible"))
+
+  (when (and count (minusp count))
+    (setf count 0))
+
+  (when (and count (zerop count))
+    (return-from eager-sequence-remove-if
+      (pour-from sequence output-sequence)))
+
+  (do-while-popf (item sequence)
+    (cond
+      ((funcall predicate (if key (funcall key item) item))
+       (when count
+         (decf count)
+         (when (zerop count)
+           (return-from eager-sequence-remove-if
+             (pour-from sequence output-sequence)))))
+
+      (t
+       (attachf output-sequence item)))
+
+    (when end
+      (decf end)
+      (when (zerop end)
+        (return-from eager-sequence-remove-if
+          (pour-from sequence output-sequence)))))
+
+  output-sequence)
+
+(defun eager-sequence-remove-if-not (predicate sequence output-sequence &rest args &key (start 0) end count key)
+  "Search through `sequence', remove every element that fails to
+satisfy `predicate', and attach the remaining elements to
+`output-sequence'.
+
+This is a generic version of Common Lisp's `remove-if-not'.  Note:
+unlike `remove-if-not', this function does not support the from-end
+keyword argument."
+  (declare (ignore start end key count))
+  (apply 'eager-sequence-remove-if
+         (lambda (item) (not (funcall predicate item)))
+         sequence
+         output-sequence
+         args))
+
+(defun eager-sequence-remove (item sequence output-sequence &key test test-not (start 0) end count key)
+  "Search through `sequence', remove every element that matches
+`item', and attach the remaining elements to `output-sequence'.
+
+This is a generic version of Common Lisp's `remove'.  Note: unlike
+`remove', this function does not support the from-end keyword
+argument."
+  (eager-sequence-remove-if
+   (finder-predicate item test test-not)
+   sequence output-sequence :start start :end end :key key :count count))
+
+(defun sequence-count-if (predicate sequence &key (start 0) end key)
+  "Count the number of items in `sequence' that satisfy `predicate'.
+
+This is a generic version of Common Lisp's `count-if'.  Note: unlike
+`count-if' this function does not support the from-end keyword argument."
+  (check-type start (integer 0))
+  (check-type end (or null (integer 0)))
+
+  (when end
+    (cond
+      ((< end start)
+       (error "end must not be less than start"))
+      ((equal end start)
+       (return-from sequence-count-if
+         0))))
+
+  (multiple-value-bind
+        (new-sequence uncompleted-steps)
+      (sequence-nth-tail sequence start)
+    (unless (zerop uncompleted-steps)
+      (return-from sequence-count-if
+        0))
+    (setf sequence new-sequence))
+
+  (when end
+    (decf end start)
+    (assert (plusp end) (end) "This should be impossible"))
+
+  (let ((count 0))
+    (do-while-popf (item sequence)
+      (when (funcall predicate (if key (funcall key item) item))
+        (incf count))
+      (when end
+        (decf end)
+        (when (not (plusp end))
+          (return-from sequence-count-if
+            count))))
+    count))
+
+(defun sequence-count-if-not (predicate sequence &rest args &key (start 0) end key)
+  "Count the number of items in `sequence' that fail to satisfy
+`predicate'.
+
+This is a generic version of Common Lisp's `count-if-not'.  Note:
+unlike `count-if-not' this function does not support the from-end keyword
+argument."
+  (declare (ignore start end key))
+  (apply 'sequence-count-if
+         (lambda (item) (not (funcall predicate item)))
+         sequence
+         args))
+
+(defun sequence-count (item sequence &key (start 0) end key test test-not)
+  "Count the number of items in `sequence' that match `item'.
+
+This is a generic version of Common Lisp's `count'.  Note:
+unlike `count' this function does not support the from-end keyword
+argument."
+  (sequence-count-if
+   (finder-predicate item test test-not) sequence
+   :start start :end end :key key))
 
 (defun lazy-map (walkable fn)
   "Create a lazy sequence that consists of `fn' applied to each
