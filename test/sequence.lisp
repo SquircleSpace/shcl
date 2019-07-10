@@ -432,3 +432,161 @@
     (is (walkable-to-list (sort-sequence nil #'<))
         nil
         "Sorting an empty sequence works")))
+
+(defun compare-sequence-predicate-functions (baseline alternate)
+  (labels
+      ((match (comment &rest args)
+         (is (apply alternate args)
+             (apply baseline args)
+             comment)))
+    (match "Baseline output matches"
+      'zerop '(1 2 3 4 0 5 6 7 0 0 10))
+    (match "Empty sequence matches"
+      'zerop nil)
+    (match "Non-matching output matches"
+      (constantly nil) *test-sequence*)
+    (match "start overshoot matches"
+      (constantly t) *test-sequence* :start (length *test-sequence*))
+    (match "0-length interval matches"
+      (constantly t) *test-sequence* :start 1 :end 1)
+    (let ((sequence '(-5 18 1000 300 -20 132)))
+      (match "Key works"
+        (lambda (obj) (equal 1 obj)) sequence :key (lambda (obj) (/ obj 1000))))
+    (let ((sequence '(-5 32 0 197 0.0 20 0 0 100)))
+      (match "Start works"
+        'zerop sequence :start 2)
+      (match "Start works"
+        'zerop sequence :start 3)
+      (match "Start / end works"
+        'zerop sequence :start 3 :end 4)
+      (match "Start / end works"
+        'zerop sequence :start 3 :end 5)
+      (match "End works"
+        'zerop sequence :end 2)
+      (match "End works"
+        'zerop sequence :end 3))
+
+    (is-error
+     (funcall alternate (constantly t) *test-sequence* :start #(1 2 3))
+     'type-error
+     "bogus start errors")
+    (is-error
+     (funcall alternate (constantly t) *test-sequence* :start -1)
+     'type-error
+     "bogus start errors")
+    (is-error
+     (funcall alternate (constantly t) *test-sequence* :end #(1 2 3))
+     'type-error
+     "bogus end errors")
+    (is-error
+     (funcall alternate (constantly t) *test-sequence* :end -1)
+     'type-error
+     "bogus end errors")
+    (is-error
+     (funcall alternate (constantly t) *test-sequence* :start 3 :end 2)
+     'error
+     "bogus start/end interval errors")))
+
+(defun test-sequence-finder (fn)
+  (let* ((sequence '(0 1 2 3 4 5 6 7 8))
+         (expected-tail (cdddr sequence)))
+    (assert expected-tail)
+    (is (nth-value 1 (funcall fn (constantly t) sequence :start 3))
+        expected-tail
+        "The located tail is returned")
+    (ok (null (nth-value 1 (funcall fn (constantly nil) sequence)))
+        "Failure to find returns nil tail")))
+
+(define-test sequence-find-if
+  (compare-sequence-predicate-functions 'find-if 'sequence-find-if)
+
+  (test-sequence-finder 'sequence-find-if))
+
+(defun predicate-inverter (fn)
+  (lambda (predicate &rest args)
+    (apply fn (lambda (item) (not (funcall predicate item))) args)))
+
+(define-test sequence-find-if-not
+  (compare-sequence-predicate-functions
+   (predicate-inverter 'find-if-not)
+   (predicate-inverter 'sequence-find-if-not))
+
+  (test-sequence-finder (predicate-inverter 'sequence-find-if-not)))
+
+(defun compare-sequence-item-functions (baseline alternate)
+  (labels
+      ((match (comment &rest args)
+         (is (apply alternate args)
+             (apply baseline args)
+             comment)))
+    (let ((sequence '(1 2 3 0.0 4 0 5 6 0.0 10 0)))
+      (match "Baseline behavior matches"
+        0 sequence)
+      (match "Non-matching behavior matches"
+        'abc sequence)
+      (match "Test parameter is respected"
+        0 sequence :test '=)
+      (match "Test-not parameter is respected"
+        0 sequence :test-not (lambda (f s) (not (= f s))))
+
+      (is-error
+       (funcall alternate 0 sequence :test 'equalp :test-not 'equal)
+       'error
+       "Providing both test and test-not is an error"))))
+
+(define-test sequence-find
+  (compare-sequence-item-functions 'find 'sequence-find))
+
+(define-test eager-sequence-remove-if
+  (labels
+      ((eager-sequence-remove-if-wrapper (predicate sequence &rest keyword-args)
+         (nreverse (apply 'eager-sequence-remove-if predicate sequence nil keyword-args))))
+    (compare-sequence-predicate-functions 'remove-if #'eager-sequence-remove-if-wrapper)))
+
+(define-test eager-sequence-remove-if-not
+  (labels
+      ((eager-sequence-remove-if-not-wrapper (predicate sequence &rest keyword-args)
+         (nreverse (apply 'eager-sequence-remove-if-not predicate sequence nil keyword-args))))
+    (compare-sequence-predicate-functions
+     (predicate-inverter 'remove-if-not)
+     (predicate-inverter #'eager-sequence-remove-if-not-wrapper))))
+
+(define-test eager-sequence-remove
+  (labels
+      ((eager-sequence-remove-wrapper (item sequence &rest keyword-args)
+         (nreverse (apply 'eager-sequence-remove item sequence nil keyword-args))))
+    (compare-sequence-item-functions 'remove #'eager-sequence-remove-wrapper)))
+
+(define-test sequence-count-if
+  (compare-sequence-predicate-functions 'count-if 'sequence-count-if))
+
+(define-test sequence-count-if-not
+  (compare-sequence-predicate-functions
+   (predicate-inverter 'count-if-not)
+   (predicate-inverter 'sequence-count-if-not)))
+
+(define-test sequence-count
+  (compare-sequence-item-functions 'count 'sequence-count))
+
+(define-test sequence-nth-tail
+  (let ((sequence '(1 2 3 4 5 6 7)))
+    (is (multiple-value-list
+         (sequence-nth-tail sequence 0))
+        (list sequence 0)
+        "nth = 0 does the right thing")
+    (is (multiple-value-list
+         (sequence-nth-tail sequence 3))
+        (list (cdddr sequence) 0)
+        "nth = 3 does the right thing")
+    (is (multiple-value-list
+         (sequence-nth-tail sequence (length sequence)))
+        (list nil 0)
+        "nth = length does the right thing")
+    (is (multiple-value-list
+         (sequence-nth-tail sequence (+ 20 (length sequence))))
+        (list nil 20)
+        "nth = length + 20 does the right thing")
+    (is (multiple-value-list
+         (sequence-nth-tail nil 20))
+        (list nil 20)
+        "Empty sequences work")))
