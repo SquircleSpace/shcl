@@ -16,7 +16,7 @@
   (:use
    :common-lisp :cffi :trivial-gray-streams :shcl/core/utility
    :shcl/shell/prompt-types)
-  (:import-from :shcl/core/sequence #:sort-sequence #:head #:tail #:empty-p)
+  (:import-from :shcl/core/sequence #:sequence-sort #:head #:tail #:empty-p)
   (:import-from :shcl/core/command #:define-builtin)
   (:import-from
    :shcl/core/posix
@@ -638,7 +638,7 @@ See `completion-suggestion-replacement-text' and
                (editline-insertstr editline " ")))))
 
       (t
-       (setf suggestions (sort-sequence suggestions 'string< :key 'completion-suggestion-display-text))
+       (setf suggestions (sequence-sort suggestions 'string< :key 'completion-suggestion-display-text))
        (format t "~%")
        (loop :for suggestion :across suggestions :do
           (format t "~A~%" (completion-suggestion-display-text suggestion)))))

@@ -24,7 +24,7 @@
    #:empty-p #:attach #:empty-of #:empty-for-type #:walk #:head #:tail
    #:attachf #:popf #:do-while-popf #:lazy-map #:eager-map #:lazy-filter
    #:eager-filter #:pour-from #:concatenate-sequences #:flatten-sequence
-   #:eager-flatmap-sequence #:walkable-to-list #:sort-sequence #:do-sequence
+   #:eager-flatmap-sequence #:walkable-to-list #:sequence-sort #:do-sequence
    #:sequence-find-if #:sequence-find-if-not #:sequence-find
    #:eager-sequence-remove-if #:eager-sequence-remove-if-not
    #:eager-sequence-remove #:sequence-count-if #:sequence-count-if-not
@@ -648,7 +648,7 @@ traversing it with this macro.  See also `do-while-popf'."
        (do-while-popf (,var ,walker ,result)
          ,@body))))
 
-(defun sort-sequence (sequence predicate &key key)
+(defun sequence-sort (sequence predicate &key key)
   "Return a sequence with the same elements as `sequence' but sorted
 in the order determined by `predicate'.
 
