@@ -433,6 +433,45 @@
         nil
         "Sorting an empty sequence works")))
 
+(defvar *long-binary-sequence*
+  '(0 1 0 0 1 0 0 0 0 1 1 0 0 1 0 1 0 1 1 0 1 1 0 0 0 1 1 1 0 0 0 0 0 0 1 0 0 0 0
+    1 0 0 1 0 0 0 0 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 1 1 0 1 1 0 1 1 0 1 0 0 1 0 0 0
+    0 0 0 1 1 1 0 1 0 0 0 1 1 1 0 0 1 0 0 1 1 0 0 0 0 1 0 1 1 1 0 0 0 0 0 1 1 1 0
+    0 0 0 0 1 1 0 0 1 0 1 0 1 1 0 0 1 0 0 0 0 1 0 0 0 0 0 0 1 1 0 1 0 0 1 0 1 1 0
+    1 1 1 0 0 0 1 0 0 0 0 0 0 1 1 0 0 0 0 1 0 0 1 0 0 0 0 0 0 1 0 1 0 1 0 1 0 1 0
+    1 0 1 0 0 0 1 0 0 0 1 1 0 0 0 1 0 1 1 0 1 0 0 1 1 1 0 0 0 0 0 1 0 0 0 0 0 0 1
+    1 0 0 1 1 0 0 1 1 0 0 0 0 1 0 1 1 0 0 0 1 1 0 1 1 1 0 1 0 0 0 1 1 0 1 1 1 1 0
+    1 1 1 0 0 1 0 0 1 1 1 1 0 0 1 0 0 0 0 0 0 0 0)) ;; !!?
+
+(define-test sequence-stable-sort
+  (let* ((sequence *test-sequence*)
+         (key (lambda (val) (- (+ val 10))))
+         (expected (sort (copy-list sequence) #'< :key key)))
+    (is (walkable-to-list (sequence-stable-sort sequence #'< :key key))
+        expected
+        "Sorting a list works")
+    (is (walkable-to-list (sequence-stable-sort (coerce sequence 'vector) #'< :key key))
+        expected
+        "Sorting a vector works")
+    (is (walkable-to-list (sequence-stable-sort nil #'<))
+        nil
+        "Sorting an empty sequence works"))
+
+  (let* ((counter 0)
+         (raw-sequence *long-binary-sequence*)
+         (wrapped-sequence (mapcar (lambda (item) (cons item (incf counter))) raw-sequence)))
+    (labels
+        ((stable-p (sequence)
+           (loop :with last = (make-array 2 :initial-contents '(-1 -1))
+                 :for cell :in (walkable-to-list sequence) :do
+             (if (> (cdr cell) (aref last (car cell)))
+                 (setf (aref last (car cell)) (cdr cell))
+                 (return-from stable-p nil)))
+           t))
+
+      (ok (stable-p (sequence-stable-sort wrapped-sequence '< :key 'car))
+          "sequence-stable-sort sorts stably"))))
+
 (defun compare-sequence-predicate-functions (baseline alternate)
   (labels
       ((match (comment &rest args)

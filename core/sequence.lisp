@@ -28,7 +28,7 @@
    #:sequence-find-if #:sequence-find-if-not #:sequence-find
    #:eager-sequence-remove-if #:eager-sequence-remove-if-not
    #:eager-sequence-remove #:sequence-count-if #:sequence-count-if-not
-   #:sequence-count #:sequence-nth-tail
+   #:sequence-count #:sequence-nth-tail #:sequence-stable-sort
 
    #:immutable-cons #:empty-immutable-list #:immutable-list #:immutable-list*
    #:lazy-sequence #:sequence-starts-with-p #:wrap-with #:cache-impure))
@@ -648,6 +648,12 @@ traversing it with this macro.  See also `do-while-popf'."
        (do-while-popf (,var ,walker ,result)
          ,@body))))
 
+(defun sequence-to-vector (sequence)
+  (let ((result (make-extensible-vector)))
+    (do-while-popf (element sequence)
+      (vector-push-extend element result))
+    result))
+
 (defun sequence-sort (sequence predicate &key key)
   "Return a sequence with the same elements as `sequence' but sorted
 in the order determined by `predicate'.
@@ -655,10 +661,17 @@ in the order determined by `predicate'.
 This is a non-mutating, generic version of the standard `sort'.  The
 `predicate' and `key' arguments work exactly like in the standard
 `sort' function."
-  (let ((result (make-extensible-vector)))
-    (do-while-popf (element sequence)
-      (vector-push-extend element result))
-    (sort result predicate :key key)))
+  (sort (sequence-to-vector sequence) predicate :key key))
+
+(defun sequence-stable-sort (sequence predicate &key key)
+  "Return a sequence with the same elements as `sequence' but sorted
+in the order determined by `predicate'.
+
+This is a non-mutating, generic version of the standard `stable-sort'.
+The `predicate' and `key' arguments work exactly like in the standard
+`stable-sort' function.  Stability is guaranteed just like with
+`stable-sort'."
+  (stable-sort (sequence-to-vector sequence) predicate :key key))
 
 (defun sequence-nth-tail (sequence nth)
   "Pop off `nth' elements from `sequence' and return the result.
