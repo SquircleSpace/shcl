@@ -419,17 +419,17 @@
       '(nil nil)
       "Tail on an empty vector works"))
 
-(define-test sort-sequence
+(define-test sequence-sort
   (let* ((sequence *test-sequence*)
          (key (lambda (val) (- (+ val 10))))
          (expected (sort (copy-list sequence) #'< :key key)))
-    (is (walkable-to-list (sort-sequence sequence #'< :key key))
+    (is (walkable-to-list (sequence-sort sequence #'< :key key))
         expected
         "Sorting a list works")
-    (is (walkable-to-list (sort-sequence (coerce sequence 'vector) #'< :key key))
+    (is (walkable-to-list (sequence-sort (coerce sequence 'vector) #'< :key key))
         expected
         "Sorting a vector works")
-    (is (walkable-to-list (sort-sequence nil #'<))
+    (is (walkable-to-list (sequence-sort nil #'<))
         nil
         "Sorting an empty sequence works")))
 
