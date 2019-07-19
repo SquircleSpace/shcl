@@ -90,7 +90,7 @@ to trick editors into using better indentation."
 
 (defconstant +whitespace-characters+
   (if (boundp '+whitespace-characters+)
-      +whitespace-characters+
+      (symbol-value '+whitespace-characters+)
       #(#\Space #\Linefeed #\Formfeed #\Vt #\Tab #\Return))
   "The set of characters which should be considered whitespace")
 
