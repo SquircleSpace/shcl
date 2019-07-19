@@ -54,10 +54,10 @@ dependencies: shcl.asd make-deps.lisp ${BUILD_CONFIG}
 	SHCL_DEBUG="${SHCL_DEBUG}" ${LISP} --eval '(require :asdf)' --load make-deps.lisp
 
 %.o : %.c ${BUILD_CONFIG}
-	$(CC) $(CFLAGS) -fPIC -o $@ -c $<
+	$(CC) $(CFLAGS) -std=c11 -fPIC -o $@ -c $<
 
 core/support/spawn.o: core/support/spawn.c core/support/spawn.h ${BUILD_CONFIG}
-	$(CC) $(CFLAGS) -fPIC -o $@ -c $<
+	$(CC) $(CFLAGS) -std=c11 -fPIC -o $@ -c $<
 
 $(LIBSHCL_SUPPORT): ${SUPPORT_OBJS} ${BUILD_CONFIG}
 	$(CC) $(CFLAGS) -shared -o $@ ${SUPPORT_OBJS}
