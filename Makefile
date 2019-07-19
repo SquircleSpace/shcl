@@ -54,13 +54,13 @@ dependencies: shcl.asd make-deps.lisp ${BUILD_CONFIG}
 	SHCL_DEBUG="${SHCL_DEBUG}" ${LISP} --eval '(require :asdf)' --load make-deps.lisp
 
 %.o : %.c ${BUILD_CONFIG}
-	clang -fPIC -o $@ -c $<
+	$(CC) $(CFLAGS) -fPIC -o $@ -c $<
 
 core/support/spawn.o: core/support/spawn.c core/support/spawn.h ${BUILD_CONFIG}
-	clang -fPIC -o $@ -c $<
+	$(CC) $(CFLAGS) -fPIC -o $@ -c $<
 
 $(LIBSHCL_SUPPORT): ${SUPPORT_OBJS} ${BUILD_CONFIG}
-	clang -shared -o $@ ${SUPPORT_OBJS}
+	$(CC) $(CFLAGS) -shared -o $@ ${SUPPORT_OBJS}
 
 shcl: shcl.asd make.lisp ${LIBSHCL_SUPPORT} ${BUILD_CONFIG}
 	if [ -f "$@" ]; then rm "$@"; fi
