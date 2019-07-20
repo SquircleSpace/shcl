@@ -22,7 +22,7 @@ pkgs.stdenv.mkDerivation rec {
   src = ./.;
   env = pkgs.buildEnv { name = name; paths = buildInputs; };
   buildInputs = [
-    pkgs.clang
+    pkgs.stdenv
     pkgs.libedit
     pkgs.sbcl
     nixlispBundle
