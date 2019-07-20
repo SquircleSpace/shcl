@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "spawn.h"
 
 #include <unistd.h>
@@ -21,15 +23,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-
-#ifdef __APPLE__
-static inline int clearenv(void)
-{
-  extern char **environ;
-  environ = NULL;
-  return 0;
-}
-#endif
 
 enum shcl_fd_action {
     shcl_fd_action_close,
@@ -143,18 +136,8 @@ int shcl_spawn(
 
     shcl_fd_actions_take(fd_actions);
 
-    if (0 != clearenv()) {
-        fprintf(stderr, "shcl: %s: Bug Detected. Environment corrupt: %s\n", path, strerror(errno));
-        _exit(127);
-    }
-
-    for (int i = 0; NULL != envp[i]; ++i) {
-        char *env_str = envp[i];
-        if (0 != putenv(env_str)) {
-            fprintf(stderr, "shcl: %s: Invalid environment entry: %s\n", path, strerror(errno));
-            _exit(127);
-        }
-    }
+    extern char **environ;
+    environ = (char **)envp;
 
     if (search) {
         execvp(path, argv);

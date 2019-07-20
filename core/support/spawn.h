@@ -14,6 +14,7 @@
  */
 
 #include <unistd.h>
+#include <sys/types.h>
 
 struct shcl_fd_actions;
 typedef struct shcl_fd_actions shcl_fd_actions;
