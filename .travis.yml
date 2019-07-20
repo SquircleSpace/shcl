@@ -1,5 +1,5 @@
-language: common-lisp
 sudo: required
+dist: bionic
 os:
   - linux
   - osx
@@ -11,7 +11,6 @@ env:
 matrix:
   include:
     - language: nix
-      os: linux
       env:
       script: nix-build default.nix && echo -shcl-run-tests | ./result/bin/shcl
       install: true
